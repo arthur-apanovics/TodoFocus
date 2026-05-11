@@ -1,94 +1,123 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:todo_app/screens/goals_screen.dart';
+import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
+import 'services/goal_repository.dart';
+import 'services/goal_service.dart';
+import 'services/goal_queries.dart';
+import 'services/goal_decomposition_service.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const TodoApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class TodoApp extends StatelessWidget {
+  const TodoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: "Todo App",
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightGreen),
-        useMaterial3: true,
+    // MultiProvider is your DI container registration — like Program.cs
+    // Order matters: if service A depends on B, register B first
+    return MultiProvider(
+      providers: [
+        // ChangeNotifierProvider — use this for anything the UI reacts to
+        // GoalRepository is the source of truth, so it drives reactivity
+        ChangeNotifierProvider<GoalRepository>(
+          create: (_) => InMemoryGoalRepository(),
+        ),
+
+        // ProxyProvider — like ASP.NET DI resolving a dependency from the container
+        // GoalService depends on GoalRepository, so we resolve it here
+        ProxyProvider<GoalRepository, GoalService>(
+          update: (_, repository, __) => GoalService(repository),
+        ),
+
+        // GoalQueries also depends on GoalRepository
+        ProxyProvider<GoalRepository, GoalQueries>(
+          update: (_, repository, __) => GoalQueries(repository),
+        ),
+
+        // No dependencies — plain Provider is fine
+        Provider(create: (_) => GoalDecompositionService()),
+      ],
+      child: MaterialApp(
+        title: 'Todo',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+          useMaterial3: true,
+        ),
+        home: const AppShell(),
       ),
-      home: const TodoScreen(),
     );
   }
 }
 
-class TodoScreen extends StatelessWidget {
-  const TodoScreen({super.key});
+// Bottom navigation shell — holds the three top-level screens
+class AppShell extends StatefulWidget {
+  const AppShell({super.key});
 
-  static const List<String> _todos = [
-    "Pet a doggie",
-    "Water plants",
-    "Buy crypto",
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  int _currentIndex = 0;
+
+  // The three top-level screens — instantiated once, not rebuilt on tab switch
+  static const List<Widget> _screens = [
+    Center(child: Text('Focus — coming soon')),
+    GoalsScreen(),
+    Center(child: Text('Inbox — coming soon')),
   ];
+
+  FloatingActionButton _buildFab(BuildContext context) {
+    // Read services once — not watched, just needed for the action
+    final goalService = context.read<GoalService>();
+    final decompositionService = context.read<GoalDecompositionService>();
+
+    return FloatingActionButton(
+      onPressed: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          builder: (_) => NewGoalSheet(
+            goalService: goalService,
+            decompositionService: decompositionService,
+          ),
+        );
+      },
+      child: const Icon(Icons.add),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("My Todos")),
-      // aka flexbox column
-      body: Column(
-        children: [
-          // flexbox flex:1
-          Expanded(
-            child: ListView(
-              children: [
-                // same as .map(() => <JSX/>)
-                for (final todo in _todos) TodoItem(label: todo),
-              ],
-            ),
+      body: _screens[_currentIndex],
+      floatingActionButton: _buildFab(context),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) {
+          setState(() => _currentIndex = index);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.bolt_outlined),
+            selectedIcon: Icon(Icons.bolt),
+            label: 'Focus',
           ),
-          const NewTodoInput(),
+          NavigationDestination(
+            icon: Icon(Icons.flag_outlined),
+            selectedIcon: Icon(Icons.flag),
+            label: 'Goals',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.inbox_outlined),
+            selectedIcon: Icon(Icons.inbox),
+            label: 'Inbox',
+          ),
         ],
       ),
     );
-  }
-}
-
-class TodoItem extends StatelessWidget {
-  final String label; // "props" - passed in from the parent
-
-  const TodoItem({super.key, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.check_box_outline_blank),
-      title: Text(label),
-    );
-  }
-}
-
-class NewTodoInput extends StatelessWidget {
-  const NewTodoInput({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            const Expanded(
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: "Add a todo...",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8), // spacer div
-            FilledButton(onPressed: null, child: const Text("Add")),
-          ],
-        ),
-      ),
-    );
-  }
-}
+  }}

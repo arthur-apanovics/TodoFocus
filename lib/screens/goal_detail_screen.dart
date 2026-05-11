@@ -1,0 +1,537 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/goal.dart';
+import '../models/sub_task.dart';
+import '../models/enums.dart';
+import '../services/goal_repository.dart';
+import '../services/goal_service.dart';
+
+class GoalDetailScreen extends StatelessWidget {
+  final String goalId;
+
+  const GoalDetailScreen({super.key, required this.goalId});
+
+  @override
+  Widget build(BuildContext context) {
+    // Watch the repository directly so we rebuild when any goal changes
+    final repository = context.watch<GoalRepository>();
+    final goal = repository.findById(goalId);
+
+    // Guard against the goal being deleted while this screen is open
+    if (goal == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.pop(context);
+      });
+      return const SizedBox.shrink();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: GestureDetector(
+          onTap: () => _showEditGoalSheet(context, goal),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(goal.title, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit_outlined, size: 16),
+            ],
+          ),
+        ),
+        actions: [_GoalMenuButton(goal: goal)],
+      ),
+      body: CustomScrollView(
+        slivers: [
+          // Metadata card
+          SliverToBoxAdapter(child: _GoalMetadataCard(goal: goal)),
+          // Section header
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Subtasks',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ),
+          // Reorderable subtask list
+          goal.subtasks.isEmpty
+              ? const SliverToBoxAdapter(child: _EmptySubtaskState())
+              : SliverReorderableList(
+                  itemCount: goal.subtasks.length,
+                  onReorder: (oldIndex, newIndex) {
+                    final service = context.read<GoalService>();
+                    service.reorderSubTask(goalId, oldIndex, newIndex);
+                  },
+                  itemBuilder: (context, index) {
+                    final subtask = goal.subtasks[index];
+                    // ReorderableListView requires every item to have a Key
+                    // ValueKey wraps a unique value — like React's key prop
+                    return SubTaskTile(
+                      key: ValueKey(subtask.subtaskId),
+                      subtask: subtask,
+                      goalId: goalId,
+                      index: index,
+                    );
+                  },
+                ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddSubTaskSheet(context),
+        tooltip: 'Add subtask',
+        child: const Icon(Icons.playlist_add),
+      ),
+    );
+  }
+
+  void _showEditGoalSheet(BuildContext context, Goal goal) {
+    final service = context.read<GoalService>();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _GoalEditSheet(goal: goal, goalService: service),
+    );
+  }
+
+  void _showAddSubTaskSheet(BuildContext context) {
+    final service = context.read<GoalService>();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _SubTaskSheet(goalId: goalId, goalService: service),
+    );
+  }
+}
+
+// --- Metadata card ---
+
+class _GoalMetadataCard extends StatelessWidget {
+  final Goal goal;
+
+  const _GoalMetadataCard({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (goal.notes.isNotEmpty) ...[
+              Text(goal.notes),
+              const SizedBox(height: 12),
+            ],
+            // Progress indicator
+            Row(
+              children: [
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: goal.progressPercent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '${goal.completedSubtaskCount}/${goal.subtasks.length}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+            if (goal.dueDate != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Due ${goal.dueDate!.day}/${goal.dueDate!.month}/${goal.dueDate!.year}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- Goal menu (pause/resume/delete) ---
+
+class _GoalEditSheet extends StatefulWidget {
+  final Goal goal;
+  final GoalService goalService;
+
+  const _GoalEditSheet({required this.goal, required this.goalService});
+
+  @override
+  State<_GoalEditSheet> createState() => _GoalEditSheetState();
+}
+
+class _GoalEditSheetState extends State<_GoalEditSheet> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _notesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.goal.title);
+    _notesController = TextEditingController(text: widget.goal.notes);
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+
+    widget.goalService.updateGoal(
+      widget.goal.goalId,
+      title: title,
+      notes: _notesController.text.trim(),
+    );
+
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text('Edit goal', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _titleController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notesController,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: _submit, child: const Text('Save changes')),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalMenuButton extends StatelessWidget {
+  final Goal goal;
+
+  const _GoalMenuButton({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.read<GoalService>();
+
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        switch (value) {
+          case 'pause':
+            service.pauseGoal(goal.goalId);
+          case 'resume':
+            service.resumeGoal(goal.goalId);
+          case 'delete':
+            _confirmDelete(context, service);
+        }
+      },
+      itemBuilder: (_) => [
+        if (goal.status == GoalStatus.active)
+          const PopupMenuItem(value: 'pause', child: Text('Pause goal')),
+        if (goal.status == GoalStatus.paused)
+          const PopupMenuItem(value: 'resume', child: Text('Resume goal')),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Text('Delete goal', style: TextStyle(color: Colors.red)),
+        ),
+      ],
+    );
+  }
+
+  void _confirmDelete(BuildContext context, GoalService service) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete goal?'),
+        content: const Text('This will delete the goal and all its subtasks.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              service.removeGoal(goal.goalId);
+              // Pop both the dialog and the detail screen
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Subtask tile ---
+
+class SubTaskTile extends StatelessWidget {
+  final SubTask subtask;
+  final String goalId;
+  final int index;
+
+  const SubTaskTile({
+    super.key,
+    required this.subtask,
+    required this.goalId,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.read<GoalService>();
+
+    // Dismissible gives swipe-to-delete behaviour
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Dismissible(
+        key: ValueKey(subtask.subtaskId),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 16),
+          color: Colors.red,
+          child: const Icon(Icons.delete_outline, color: Colors.white),
+        ),
+        onDismissed: (_) => service.deleteSubTask(goalId, subtask.subtaskId),
+        child: ListTile(
+          leading: ReorderableDragStartListener(
+            index: index,
+            child: const Icon(Icons.drag_handle),
+          ),
+          // Tap title to edit — edit button removed
+          title: GestureDetector(
+            onTap: () => _showEditSheet(context, service),
+            child: Text(
+              subtask.description,
+              style: subtask.state == SubTaskState.completed
+                  ? const TextStyle(decoration: TextDecoration.lineThrough)
+                  : null,
+            ),
+          ),
+          subtitle: Text(_stateLabel(subtask.state)),
+          trailing: IconButton(
+            icon: Icon(_nextStateIcon(subtask.state)),
+            onPressed: () => service.transitionSubTask(
+              goalId,
+              subtask.subtaskId,
+              _nextState(subtask.state),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showEditSheet(BuildContext context, GoalService service) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _SubTaskSheet(
+        goalId: goalId,
+        goalService: service,
+        existingSubTask: subtask, // passing existing = edit mode
+      ),
+    );
+  }
+
+  // Cycles through states: pending → inProgress → completed → pending
+  SubTaskState _nextState(SubTaskState current) => switch (current) {
+    SubTaskState.pending => SubTaskState.inProgress,
+    SubTaskState.inProgress => SubTaskState.completed,
+    SubTaskState.completed => SubTaskState.pending,
+  };
+
+  IconData _nextStateIcon(SubTaskState current) => switch (current) {
+    SubTaskState.pending => Icons.play_arrow_outlined,
+    SubTaskState.inProgress => Icons.check_circle_outline,
+    SubTaskState.completed => Icons.refresh,
+  };
+
+  String _stateLabel(SubTaskState state) => switch (state) {
+    SubTaskState.pending => 'Pending',
+    SubTaskState.inProgress => 'In progress',
+    SubTaskState.completed => 'Completed',
+  };
+}
+
+// --- Add / Edit subtask sheet ---
+// Single sheet handles both modes — if existingSubTask is null, it's add mode
+
+class _SubTaskSheet extends StatefulWidget {
+  final String goalId;
+  final GoalService goalService;
+  final SubTask? existingSubTask; // null = add, non-null = edit
+
+  const _SubTaskSheet({
+    required this.goalId,
+    required this.goalService,
+    this.existingSubTask,
+  });
+
+  @override
+  State<_SubTaskSheet> createState() => _SubTaskSheetState();
+}
+
+class _SubTaskSheetState extends State<_SubTaskSheet> {
+  late final TextEditingController _controller;
+
+  bool get _isEditing => widget.existingSubTask != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-populate if editing — initState is the right place for this,
+    // equivalent to initialising state from props in a React class component
+    _controller = TextEditingController(
+      text: widget.existingSubTask?.description ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    if (_isEditing) {
+      widget.goalService.updateSubTaskDescription(
+        widget.goalId,
+        widget.existingSubTask!.subtaskId,
+        text,
+      );
+    } else {
+      widget.goalService.addSubTask(widget.goalId, text);
+    }
+
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _isEditing ? 'Edit subtask' : 'New subtask',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'What needs to be done?',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _submit,
+            child: Text(_isEditing ? 'Save changes' : 'Add subtask'),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptySubtaskState extends StatelessWidget {
+  const _EmptySubtaskState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.all(32),
+      child: Center(
+        child: Text(
+          'No subtasks yet — tap + to add one',
+          style: TextStyle(color: Colors.grey),
+        ),
+      ),
+    );
+  }
+}

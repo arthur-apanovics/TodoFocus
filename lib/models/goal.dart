@@ -3,7 +3,7 @@ import 'package:todo_app/models/sub_task.dart';
 
 class Goal {
   final String goalId;
-  final String title;
+  String title;
   String notes; // mutable — user can edit
   GoalStatus status; // mutable
   final DateTime? dueDate; // nullable — not every goal has a deadline
@@ -60,6 +60,19 @@ class Goal {
     }
 
     _recalculateStatus(); // private — callers never need to know this happens
+  }
+
+  void reorderSubTask(int oldIndex, int newIndex) {
+    // ReorderableListView quirk — if dragging downward, Flutter passes
+    // newIndex as one ahead of where it actually lands, so we adjust
+    if (newIndex > oldIndex) newIndex -= 1;
+    final task = subtasks.removeAt(oldIndex);
+    subtasks.insert(newIndex, task);
+  }
+
+  void removeSubTask(String subtaskId) {
+    subtasks.removeWhere((t) => t.subtaskId == subtaskId);
+    _recalculateStatus();
   }
 
   void _recalculateStatus() {

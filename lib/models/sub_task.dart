@@ -2,7 +2,7 @@ import 'package:todo_app/models/enums.dart';
 
 class SubTask {
   final String subtaskId;
-  final String description;
+  String description;
   SubTaskState state; // mutable — user changes this
   final DateTime assignedDate;
   DateTime? completionDate; // nullable — not set until complete
@@ -39,6 +39,10 @@ class SubTask {
     state = SubTaskState.completed;
     completionDate = DateTime.now();
     lastSeenDate = DateTime.now();
+  }
+
+  void updateDescription(String newDescription) {
+    description = newDescription; // requires removing final from description field
   }
 
   // Manual serialisation — Dart's equivalent of JsonSerializer.Serialize()
