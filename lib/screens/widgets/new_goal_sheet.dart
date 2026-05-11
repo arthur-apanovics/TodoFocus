@@ -21,9 +21,6 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
   final _descriptionController = TextEditingController();
   DateTime? _dueDate;
 
-  // Tracks whether user wants to decompose now or send to inbox
-  bool _sendToInbox = false;
-
   @override
   void dispose() {
     _titleController.dispose();
@@ -31,25 +28,30 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     super.dispose();
   }
 
-  void _submit() {
+  void _createGoal(BuildContext context) {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
-    final goal = _sendToInbox
-        ? widget.decompositionService.captureToInbox(
-            title: title,
-            description: _descriptionController.text.trim(),
-          )
-        : widget.decompositionService.decompose(
-            title: title,
-            description: _descriptionController.text.trim(),
-            dueDate: _dueDate,
-          );
+    final goal = widget.decompositionService.decompose(
+      title: title,
+      description: _descriptionController.text.trim(),
+      dueDate: _dueDate,
+    );
 
     widget.goalService.addGoal(goal);
+    if (context.mounted) Navigator.pop(context);
+  }
 
-    // context.mounted check — guards against using context after async gap
-    // Same concept as checking if a React component is still mounted
+  void _sendToInbox(BuildContext context) {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+
+    final goal = widget.decompositionService.captureToInbox(
+      title: title,
+      description: _descriptionController.text.trim(),
+    );
+
+    widget.goalService.addGoal(goal);
     if (context.mounted) Navigator.pop(context);
   }
 
@@ -134,18 +136,35 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
                 ),
             ],
           ),
-          // Inbox toggle
-          SwitchListTile(
-            value: _sendToInbox,
-            onChanged: (value) => setState(() => _sendToInbox = value),
-            title: const Text('Save to inbox'),
-            subtitle: const Text('Decompose into subtasks later'),
-            contentPadding: EdgeInsets.zero,
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => _sendToInbox(context),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48), // full width
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.inbox_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Save to Inbox'),
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           FilledButton(
-            onPressed: _submit,
-            child: Text(_sendToInbox ? 'Save to Inbox' : 'Create Goal'),
+            onPressed: () => _createGoal(context),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48), // full width
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.flag_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Create Goal'),
+              ],
+            ),
           ),
           const SizedBox(height: 8),
         ],
