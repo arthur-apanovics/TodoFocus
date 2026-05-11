@@ -6,6 +6,8 @@ import '../models/enums.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 
+const addSubtaskIcon = Icons.playlist_add;
+
 class GoalDetailScreen extends StatelessWidget {
   final String goalId;
 
@@ -82,7 +84,7 @@ class GoalDetailScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddSubTaskSheet(context),
         tooltip: 'Add subtask',
-        child: const Icon(Icons.playlist_add),
+        child: const Icon(addSubtaskIcon),
       ),
     );
   }
@@ -524,13 +526,21 @@ class _EmptySubtaskState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(32),
-      child: Center(
-        child: Text(
-          'No subtasks yet — tap + to add one',
-          style: TextStyle(color: Colors.grey),
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(addSubtaskIcon, size: 48, color: Colors.grey),
+          const SizedBox(height: 12),
+          Text('No subtasks yet', style: Theme.of(context).textTheme.bodyLarge),
+          const SizedBox(height: 4),
+          const Text(
+            'Tap the button below to add your first step',
+            style: TextStyle(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
