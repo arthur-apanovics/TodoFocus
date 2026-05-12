@@ -16,17 +16,17 @@ class SampleData {
     _noSubTasksGoal,
   ];
 
-  // --- Active goal, mixed subtask states ---
   static final _activeGoal = Goal(
     goalId: 'sample-1',
     title: 'Learn Flutter',
-    notes:
-        'Build a solid foundation in Flutter and Dart by working through a real project.',
+    notes: 'Build a solid foundation in Flutter and Dart.',
     dueDate: DateTime.now().add(const Duration(days: 30)),
+    isFocusedToday: true,
+    // appears in Focus tab
     subtasks: [
       SubTask(
         subtaskId: 'sample-1-1',
-        description: 'Understand the widget tree and how Flutter renders UI',
+        description: 'Understand the widget tree',
         state: SubTaskState.completed,
         assignedDate: DateTime.now().subtract(const Duration(days: 5)),
         completionDate: DateTime.now().subtract(const Duration(days: 4)),
@@ -40,9 +40,8 @@ class SampleData {
       ),
       SubTask(
         subtaskId: 'sample-1-3',
-        description: 'Wire up Provider for state management across screens',
-        state: SubTaskState.inProgress,
-        assignedDate: DateTime.now().subtract(const Duration(days: 1)),
+        description: 'Wire up Provider for state management',
+        state: SubTaskState.pending, // current — first non-completed
       ),
       SubTask(
         subtaskId: 'sample-1-4',
@@ -51,23 +50,23 @@ class SampleData {
       ),
       SubTask(
         subtaskId: 'sample-1-5',
-        description: 'Write widget tests for the main screens',
+        description: 'Write widget tests',
         state: SubTaskState.pending,
       ),
     ],
   );
 
-  // --- Another active goal, mostly in progress ---
   static final _inProgressGoal = Goal(
     goalId: 'sample-2',
     title: 'Redesign personal website',
-    notes:
-        'Modernise the portfolio site with a cleaner layout and updated project showcases.',
+    notes: 'Modernise the portfolio site.',
     dueDate: DateTime.now().add(const Duration(days: 14)),
+    isFocusedToday: true,
+    // also in Focus tab
     subtasks: [
       SubTask(
         subtaskId: 'sample-2-1',
-        description: 'Sketch new layout and gather design inspiration',
+        description: 'Sketch new layout and gather inspiration',
         state: SubTaskState.completed,
         assignedDate: DateTime.now().subtract(const Duration(days: 7)),
         completionDate: DateTime.now().subtract(const Duration(days: 6)),
@@ -82,8 +81,7 @@ class SampleData {
       SubTask(
         subtaskId: 'sample-2-3',
         description: 'Build homepage and about section',
-        state: SubTaskState.inProgress,
-        assignedDate: DateTime.now().subtract(const Duration(days: 2)),
+        state: SubTaskState.pending, // current
       ),
       SubTask(
         subtaskId: 'sample-2-4',
@@ -93,11 +91,11 @@ class SampleData {
     ],
   );
 
-  // --- Paused goal ---
+  // Paused, not focused
   static final _pausedGoal = Goal(
     goalId: 'sample-3',
     title: 'Read Atomic Habits',
-    notes: 'Work through the book and capture actionable takeaways.',
+    notes: 'Work through the book and capture takeaways.',
     status: GoalStatus.paused,
     dueDate: DateTime.now().add(const Duration(days: 60)),
     subtasks: [
@@ -111,8 +109,7 @@ class SampleData {
       SubTask(
         subtaskId: 'sample-3-2',
         description: 'Read chapters 5–9: The 1st and 2nd Laws',
-        state: SubTaskState.inProgress,
-        assignedDate: DateTime.now().subtract(const Duration(days: 10)),
+        state: SubTaskState.pending,
       ),
       SubTask(
         subtaskId: 'sample-3-3',
@@ -127,11 +124,11 @@ class SampleData {
     ],
   );
 
-  // --- Fully completed goal ---
+  // All completed
   static final _completedGoal = Goal(
     goalId: 'sample-4',
     title: 'Set up development environment',
-    notes: 'Get Flutter, VS Code, and all tooling configured and ready.',
+    notes: 'Get Flutter, VS Code, and all tooling configured.',
     status: GoalStatus.completed,
     subtasks: [
       SubTask(
@@ -143,14 +140,14 @@ class SampleData {
       ),
       SubTask(
         subtaskId: 'sample-4-2',
-        description: 'Install VS Code extensions: Flutter, Dart, Error Lens',
+        description: 'Install VS Code extensions',
         state: SubTaskState.completed,
         assignedDate: DateTime.now().subtract(const Duration(days: 19)),
         completionDate: DateTime.now().subtract(const Duration(days: 18)),
       ),
       SubTask(
         subtaskId: 'sample-4-3',
-        description: 'Run flutter doctor and resolve any issues',
+        description: 'Run flutter doctor and resolve issues',
         state: SubTaskState.completed,
         assignedDate: DateTime.now().subtract(const Duration(days: 18)),
         completionDate: DateTime.now().subtract(const Duration(days: 17)),
@@ -158,20 +155,20 @@ class SampleData {
     ],
   );
 
-  // --- Inbox goal (captured, not yet decomposed) ---
+  // Inbox — no subtasks, not focused
   static final _inboxGoal = Goal(
     goalId: 'sample-5',
     title: 'Plan trip to Japan',
-    notes: 'Research flights, accommodation, and itinerary for a 2-week trip.',
+    notes: 'Research flights, accommodation, and itinerary.',
     status: GoalStatus.inbox,
-    subtasks: [], // intentionally empty — not decomposed yet
+    subtasks: [],
   );
 
-  // --- Active goal with no subtasks (edge case) ---
+  // Active, no subtasks, not focused
   static final _noSubTasksGoal = Goal(
     goalId: 'sample-6',
     title: 'Organise home office',
-    notes: 'Declutter the desk, sort cables, and set up proper lighting.',
+    notes: 'Declutter the desk, sort cables, set up lighting.',
     dueDate: DateTime.now().add(const Duration(days: 7)),
     subtasks: [],
   );

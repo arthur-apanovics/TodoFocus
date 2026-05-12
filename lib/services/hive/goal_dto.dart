@@ -3,6 +3,16 @@ import 'sub_task_dto.dart';
 
 part 'goal_dto.g.dart';
 
+// Field index registry — NEVER reuse a retired index
+// 0: goalId          (active)
+// 1: title           (active)
+// 2: notes           (active)
+// 3: status          (active)
+// 4: dueDate         (active)
+// 5: subtasks        (active)
+// 6: isFocusedToday  (active)
+// Next available: 7
+
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
   @HiveField(0)
@@ -15,11 +25,14 @@ class GoalDto extends HiveObject {
   late String notes;
 
   @HiveField(3)
-  late String status; // enum stored as string
+  late String status;
 
   @HiveField(4)
   DateTime? dueDate;
 
   @HiveField(5)
   late List<SubTaskDto> subtasks;
+
+  @HiveField(6)
+  late bool isFocusedToday;
 }

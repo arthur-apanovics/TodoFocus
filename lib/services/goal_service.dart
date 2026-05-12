@@ -1,20 +1,28 @@
 import 'package:uuid/uuid.dart';
-
-import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import 'goal_repository.dart';
 
 class GoalService {
   final GoalRepository _repository;
+  final _uuid = const Uuid();
 
-  // Dependency injection — like C# constructor injection
-  // Makes this testable without a real repository
   GoalService(this._repository);
+
+  // --- Goal operations ---
 
   void addGoal(Goal goal) => _repository.save(goal);
 
   void removeGoal(String goalId) => _repository.delete(goalId);
+
+  void updateGoal(String goalId, {String? title, String? notes}) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+
+    if (title != null) goal.title = title;
+    if (notes != null) goal.notes = notes;
+    _repository.save(goal);
+  }
 
   void pauseGoal(String goalId) {
     final goal = _repository.findById(goalId);
@@ -30,35 +38,21 @@ class GoalService {
     _repository.save(goal);
   }
 
-  void updateGoal(String goalId, {String? title, String? notes}) {
+  void toggleFocusToday(String goalId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    if (title != null) goal.title = title;
-    if (notes != null) goal.notes = notes;
+
+    goal.isFocusedToday = !goal.isFocusedToday;
     _repository.save(goal);
   }
 
-  void transitionSubTask(
-    String goalId,
-    String subtaskId,
-    SubTaskState newState,
-  ) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) {
-      return;
-    }
-
-    goal.transitionSubTask(subtaskId, newState); // Goal manages itself
-    _repository.save(goal);
-  }
+  // --- SubTask operations ---
 
   void addSubTask(String goalId, String description) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
 
-    goal.addSubTask(
-      SubTask(subtaskId: const Uuid().v4(), description: description),
-    );
+    goal.addSubTask(SubTask(subtaskId: _uuid.v4(), description: description));
     _repository.save(goal);
   }
 
@@ -66,7 +60,7 @@ class GoalService {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
 
-    goal.removeSubTask(subtaskId); // Goal keeps itself consistent
+    goal.removeSubTask(subtaskId);
     _repository.save(goal);
   }
 
@@ -86,6 +80,20 @@ class GoalService {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
     goal.reorderSubTask(oldIndex, newIndex);
+    _repository.save(goal);
+  }
+
+  void completeCurrentSubTask(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.completeCurrentSubTask();
+    _repository.save(goal);
+  }
+
+  void uncompleteSubTask(String goalId, String subtaskId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.uncompleteSubTask(subtaskId);
     _repository.save(goal);
   }
 }

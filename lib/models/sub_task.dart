@@ -1,19 +1,19 @@
-import 'package:todo_app/models/enums.dart';
+import 'enums.dart';
 
 class SubTask {
   final String subtaskId;
   String description;
-  SubTaskState state; // mutable — user changes this
+  SubTaskState state;
   final DateTime assignedDate;
-  DateTime? completionDate; // nullable — not set until complete
-  DateTime lastSeenDate; // mutable — updated on interaction
-  final int? effortEstimate; // nullable — optional field
+  DateTime? completionDate;
+  DateTime lastSeenDate;
+  final int? effortEstimate;
 
   SubTask({
     required this.subtaskId,
     required this.description,
-    this.state = SubTaskState.pending, // default value
-    DateTime? assignedDate, // nullable param, handled below
+    this.state = SubTaskState.pending,
+    DateTime? assignedDate,
     this.completionDate,
     DateTime? lastSeenDate,
     this.effortEstimate,
@@ -22,41 +22,32 @@ class SubTask {
 
   bool get isCompleted => state == SubTaskState.completed;
 
-  bool get isDailyAssignable => !isCompleted;
-
-  void markPending() {
-    state = SubTaskState.pending;
-    completionDate = null; // clear completion date if stepping back
-    lastSeenDate = DateTime.now();
-  }
-
-  void markInProgress() {
-    state = SubTaskState.inProgress;
-    lastSeenDate = DateTime.now();
-  }
-
   void markComplete() {
     state = SubTaskState.completed;
     completionDate = DateTime.now();
     lastSeenDate = DateTime.now();
   }
 
-  void updateDescription(String newDescription) {
-    description = newDescription; // requires removing final from description field
+  void markIncomplete() {
+    state = SubTaskState.pending;
+    completionDate = null;
+    lastSeenDate = DateTime.now();
   }
 
-  // Manual serialisation — Dart's equivalent of JsonSerializer.Serialize()
+  void updateDescription(String newDescription) {
+    description = newDescription;
+  }
+
   Map<String, dynamic> toJson() => {
     'subtaskId': subtaskId,
     'description': description,
-    'state': state.name, // .name gives you the string "pending" etc.
+    'state': state.name,
     'assignedDate': assignedDate.toIso8601String(),
     'completionDate': completionDate?.toIso8601String(),
     'lastSeenDate': lastSeenDate.toIso8601String(),
     'effortEstimate': effortEstimate,
   };
 
-  // Named constructor — like a static factory method in C#
   factory SubTask.fromJson(Map<String, dynamic> json) {
     return SubTask(
       subtaskId: json['subtaskId'] as String,

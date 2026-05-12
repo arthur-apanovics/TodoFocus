@@ -1,0 +1,249 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/goal.dart';
+import '../models/sub_task.dart';
+import '../services/goal_queries.dart';
+import '../services/goal_service.dart';
+
+class FocusScreen extends StatelessWidget {
+  const FocusScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final queries = context.watch<GoalQueries>();
+    final focusedGoals = queries.todayQueue;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Today')),
+      body: focusedGoals.isEmpty
+          ? const _EmptyFocusState()
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: focusedGoals.length,
+              itemBuilder: (context, index) {
+                return _FocusGoalCard(goal: focusedGoals[index]);
+              },
+            ),
+    );
+  }
+}
+
+// Each goal gets a card showing current + next subtask
+class _FocusGoalCard extends StatelessWidget {
+  final Goal goal;
+
+  const _FocusGoalCard({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final isAllDone = goal.currentSubTask == null;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Goal header row
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    goal.title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                // Progress badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isAllDone
+                        ? Colors.green.shade50
+                        : Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${goal.completedSubtaskCount}/${goal.subtasks.length}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isAllDone ? Colors.green : Colors.indigo,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 4),
+
+            // Progress bar
+            LinearProgressIndicator(
+              value: goal.progressPercent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Collapsed state — all done
+            if (isAllDone) _AllDoneRow(goal: goal),
+
+            // Active state — show current + peek
+            if (!isAllDone) ...[
+              _CurrentSubTaskRow(goal: goal),
+              if (goal.nextSubTask != null) ...[
+                const SizedBox(height: 8),
+                _NextSubTaskPeek(subtask: goal.nextSubTask!),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Current subtask — prominent, with complete button
+class _CurrentSubTaskRow extends StatelessWidget {
+  final Goal goal;
+
+  const _CurrentSubTaskRow({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.read<GoalService>();
+    final current = goal.currentSubTask!;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Complete button
+        IconButton(
+          icon: const Icon(
+            Icons.check_circle_outline,
+            color: Colors.indigo,
+            size: 28,
+          ),
+          tooltip: 'Mark complete',
+          onPressed: () => service.completeCurrentSubTask(goal.goalId),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                current.description,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Current step',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.indigo),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Next subtask — dimmed peek
+class _NextSubTaskPeek extends StatelessWidget {
+  final SubTask subtask;
+
+  const _NextSubTaskPeek({required this.subtask});
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: 0.45,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.radio_button_unchecked, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subtask.description,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Up next',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// All done state — collapsed summary
+class _AllDoneRow extends StatelessWidget {
+  final Goal goal;
+
+  const _AllDoneRow({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.check_circle, color: Colors.green, size: 28),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'All ${goal.subtasks.length} steps complete',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Colors.green,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Empty state — no goals focused for today
+class _EmptyFocusState extends StatelessWidget {
+  const _EmptyFocusState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.bolt_outlined, size: 48, color: Colors.grey),
+          SizedBox(height: 12),
+          Text('Nothing scheduled for today'),
+          SizedBox(height: 4),
+          Text(
+            'Swipe right on a goal to add it here',
+            style: TextStyle(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}

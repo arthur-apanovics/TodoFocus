@@ -7,7 +7,6 @@ enum GoalStatus {
 
 enum SubTaskState {
   pending,
-  inProgress,
   completed
 }
 

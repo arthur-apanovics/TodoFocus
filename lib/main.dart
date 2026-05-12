@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:todo_app/screens/focus_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
@@ -64,7 +65,7 @@ class _AppShellState extends State<AppShell> {
 
   // The three top-level screens — instantiated once, not rebuilt on tab switch
   static const List<Widget> _screens = [
-    Center(child: Text('Focus — coming soon')),
+    FocusScreen(),
     GoalsScreen(),
     Center(child: Text('Inbox — coming soon')),
   ];

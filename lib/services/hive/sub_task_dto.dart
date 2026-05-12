@@ -2,6 +2,16 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 part 'sub_task_dto.g.dart'; // generated file
 
+// Field index registry — NEVER reuse a retired index
+// 0: subtaskId       (active)
+// 1: description     (active)
+// 2: state           (active) — values: "pending", "completed"
+// 3: assignedDate    (active)
+// 4: completionDate  (active)
+// 5: lastSeenDate    (active)
+// 6: effortEstimate  (active)
+// Next available: 7
+
 @HiveType(typeId: 1)
 class SubTaskDto extends HiveObject {
   @HiveField(0)

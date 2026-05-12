@@ -23,24 +23,6 @@ class GoalsScreen extends StatelessWidget {
       body: goals.isEmpty ? _EmptyState() : _GoalList(goals: goals),
     );
   }
-
-  void _showNewGoalSheet(BuildContext context) {
-    // We capture these before the async gap (showModalBottomSheet)
-    // because context can become invalid after an await
-    // This is a Flutter-specific gotcha — more on this below
-    final service = context.read<GoalService>();
-    final decompositionService = context.read<GoalDecompositionService>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true, // allows sheet to grow with keyboard
-      useSafeArea: true,
-      builder: (_) => NewGoalSheet(
-        goalService: service,
-        decompositionService: decompositionService,
-      ),
-    );
-  }
 }
 
 // Extracted to a private widget — keeps build() readable
@@ -92,27 +74,120 @@ class _GoalTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
 
-    return ListTile(
-      title: Text(goal.title),
-      subtitle: Text(_subtitleFor(goal)),
-      leading: _StatusBadge(status: goal.status),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+    return Dismissible(
+      key: ValueKey(goal.goalId),
+      // Swipe right — add to / remove from focus
+      secondaryBackground: _SwipeBackground(
+        alignment: Alignment.centerLeft,
+        color: Colors.indigo,
+        icon: goal.isFocusedToday ? Icons.star_outline : Icons.star,
+        label: goal.isFocusedToday ? 'Remove from Today' : 'Focus Today',
+      ),
+      // Swipe left — delete
+      background: _SwipeBackground(
+        alignment: Alignment.centerRight,
+        color: Colors.red,
+        icon: Icons.delete_outline,
+        label: 'Delete',
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Swipe right = delete — confirm first
+          return await _confirmDelete(context, service);
+        } else {
+          // Swipe left = toggle focus — no confirmation needed
+          service.toggleFocusToday(goal.goalId);
+          return false; // return false = don't actually dismiss the tile
+        }
+      },
+      onDismissed: (_) => service.removeGoal(goal.goalId),
+      child: ListTile(
+        title: Text(goal.title),
+        subtitle: Text(_subtitleFor(goal)),
+        leading: _StatusBadge(status: goal.status),
+        // Show focus indicator if selected for today
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (goal.isFocusedToday)
+              const Icon(Icons.star, color: Colors.indigo, size: 18),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+          ),
         ),
       ),
-      // Swipe to delete — like a common iOS/Android pattern
-      // We'll wrap in Dismissible for this
     );
   }
 
-  // Computed display string — keeps the widget tree clean
+  Future<bool> _confirmDelete(BuildContext context, GoalService service) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete goal?'),
+        content: const Text('This will delete the goal and all its subtasks.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   String _subtitleFor(Goal goal) {
     if (goal.status == GoalStatus.inbox) return 'In inbox — tap to decompose';
     if (goal.subtasks.isEmpty) return 'No subtasks yet';
     return '${goal.completedSubtaskCount} of ${goal.subtasks.length} complete';
+  }
+}
+
+// Reusable swipe background — used for both directions
+class _SwipeBackground extends StatelessWidget {
+  final Alignment alignment;
+  final Color color;
+  final IconData icon;
+  final String label;
+
+  const _SwipeBackground({
+    required this.alignment,
+    required this.color,
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: color,
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

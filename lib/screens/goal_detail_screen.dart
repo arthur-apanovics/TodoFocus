@@ -74,7 +74,7 @@ class GoalDetailScreen extends StatelessWidget {
                     return SubTaskTile(
                       key: ValueKey(subtask.subtaskId),
                       subtask: subtask,
-                      goalId: goalId,
+                      goal: goal,
                       index: index,
                     );
                   },
@@ -325,21 +325,23 @@ class _GoalMenuButton extends StatelessWidget {
 
 class SubTaskTile extends StatelessWidget {
   final SubTask subtask;
-  final String goalId;
+  final Goal goal; // need the parent goal to check isCurrentSubTask
   final int index;
 
   const SubTaskTile({
     super.key,
     required this.subtask,
-    required this.goalId,
+    required this.goal,
     required this.index,
   });
 
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
+    final isCurrent = goal.isCurrentSubTask(subtask);
+    final isCompleted = subtask.isCompleted;
+    final isPending = !isCompleted;
 
-    // Dismissible gives swipe-to-delete behaviour
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: Dismissible(
@@ -351,34 +353,78 @@ class SubTaskTile extends StatelessWidget {
           color: Colors.red,
           child: const Icon(Icons.delete_outline, color: Colors.white),
         ),
-        onDismissed: (_) => service.deleteSubTask(goalId, subtask.subtaskId),
-        child: ListTile(
-          leading: ReorderableDragStartListener(
-            index: index,
-            child: const Icon(Icons.drag_handle),
-          ),
-          // Tap title to edit — edit button removed
-          title: GestureDetector(
-            onTap: () => _showEditSheet(context, service),
-            child: Text(
-              subtask.description,
-              style: subtask.state == SubTaskState.completed
-                  ? const TextStyle(decoration: TextDecoration.lineThrough)
-                  : null,
+        onDismissed: (_) =>
+            service.deleteSubTask(goal.goalId, subtask.subtaskId),
+        child: Opacity(
+          // Dim pending-but-not-current subtasks
+          opacity: (isCurrent || isCompleted) ? 1.0 : 0.45,
+          child: ListTile(
+            // Drag handle — only for non-completed subtasks
+            leading: isCompleted
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.green,
+                    ),
+                  )
+                : ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle),
+                  ),
+            title: GestureDetector(
+              // Only allow editing current or pending subtasks
+              onTap: isPending ? () => _showEditSheet(context, service) : null,
+              child: Text(
+                subtask.description,
+                style: isCompleted
+                    ? const TextStyle(
+                        decoration: TextDecoration.lineThrough,
+                        color: Colors.grey,
+                      )
+                    : null,
+              ),
             ),
-          ),
-          subtitle: Text(_stateLabel(subtask.state)),
-          trailing: IconButton(
-            icon: Icon(_nextStateIcon(subtask.state)),
-            onPressed: () => service.transitionSubTask(
-              goalId,
-              subtask.subtaskId,
-              _nextState(subtask.state),
+            subtitle: Text(_stateLabel(isCurrent, isCompleted)),
+            trailing: _buildTrailingAction(
+              context,
+              service,
+              isCurrent,
+              isCompleted,
             ),
           ),
         ),
       ),
     );
+  }
+
+  Widget? _buildTrailingAction(
+    BuildContext context,
+    GoalService service,
+    bool isCurrent,
+    bool isCompleted,
+  ) {
+    if (isCompleted) {
+      // Undo button — tap to mark incomplete
+      return IconButton(
+        icon: const Icon(Icons.undo, size: 20),
+        tooltip: 'Mark incomplete',
+        onPressed: () =>
+            service.uncompleteSubTask(goal.goalId, subtask.subtaskId),
+      );
+    }
+
+    if (isCurrent) {
+      // Complete button — only on the active subtask
+      return IconButton(
+        icon: const Icon(Icons.check_circle_outline, color: Colors.indigo),
+        tooltip: 'Mark complete',
+        onPressed: () => service.completeCurrentSubTask(goal.goalId),
+      );
+    }
+
+    // Pending but not current — no action available
+    return const Icon(Icons.lock_outline, size: 18, color: Colors.grey);
   }
 
   void _showEditSheet(BuildContext context, GoalService service) {
@@ -387,33 +433,19 @@ class SubTaskTile extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _SubTaskSheet(
-        goalId: goalId,
+        goalId: goal.goalId,
         goalService: service,
-        existingSubTask: subtask, // passing existing = edit mode
+        existingSubTask: subtask,
       ),
     );
   }
 
-  // Cycles through states: pending → inProgress → completed → pending
-  SubTaskState _nextState(SubTaskState current) => switch (current) {
-    SubTaskState.pending => SubTaskState.inProgress,
-    SubTaskState.inProgress => SubTaskState.completed,
-    SubTaskState.completed => SubTaskState.pending,
-  };
-
-  IconData _nextStateIcon(SubTaskState current) => switch (current) {
-    SubTaskState.pending => Icons.play_arrow_outlined,
-    SubTaskState.inProgress => Icons.check_circle_outline,
-    SubTaskState.completed => Icons.refresh,
-  };
-
-  String _stateLabel(SubTaskState state) => switch (state) {
-    SubTaskState.pending => 'Pending',
-    SubTaskState.inProgress => 'In progress',
-    SubTaskState.completed => 'Completed',
-  };
+  String _stateLabel(bool isCurrent, bool isCompleted) {
+    if (isCompleted) return 'Completed';
+    if (isCurrent) return 'Current';
+    return 'Queued';
+  }
 }
-
 // --- Add / Edit subtask sheet ---
 // Single sheet handles both modes — if existingSubTask is null, it's add mode
 

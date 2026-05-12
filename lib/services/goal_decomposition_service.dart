@@ -44,6 +44,8 @@ class GoalDecompositionService {
       'Review progress and adjust if needed',
     ];
 
+    // All start as pending — the first one is implicitly
+    // current because it's the first non-completed subtask
     return templates
         .map(
           (description) =>
