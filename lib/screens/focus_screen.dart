@@ -122,7 +122,7 @@ class _CurrentSubTaskRow extends StatelessWidget {
     final current = goal.currentSubTask!;
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         // Complete button — hollow circle, matching the Goal Detail screen.
         // Filled green check is reserved for the all-done celebration state
@@ -135,7 +135,6 @@ class _CurrentSubTaskRow extends StatelessWidget {
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(),
         ),
-        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,13 +142,6 @@ class _CurrentSubTaskRow extends StatelessWidget {
               Text(
                 current.description,
                 style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Current step',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: AppColors.accent),
               ),
             ],
           ),
@@ -170,13 +162,13 @@ class _NextSubTaskPeek extends StatelessWidget {
     return Opacity(
       opacity: 0.45,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Same glyph as AppIcons.complete — both represent a pending
           // subtask, just passive here (peek) rather than active (CTA).
           // Routing through AppIcons keeps the visual grammar consistent
           // if you swap the pending-shape later.
-          const Icon(AppIcons.complete, size: 28),
+          const Icon(AppIcons.nextInQueue, size: 28),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -185,13 +177,6 @@ class _NextSubTaskPeek extends StatelessWidget {
                 Text(
                   subtask.description,
                   style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Up next',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.muted),
                 ),
               ],
             ),

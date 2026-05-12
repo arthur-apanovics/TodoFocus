@@ -29,4 +29,7 @@ class AppIcons {
   /// Destructive action — remove a goal or subtask. Used everywhere a
   /// swipe-to-delete is exposed.
   static const IconData delete = Icons.delete_outline;
+
+  /// Marks an item that is queued up
+  static const IconData nextInQueue = Icons.arrow_right_outlined;
 }
