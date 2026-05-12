@@ -2,46 +2,45 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
+import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_decomposition_service.dart';
 
-void main() {
-  runApp(const TodoApp());
+void main() async {
+  // Required before any async work in main()
+  // Ensures Flutter engine is ready before we do anything
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise Hive and open the box before the app starts
+  final goalRepository = await HiveGoalRepository.init();
+
+  runApp(TodoApp(goalRepository: goalRepository));
 }
 
 class TodoApp extends StatelessWidget {
-  const TodoApp({super.key});
+  final GoalRepository goalRepository;
+
+  const TodoApp({super.key, required this.goalRepository});
 
   @override
   Widget build(BuildContext context) {
-    // MultiProvider is your DI container registration — like Program.cs
-    // Order matters: if service A depends on B, register B first
     return MultiProvider(
       providers: [
-        // ChangeNotifierProvider — use this for anything the UI reacts to
-        // GoalRepository is the source of truth, so it drives reactivity
-        ChangeNotifierProvider<GoalRepository>(
-          create: (_) => InMemoryGoalRepository(),
-        ),
+        // Provide the already-initialised repository directly
+        ChangeNotifierProvider<GoalRepository>.value(value: goalRepository),
 
-        // ProxyProvider — like ASP.NET DI resolving a dependency from the container
-        // GoalService depends on GoalRepository, so we resolve it here
         ProxyProvider<GoalRepository, GoalService>(
           update: (_, repository, __) => GoalService(repository),
         ),
-
-        // GoalQueries also depends on GoalRepository
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, __) => GoalQueries(repository),
         ),
-
-        // No dependencies — plain Provider is fine
         Provider(create: (_) => GoalDecompositionService()),
       ],
       child: MaterialApp(
-        title: 'Todo',
+        title: 'Todo App',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
           useMaterial3: true,
@@ -120,4 +119,5 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
     );
-  }}
+  }
+}
