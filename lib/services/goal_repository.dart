@@ -14,7 +14,11 @@ abstract class GoalRepository extends ChangeNotifier {
 }
 
 class InMemoryGoalRepository extends GoalRepository {
-  final List<Goal> _goals = List.from(SampleData.goals);
+  final List<Goal> _goals;
+
+  InMemoryGoalRepository() : _goals = List.from(SampleData.goals);
+
+  InMemoryGoalRepository.empty() : _goals = [];
 
   @override
   List<Goal> get all => List.unmodifiable(_goals);

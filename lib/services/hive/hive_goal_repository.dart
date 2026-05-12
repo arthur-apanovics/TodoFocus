@@ -15,8 +15,8 @@ class HiveGoalRepository extends GoalRepository {
   // repository is used — see main.dart initialisation below
   late final Box<GoalDto> _box;
 
-  HiveGoalRepository(this._box) {
-    if (_box.isEmpty) {
+  HiveGoalRepository(this._box, {bool seed = true}) {
+    if (seed && _box.isEmpty) {
       // Key by goalId to match save()/delete() — otherwise addAll uses
       // auto-incrementing integer keys and later saves create duplicates.
       _box.putAll({
