@@ -1,7 +1,6 @@
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:uuid/uuid.dart';
+import 'package:todo_app/services/sample_data.dart';
 import '../../models/enums.dart';
 import '../../models/goal.dart';
 import '../../models/sub_task.dart';
@@ -16,7 +15,15 @@ class HiveGoalRepository extends GoalRepository {
   // repository is used — see main.dart initialisation below
   late final Box<GoalDto> _box;
 
-  HiveGoalRepository(this._box);
+  HiveGoalRepository(this._box) {
+    if (_box.isEmpty) {
+      // Key by goalId to match save()/delete() — otherwise addAll uses
+      // auto-incrementing integer keys and later saves create duplicates.
+      _box.putAll({
+        for (final goal in SampleData.goals) goal.goalId: _toDto(goal),
+      });
+    }
+  }
 
   // --- GoalRepository implementation ---
 
@@ -51,6 +58,7 @@ class HiveGoalRepository extends GoalRepository {
       notes: dto.notes,
       status: GoalStatus.values.byName(dto.status),
       dueDate: dto.dueDate,
+      isFocusedToday: dto.isFocusedToday,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
   }
@@ -76,6 +84,7 @@ class HiveGoalRepository extends GoalRepository {
       ..notes = goal.notes
       ..status = goal.status.name
       ..dueDate = goal.dueDate
+      ..isFocusedToday = goal.isFocusedToday
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;
   }
@@ -98,6 +107,7 @@ class HiveGoalRepository extends GoalRepository {
     Hive.registerAdapter(GoalDtoAdapter());
     Hive.registerAdapter(SubTaskDtoAdapter());
     final box = await Hive.openBox<GoalDto>(_boxName);
+
     return HiveGoalRepository(box);
   }
 }

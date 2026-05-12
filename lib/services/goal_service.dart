@@ -38,10 +38,7 @@ class GoalService {
     _repository.save(goal);
   }
 
-  void toggleFocusToday(String goalId) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) return;
-
+  void toggleFocusToday(Goal goal) {
     goal.isFocusedToday = !goal.isFocusedToday;
     _repository.save(goal);
   }

@@ -34,5 +34,5 @@ class GoalDto extends HiveObject {
   late List<SubTaskDto> subtasks;
 
   @HiveField(6)
-  late bool isFocusedToday;
+  bool isFocusedToday = false;
 }
