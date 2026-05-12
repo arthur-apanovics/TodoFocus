@@ -6,6 +6,7 @@ import '../models/enums.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import 'goal_detail_screen.dart';
 
 class GoalsScreen extends StatelessWidget {
@@ -80,7 +81,7 @@ class _GoalTile extends StatelessWidget {
             onPressed: (_) => service.removeGoal(goal.goalId),
             backgroundColor: AppColors.destructive,
             foregroundColor: AppColors.onDestructive,
-            icon: Icons.delete_outline,
+            icon: AppIcons.delete,
             label: 'Delete',
           ),
         ],

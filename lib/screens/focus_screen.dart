@@ -5,6 +5,7 @@ import '../models/sub_task.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 
 class FocusScreen extends StatelessWidget {
   const FocusScreen({super.key});
@@ -123,13 +124,12 @@ class _CurrentSubTaskRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Complete button
+        // Complete button — hollow circle, matching the Goal Detail screen.
+        // Filled green check is reserved for the all-done celebration state
+        // (see _AllDoneRow), so the shape distinction stays clear:
+        // hollow = "tap me", filled = "settled state".
         IconButton(
-          icon: Icon(
-            Icons.check_circle_outline,
-            color: AppColors.accent,
-            size: 28,
-          ),
+          icon: Icon(AppIcons.complete, color: AppColors.accent, size: 28),
           tooltip: 'Mark complete',
           onPressed: () => service.completeCurrentSubTask(goal.goalId),
           padding: EdgeInsets.zero,
@@ -172,7 +172,11 @@ class _NextSubTaskPeek extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.radio_button_unchecked, size: 28),
+          // Same glyph as AppIcons.complete — both represent a pending
+          // subtask, just passive here (peek) rather than active (CTA).
+          // Routing through AppIcons keeps the visual grammar consistent
+          // if you swap the pending-shape later.
+          const Icon(AppIcons.complete, size: 28),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

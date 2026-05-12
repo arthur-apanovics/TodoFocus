@@ -5,6 +5,7 @@ import '../models/goal.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import 'goal_detail_screen.dart';
 
 // The Inbox tab — shows goals captured without any decomposition yet.
@@ -98,7 +99,7 @@ class _InboxTile extends StatelessWidget {
             onPressed: (_) => service.removeGoal(goal.goalId),
             backgroundColor: AppColors.destructive,
             foregroundColor: AppColors.onDestructive,
-            icon: Icons.delete_outline,
+            icon: AppIcons.delete,
             label: 'Delete',
           ),
         ],

@@ -6,6 +6,7 @@ import '../models/sub_task.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
@@ -335,7 +336,7 @@ class SubTaskTile extends StatelessWidget {
                   service.deleteSubTask(goal.goalId, subtask.subtaskId),
               backgroundColor: AppColors.destructive,
               foregroundColor: AppColors.onDestructive,
-              icon: Icons.delete_outline,
+              icon: AppIcons.delete,
               label: 'Delete',
             ),
           ],
@@ -396,7 +397,7 @@ class SubTaskTile extends StatelessWidget {
     //   strong  → primary action (the current subtask's circle)
     if (isCompleted) {
       return IconButton(
-        icon: Icon(Icons.restore, size: 20, color: AppColors.muted),
+        icon: Icon(AppIcons.uncomplete, size: 20, color: AppColors.muted),
         tooltip: 'Mark incomplete',
         onPressed: () =>
             service.uncompleteSubTask(goal.goalId, subtask.subtaskId),
@@ -407,7 +408,7 @@ class SubTaskTile extends StatelessWidget {
       // Hollow circle is the universal "tap to check off" affordance.
       // Strongest shade gives it visual weight without breaking monotone.
       return IconButton(
-        icon: Icon(Icons.radio_button_unchecked, color: AppColors.strong),
+        icon: Icon(AppIcons.complete, color: AppColors.strong),
         tooltip: 'Mark complete',
         onPressed: () => service.completeCurrentSubTask(goal.goalId),
       );
