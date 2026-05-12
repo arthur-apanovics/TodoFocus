@@ -1,7 +1,6 @@
 enum GoalStatus {
   inbox,
   active,
-  paused,
   completed
 }
 

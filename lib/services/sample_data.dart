@@ -10,7 +10,6 @@ class SampleData {
   static List<Goal> get goals => [
     _activeGoal,
     _inProgressGoal,
-    _pausedGoal,
     _completedGoal,
     _inboxGoal,
     _noSubTasksGoal,
@@ -86,39 +85,6 @@ class SampleData {
       SubTask(
         subtaskId: 'sample-2-4',
         description: 'Add project showcase with screenshots',
-        state: SubTaskState.pending,
-      ),
-    ],
-  );
-
-  // Paused, not focused
-  static final _pausedGoal = Goal(
-    goalId: 'sample-3',
-    title: 'Read Atomic Habits',
-    notes: 'Work through the book and capture takeaways.',
-    status: GoalStatus.paused,
-    dueDate: DateTime.now().add(const Duration(days: 60)),
-    subtasks: [
-      SubTask(
-        subtaskId: 'sample-3-1',
-        description: 'Read chapters 1–4: The Fundamentals',
-        state: SubTaskState.completed,
-        assignedDate: DateTime.now().subtract(const Duration(days: 14)),
-        completionDate: DateTime.now().subtract(const Duration(days: 12)),
-      ),
-      SubTask(
-        subtaskId: 'sample-3-2',
-        description: 'Read chapters 5–9: The 1st and 2nd Laws',
-        state: SubTaskState.pending,
-      ),
-      SubTask(
-        subtaskId: 'sample-3-3',
-        description: 'Read chapters 10–15: The 3rd and 4th Laws',
-        state: SubTaskState.pending,
-      ),
-      SubTask(
-        subtaskId: 'sample-3-4',
-        description: 'Write a one-page summary of key takeaways',
         state: SubTaskState.pending,
       ),
     ],

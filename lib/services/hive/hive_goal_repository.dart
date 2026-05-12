@@ -56,7 +56,11 @@ class HiveGoalRepository extends GoalRepository {
       goalId: dto.goalId,
       title: dto.title,
       notes: dto.notes,
-      status: GoalStatus.values.byName(dto.status),
+      // Legacy "paused" records (from before pause was removed) silently
+      // become active. The next save() rewrites them with the new value.
+      status: dto.status == 'paused'
+          ? GoalStatus.active
+          : GoalStatus.values.byName(dto.status),
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),

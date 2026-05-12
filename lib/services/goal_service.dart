@@ -24,20 +24,6 @@ class GoalService {
     _repository.save(goal);
   }
 
-  void pauseGoal(String goalId) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) return;
-    goal.pause();
-    _repository.save(goal);
-  }
-
-  void resumeGoal(String goalId) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) return;
-    goal.resume();
-    _repository.save(goal);
-  }
-
   void toggleFocusToday(Goal goal) {
     goal.isFocusedToday = !goal.isFocusedToday;
     _repository.save(goal);

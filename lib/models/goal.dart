@@ -112,15 +112,7 @@ class Goal {
     subtasks.insert(newIndex, movingTask);
   }
 
-  void pause() => status = GoalStatus.paused;
-
-  void resume() {
-    status = GoalStatus.active;
-    _recalculateStatus();
-  }
-
   void _recalculateStatus() {
-    if (status == GoalStatus.paused) return;
     final allDone =
         subtasks.isNotEmpty &&
         subtasks.every((t) => t.state == SubTaskState.completed);

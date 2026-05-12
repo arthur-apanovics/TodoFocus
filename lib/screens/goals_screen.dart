@@ -134,14 +134,12 @@ class _StatusBadge extends StatelessWidget {
   IconData _iconFor(GoalStatus status) => switch (status) {
     GoalStatus.inbox => Icons.inbox_outlined,
     GoalStatus.active => Icons.flag_outlined,
-    GoalStatus.paused => Icons.pause_circle_outline,
     GoalStatus.completed => Icons.check_circle_outline,
   };
 
   Color _colorFor(GoalStatus status) => switch (status) {
     GoalStatus.inbox => Colors.grey,
     GoalStatus.active => Colors.indigo,
-    GoalStatus.paused => Colors.orange,
     GoalStatus.completed => Colors.green,
   };
 }

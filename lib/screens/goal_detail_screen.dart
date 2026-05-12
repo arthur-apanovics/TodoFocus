@@ -167,7 +167,7 @@ class _GoalMetadataCard extends StatelessWidget {
   }
 }
 
-// --- Goal menu (pause/resume/delete) ---
+// --- Goal menu (delete) ---
 
 class _GoalEditSheet extends StatefulWidget {
   final Goal goal;
@@ -250,20 +250,9 @@ class _GoalMenuButton extends StatelessWidget {
 
     return PopupMenuButton<String>(
       onSelected: (value) {
-        switch (value) {
-          case 'pause':
-            service.pauseGoal(goal.goalId);
-          case 'resume':
-            service.resumeGoal(goal.goalId);
-          case 'delete':
-            _confirmDelete(context, service);
-        }
+        if (value == 'delete') _confirmDelete(context, service);
       },
       itemBuilder: (_) => [
-        if (goal.status == GoalStatus.active)
-          const PopupMenuItem(value: 'pause', child: Text('Pause goal')),
-        if (goal.status == GoalStatus.paused)
-          const PopupMenuItem(value: 'resume', child: Text('Resume goal')),
         const PopupMenuItem(
           value: 'delete',
           child: Text('Delete goal', style: TextStyle(color: Colors.red)),
