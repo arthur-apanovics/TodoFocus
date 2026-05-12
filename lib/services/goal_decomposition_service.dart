@@ -56,9 +56,23 @@ class GoalDecompositionService {
   String _detectIntent(String title, String? description) {
     final text = '${title.toLowerCase()} ${(description ?? '').toLowerCase()}';
 
+    // Order matters: more specific phrases come first so they win over
+    // broader single-word matches further down the list.
     const patterns = <String, List<String>>{
+      // Everyday / one-shot tasks
+      'reminder': ['remember to', "don't forget", 'do not forget', 'dont forget'],
+      'errand': ['pick up', 'pickup', 'drop off', 'dropoff', 'drop by', 'collect from'],
+      'travel': ['trip', 'vacation', 'holiday', 'flight', 'hotel', 'fly to', 'drive to', 'travel'],
+      'cook': ['cook', 'bake', 'meal prep', 'prepare meal', 'make dinner', 'make lunch', 'make breakfast'],
+      'apply': ['apply for', 'submit application'],
+      'appointment': ['book', 'reschedule', 'appointment'],
+      'buy': ['buy', 'purchase', 'order', 'shop for'],
+      'call': ['call', 'phone', 'email', 'text', 'message', 'contact', 'reach out'],
+      'clean': ['clean', 'tidy', 'declutter', 'wash', 'do laundry', 'vacuum'],
+      'pay': ['pay', 'renew', 'file taxes'],
+      // Project / improvement tasks
       'learn': ['learn', 'study', 'understand', 'master', 'practise', 'practice'],
-      'build': ['build', 'develop', 'implement', 'code', 'program', 'create', 'make'],
+      'build': ['build', 'develop', 'implement', 'code', 'program', 'create'],
       'write': ['write', 'draft', 'author', 'document', 'compose', 'blog', 'essay'],
       'plan': ['plan', 'organise', 'organize', 'prepare', 'schedule', 'arrange', 'set up'],
       'read': ['read', 'finish reading', 'go through'],
@@ -66,7 +80,7 @@ class GoalDecompositionService {
       'research': ['research', 'investigate', 'analyse', 'analyze', 'audit', 'evaluate'],
       'launch': ['launch', 'ship', 'release', 'deploy', 'publish'],
       'design': ['design', 'prototype', 'wireframe', 'mockup', 'sketch', 'redesign'],
-      'exercise': ['exercise', 'workout', 'work out', 'train', 'run', 'walk', 'stretch'],
+      'exercise': ['exercise', 'workout', 'work out', 'train', 'jog', 'stretch'],
     };
 
     for (final entry in patterns.entries) {
@@ -83,6 +97,69 @@ class GoalDecompositionService {
   }
 
   static const _templatesByIntent = <String, List<String>>{
+    'reminder': [
+      'Note when this needs to happen',
+      'Do the task',
+    ],
+    'errand': [
+      'Confirm details (location, hours, what you need)',
+      'Plan when you will go',
+      'Run the errand',
+      'Confirm it is done',
+    ],
+    'travel': [
+      'Decide dates and destination',
+      'Book transport',
+      'Book accommodation',
+      'Plan activities and itinerary',
+      'Pack and prepare for departure',
+    ],
+    'cook': [
+      'Choose the recipe',
+      'Check pantry and shop for missing ingredients',
+      'Prep ingredients',
+      'Cook the meal',
+      'Serve and clean up',
+    ],
+    'apply': [
+      'Check requirements and deadlines',
+      'Gather necessary documents',
+      'Fill out the application',
+      'Review and submit',
+      'Track and follow up',
+    ],
+    'appointment': [
+      'Identify provider or options',
+      'Pick a time that works',
+      'Book or confirm the appointment',
+      'Add it to your calendar',
+      'Prepare anything needed beforehand',
+    ],
+    'buy': [
+      'Clarify what you need and your budget',
+      'Research and compare options',
+      'Decide on the purchase',
+      'Place the order',
+      'Confirm receipt or delivery',
+    ],
+    'call': [
+      'Note what you want to say or ask',
+      'Find the right contact info',
+      'Make the call or send the message',
+      'Follow up if needed',
+    ],
+    'clean': [
+      'Gather supplies',
+      'Clear and declutter the space',
+      'Clean surfaces',
+      'Put things back in place',
+      'Take out trash and finish up',
+    ],
+    'pay': [
+      'Confirm amount and deadline',
+      'Make the payment',
+      'Save the confirmation or receipt',
+    ],
     'learn': [
       'Find and assess learning resources',
       'Study the core concepts',
