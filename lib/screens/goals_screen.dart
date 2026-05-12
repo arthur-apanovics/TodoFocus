@@ -5,6 +5,7 @@ import '../models/goal.dart';
 import '../models/enums.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
+import '../theme/app_colors.dart';
 import 'goal_detail_screen.dart';
 
 class GoalsScreen extends StatelessWidget {
@@ -27,17 +28,17 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.flag_outlined, size: 48),
-          SizedBox(height: 12),
-          Text('No goals yet'),
-          SizedBox(height: 4),
+          const Icon(Icons.flag_outlined, size: 48),
+          const SizedBox(height: 12),
+          const Text('No goals yet'),
+          const SizedBox(height: 4),
           Text(
             'Tap + to add your first goal',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppColors.muted),
           ),
         ],
       ),
@@ -77,8 +78,8 @@ class _GoalTile extends StatelessWidget {
         children: [
           SlidableAction(
             onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
+            backgroundColor: AppColors.destructive,
+            foregroundColor: AppColors.onDestructive,
             icon: Icons.delete_outline,
             label: 'Delete',
           ),
@@ -94,7 +95,9 @@ class _GoalTile extends StatelessWidget {
             IconButton(
               icon: Icon(
                 goal.isFocusedToday ? Icons.star : Icons.star_border,
-                color: goal.isFocusedToday ? Colors.indigo : Colors.grey,
+                color: goal.isFocusedToday
+                    ? AppColors.accent
+                    : AppColors.muted,
               ),
               tooltip: goal.isFocusedToday
                   ? 'Remove from Today'
@@ -138,8 +141,8 @@ class _StatusBadge extends StatelessWidget {
   };
 
   Color _colorFor(GoalStatus status) => switch (status) {
-    GoalStatus.inbox => Colors.grey,
-    GoalStatus.active => Colors.indigo,
-    GoalStatus.completed => Colors.green,
+    GoalStatus.inbox => AppColors.muted,
+    GoalStatus.active => AppColors.accent,
+    GoalStatus.completed => AppColors.success,
   };
 }

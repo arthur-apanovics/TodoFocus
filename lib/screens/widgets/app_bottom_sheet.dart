@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_colors.dart';
 
 class AppBottomSheet extends StatelessWidget {
   final String title;
@@ -28,7 +29,7 @@ class AppBottomSheet extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: AppColors.sheetHandle,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),

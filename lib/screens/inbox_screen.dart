@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
+import '../theme/app_colors.dart';
 import 'goal_detail_screen.dart';
 
 // The Inbox tab — shows goals captured without any decomposition yet.
@@ -33,17 +34,19 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    // AppColors fields are `final`, not `const`, so the outer Center can't
+    // be const anymore — but the inner const literals stay const.
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox_outlined, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
-          Text('Inbox is empty'),
-          SizedBox(height: 4),
+          Icon(Icons.inbox_outlined, size: 48, color: AppColors.muted),
+          const SizedBox(height: 12),
+          const Text('Inbox is empty'),
+          const SizedBox(height: 4),
           Text(
             'Capture quick ideas here to process later',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
         ],
@@ -93,15 +96,15 @@ class _InboxTile extends StatelessWidget {
         children: [
           SlidableAction(
             onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
+            backgroundColor: AppColors.destructive,
+            foregroundColor: AppColors.onDestructive,
             icon: Icons.delete_outline,
             label: 'Delete',
           ),
         ],
       ),
       child: ListTile(
-        leading: const Icon(Icons.inbox_outlined, color: Colors.grey),
+        leading: Icon(Icons.inbox_outlined, color: AppColors.muted),
         title: Text(goal.title),
         // If the user captured a description it's worth surfacing here.
         // Falls back to a hint that nudges the user to process the item.

@@ -9,6 +9,7 @@ import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_decomposition_service.dart';
+import 'theme/app_colors.dart';
 
 void main() async {
   // Required before any async work in main()
@@ -34,17 +35,20 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<GoalRepository>.value(value: goalRepository),
 
         ProxyProvider<GoalRepository, GoalService>(
-          update: (_, repository, __) => GoalService(repository),
+          update: (_, repository, _) => GoalService(repository),
         ),
         ProxyProvider<GoalRepository, GoalQueries>(
-          update: (_, repository, __) => GoalQueries(repository),
+          update: (_, repository, _) => GoalQueries(repository),
         ),
         Provider(create: (_) => GoalDecompositionService()),
       ],
       child: MaterialApp(
         title: 'Todo App',
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+          // ColorScheme.fromSeed derives the full Material palette from one
+          // colour. Driving it from AppColors.accent means Material widgets
+          // (FAB, FilledButton, etc.) automatically follow the same accent.
+          colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
         home: const AppShell(),

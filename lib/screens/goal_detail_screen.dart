@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
-import '../models/enums.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../theme/app_colors.dart';
 import 'widgets/app_bottom_sheet.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
@@ -253,9 +253,12 @@ class _GoalMenuButton extends StatelessWidget {
         if (value == 'delete') _confirmDelete(context, service);
       },
       itemBuilder: (_) => [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'delete',
-          child: Text('Delete goal', style: TextStyle(color: Colors.red)),
+          child: Text(
+            'Delete goal',
+            style: TextStyle(color: AppColors.destructive),
+          ),
         ),
       ],
     );
@@ -273,7 +276,9 @@ class _GoalMenuButton extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.destructive,
+            ),
             onPressed: () {
               service.removeGoal(goal.goalId);
               // Pop both the dialog and the detail screen
@@ -317,23 +322,23 @@ class SubTaskTile extends StatelessWidget {
         background: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 16),
-          color: Colors.red,
-          child: const Icon(Icons.delete_outline, color: Colors.white),
+          color: AppColors.destructive,
+          child: Icon(Icons.delete_outline, color: AppColors.onDestructive),
         ),
         onDismissed: (_) =>
             service.deleteSubTask(goal.goalId, subtask.subtaskId),
         child: Opacity(
-          // Dim pending-but-not-current subtasks
           opacity: (isCurrent || isCompleted) ? 1.0 : 0.45,
           child: ListTile(
             // Drag handle — only for non-completed subtasks
             leading: isCompleted
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Icon(
-                      Icons.check_circle_outline,
-                      color: Colors.green,
-                    ),
+                // Same drag-handle silhouette as the other rows, just faded —
+                // signals "this row exists in the list but can't be moved".
+                // Reuses the shape so completed rows don't feel structurally
+                // different from the rest.
+                ? Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Icon(Icons.drag_handle, color: AppColors.faded),
                   )
                 : ReorderableDragStartListener(
                     index: index,
@@ -345,9 +350,9 @@ class SubTaskTile extends StatelessWidget {
               child: Text(
                 subtask.description,
                 style: isCompleted
-                    ? const TextStyle(
+                    ? TextStyle(
                         decoration: TextDecoration.lineThrough,
-                        color: Colors.grey,
+                        color: AppColors.muted,
                       )
                     : null,
               ),
@@ -371,10 +376,14 @@ class SubTaskTile extends StatelessWidget {
     bool isCurrent,
     bool isCompleted,
   ) {
+    // Monotone palette — three semantic shades carry the meaning.
+    // See AppColors for the actual values; tweak there to experiment.
+    //   faded   → completed row leading icon
+    //   muted   → lock, restore  (present but secondary)
+    //   strong  → primary action (the current subtask's circle)
     if (isCompleted) {
-      // Undo button — tap to mark incomplete
       return IconButton(
-        icon: const Icon(Icons.undo, size: 20),
+        icon: Icon(Icons.restore, size: 20, color: AppColors.muted),
         tooltip: 'Mark incomplete',
         onPressed: () =>
             service.uncompleteSubTask(goal.goalId, subtask.subtaskId),
@@ -382,16 +391,17 @@ class SubTaskTile extends StatelessWidget {
     }
 
     if (isCurrent) {
-      // Complete button — only on the active subtask
+      // Hollow circle is the universal "tap to check off" affordance.
+      // Strongest shade gives it visual weight without breaking monotone.
       return IconButton(
-        icon: const Icon(Icons.check_circle_outline, color: Colors.indigo),
+        icon: Icon(Icons.radio_button_unchecked, color: AppColors.strong),
         tooltip: 'Mark complete',
         onPressed: () => service.completeCurrentSubTask(goal.goalId),
       );
     }
 
-    // Pending but not current — no action available
-    return const Icon(Icons.lock_outline, size: 18, color: Colors.grey);
+    // Pending but not current — locked until earlier subtasks complete.
+    return Icon(Icons.lock_outline, size: 18, color: AppColors.muted);
   }
 
   void _showEditSheet(BuildContext context, GoalService service) {
@@ -504,13 +514,13 @@ class _EmptySubtaskState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(addSubtaskIcon, size: 48, color: Colors.grey),
+          Icon(addSubtaskIcon, size: 48, color: AppColors.muted),
           const SizedBox(height: 12),
           Text('No subtasks yet', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Tap the button below to add your first step',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
         ],

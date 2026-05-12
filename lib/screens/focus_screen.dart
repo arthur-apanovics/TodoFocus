@@ -4,6 +4,7 @@ import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
+import '../theme/app_colors.dart';
 
 class FocusScreen extends StatelessWidget {
   const FocusScreen({super.key});
@@ -64,8 +65,8 @@ class _FocusGoalCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: isAllDone
-                        ? Colors.green.shade50
-                        : Colors.indigo.shade50,
+                        ? AppColors.successSurface
+                        : AppColors.accentSurface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -73,7 +74,7 @@ class _FocusGoalCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: isAllDone ? Colors.green : Colors.indigo,
+                      color: isAllDone ? AppColors.success : AppColors.accent,
                     ),
                   ),
                 ),
@@ -124,9 +125,9 @@ class _CurrentSubTaskRow extends StatelessWidget {
       children: [
         // Complete button
         IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.check_circle_outline,
-            color: Colors.indigo,
+            color: AppColors.accent,
             size: 28,
           ),
           tooltip: 'Mark complete',
@@ -148,7 +149,7 @@ class _CurrentSubTaskRow extends StatelessWidget {
                 'Current step',
                 style: Theme.of(
                   context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.indigo),
+                ).textTheme.bodySmall?.copyWith(color: AppColors.accent),
               ),
             ],
           ),
@@ -186,7 +187,7 @@ class _NextSubTaskPeek extends StatelessWidget {
                   'Up next',
                   style: Theme.of(
                     context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.muted),
                 ),
               ],
             ),
@@ -207,13 +208,13 @@ class _AllDoneRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(Icons.check_circle, color: Colors.green, size: 28),
+        Icon(Icons.check_circle, color: AppColors.success, size: 28),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             'All ${goal.subtasks.length} steps complete',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.green,
+              color: AppColors.success,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -229,17 +230,17 @@ class _EmptyFocusState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.bolt_outlined, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
-          Text('Nothing scheduled for today'),
-          SizedBox(height: 4),
+          Icon(Icons.bolt_outlined, size: 48, color: AppColors.muted),
+          const SizedBox(height: 12),
+          const Text('Nothing scheduled for today'),
+          const SizedBox(height: 4),
           Text(
             'Swipe right on a goal to add it here',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
         ],
