@@ -54,7 +54,13 @@ class Goal {
 
   // --- Mutations ---
 
-  void addSubTask(SubTask task) => subtasks.add(task);
+  void addSubTask(SubTask task) {
+    subtasks.add(task);
+    // Recalculate so an inbox goal becomes active when its first subtask
+    // is added, and a completed goal becomes active again if a subtask
+    // is appended after the fact.
+    _recalculateStatus();
+  }
 
   void removeSubTask(String subtaskId) {
     subtasks.removeWhere((t) => t.subtaskId == subtaskId);

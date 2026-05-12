@@ -13,6 +13,9 @@ class GoalQueries {
   List<Goal> get goals =>
       _repository.all.where((g) => g.status != GoalStatus.inbox).toList();
 
+  List<Goal> get inbox =>
+      _repository.all.where((g) => g.status == GoalStatus.inbox).toList();
+
   List<Goal> get todayQueue => _repository.all
       .where(
         (g) => g.isFocusedToday && g.isDailyAssignable && g.subtasks.isNotEmpty,
