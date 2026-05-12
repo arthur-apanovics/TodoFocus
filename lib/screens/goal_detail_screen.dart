@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
@@ -314,19 +315,31 @@ class SubTaskTile extends StatelessWidget {
     final isCompleted = subtask.isCompleted;
     final isPending = !isCompleted;
 
+    // Slidable instead of Dismissible:
+    //  - Doesn't try to auto-remove the row, so it never collides with the
+    //    Provider rebuild that follows service.deleteSubTask().
+    //  - Has narrower gesture territory than Dismissible, so the trailing
+    //    IconButton's tap recogniser actually wins the gesture arena
+    //    instead of being swallowed by a horizontal-pan recogniser
+    //    watching the whole tile.
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      child: Dismissible(
+      child: Slidable(
         key: ValueKey(subtask.subtaskId),
-        direction: DismissDirection.endToStart,
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 16),
-          color: AppColors.destructive,
-          child: Icon(Icons.delete_outline, color: AppColors.onDestructive),
+        endActionPane: ActionPane(
+          motion: const BehindMotion(),
+          extentRatio: 0.25,
+          children: [
+            SlidableAction(
+              onPressed: (_) =>
+                  service.deleteSubTask(goal.goalId, subtask.subtaskId),
+              backgroundColor: AppColors.destructive,
+              foregroundColor: AppColors.onDestructive,
+              icon: Icons.delete_outline,
+              label: 'Delete',
+            ),
+          ],
         ),
-        onDismissed: (_) =>
-            service.deleteSubTask(goal.goalId, subtask.subtaskId),
         child: Opacity(
           opacity: (isCurrent || isCompleted) ? 1.0 : 0.45,
           child: ListTile(
