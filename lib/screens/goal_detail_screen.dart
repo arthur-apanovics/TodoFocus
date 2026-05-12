@@ -5,6 +5,7 @@ import '../models/sub_task.dart';
 import '../models/enums.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import 'widgets/app_bottom_sheet.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
 
@@ -211,52 +212,29 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+    return AppBottomSheet(
+      title: 'Edit goal',
+      children: [
+        TextField(
+          controller: _titleController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Title',
+            border: OutlineInputBorder(),
           ),
-          const SizedBox(height: 16),
-          Text('Edit goal', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _titleController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              border: OutlineInputBorder(),
-            ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _notesController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Description',
+            border: OutlineInputBorder(),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _notesController,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Description',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: _submit, child: const Text('Save changes')),
-          const SizedBox(height: 8),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: _submit, child: const Text('Save changes')),
+      ],
     );
   }
 }
@@ -504,51 +482,25 @@ class _SubTaskSheetState extends State<_SubTaskSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+    return AppBottomSheet(
+      title: _isEditing ? 'Edit subtask' : 'New subtask',
+      children: [
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'What needs to be done?',
+            border: OutlineInputBorder(),
           ),
-          const SizedBox(height: 16),
-          Text(
-            _isEditing ? 'Edit subtask' : 'New subtask',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'What needs to be done?',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _submit(),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _submit,
-            child: Text(_isEditing ? 'Save changes' : 'Add subtask'),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
+          onSubmitted: (_) => _submit(),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(_isEditing ? 'Save changes' : 'Add subtask'),
+        ),
+      ],
     );
   }
 }

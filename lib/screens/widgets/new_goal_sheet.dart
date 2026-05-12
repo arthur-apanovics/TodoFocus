@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/goal_service.dart';
 import '../../services/goal_decomposition_service.dart';
+import 'app_bottom_sheet.dart';
 
 class NewGoalSheet extends StatefulWidget {
   final GoalService goalService;
@@ -69,106 +70,79 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      // viewInsets.bottom pushes the sheet up when the keyboard appears
-      // Without this the keyboard covers the input fields
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Sheet handle — standard Material bottom sheet affordance
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+    return AppBottomSheet(
+      title: 'New Goal',
+      children: [
+        TextField(
+          controller: _titleController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Title',
+            hintText: 'What do you want to achieve?',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _descriptionController,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Description (optional)',
+            hintText: 'Any extra context...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            const Icon(Icons.calendar_today_outlined, size: 18),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: _pickDueDate,
+              child: Text(
+                _dueDate == null
+                    ? 'Set due date (optional)'
+                    : 'Due: ${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}',
               ),
             ),
+            if (_dueDate != null)
+              IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () => setState(() => _dueDate = null),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: () => _sendToInbox(context),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
           ),
-          const SizedBox(height: 16),
-          Text('New Goal', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _titleController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              hintText: 'What do you want to achieve?',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _descriptionController,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Description (optional)',
-              hintText: 'Any extra context...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Due date row
-          Row(
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.calendar_today_outlined, size: 18),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: _pickDueDate,
-                child: Text(
-                  _dueDate == null
-                      ? 'Set due date (optional)'
-                      : 'Due: ${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}',
-                ),
-              ),
-              if (_dueDate != null)
-                IconButton(
-                  icon: const Icon(Icons.clear, size: 18),
-                  onPressed: () => setState(() => _dueDate = null),
-                ),
+              Icon(Icons.inbox_outlined, size: 18),
+              SizedBox(width: 8),
+              Text('Save to Inbox'),
             ],
           ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () => _sendToInbox(context),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48), // full width
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.inbox_outlined, size: 18),
-                SizedBox(width: 8),
-                Text('Save to Inbox'),
-              ],
-            ),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () => _createGoal(context),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
           ),
-          const SizedBox(height: 8),
-          FilledButton(
-            onPressed: () => _createGoal(context),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48), // full width
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.flag_outlined, size: 18),
-                SizedBox(width: 8),
-                Text('Create Goal'),
-              ],
-            ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.flag_outlined, size: 18),
+              SizedBox(width: 8),
+              Text('Create Goal'),
+            ],
           ),
-          const SizedBox(height: 8),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
