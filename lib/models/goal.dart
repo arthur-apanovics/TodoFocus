@@ -66,6 +66,15 @@ class Goal {
     _recalculateStatus();
   }
 
+  // Discards all existing subtasks and replaces them with a fresh list.
+  // Completion state is reset; goal status is recalculated afterward.
+  void replaceAllSubTasks(List<SubTask> newSubtasks) {
+    subtasks
+      ..clear()
+      ..addAll(newSubtasks);
+    _recalculateStatus();
+  }
+
   // Replaces a single subtask in-place with one or more replacements,
   // preserving list order. Used for splitting a subtask into smaller steps.
   void replaceSubTask(String subtaskId, List<SubTask> replacements) {

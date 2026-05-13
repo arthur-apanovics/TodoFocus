@@ -257,12 +257,24 @@ class _GoalMenuButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
+    final canRedecompose =
+        context.read<GoalDecompositionService>().canAutoBreakdown;
 
     return PopupMenuButton<String>(
       onSelected: (value) {
-        if (value == 'delete') _confirmDelete(context, service);
+        switch (value) {
+          case 'redecompose':
+            _confirmRedecompose(context, service);
+          case 'delete':
+            _confirmDelete(context, service);
+        }
       },
       itemBuilder: (_) => [
+        if (canRedecompose)
+          const PopupMenuItem(
+            value: 'redecompose',
+            child: Text('Re-decompose subtasks'),
+          ),
         PopupMenuItem(
           value: 'delete',
           child: Text(
@@ -272,6 +284,60 @@ class _GoalMenuButton extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _confirmRedecompose(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final decomp = context.read<GoalDecompositionService>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Re-decompose subtasks?'),
+        content: const Text(
+          'All current subtasks will be replaced with new AI-generated steps.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Re-decompose'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Re-decomposing subtasks…'),
+        duration: Duration(seconds: 30),
+      ),
+    );
+
+    final descriptions = await decomp.redecomposeSubtasks(
+      goal.title,
+      description: goal.notes.isEmpty ? null : goal.notes,
+    );
+
+    messenger.hideCurrentSnackBar();
+
+    if (descriptions == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+      );
+      return;
+    }
+
+    service.replaceAllSubTasks(goal.goalId, descriptions);
   }
 
   void _confirmDelete(BuildContext context, GoalService service) {

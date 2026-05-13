@@ -15,6 +15,24 @@ class GoalDecompositionService {
   /// provider. False means no LLM/Goblin profile is configured.
   bool get canAutoBreakdown => _client != null;
 
+  /// Re-runs full decomposition on an existing goal's title/description,
+  /// returning a fresh list of subtask descriptions. Returns null on failure
+  /// or when no provider is configured — caller should show an error.
+  Future<List<String>?> redecomposeSubtasks(
+    String title, {
+    String? description,
+  }) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.decompose(title, description: description);
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Re-decompose failed: $e');
+      return null;
+    }
+  }
+
   /// Breaks an existing subtask down into 1–3 smaller steps via the configured
   /// provider. Returns null if no provider is configured or the call failed —
   /// callers should fall back to a manual flow.

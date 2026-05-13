@@ -72,6 +72,20 @@ class GoalService {
     _repository.save(goal);
   }
 
+  // Replaces all subtasks on a goal with a fresh set of descriptions.
+  // Used by the re-decompose flow to swap in AI-generated steps.
+  void replaceAllSubTasks(String goalId, List<String> descriptions) {
+    if (descriptions.isEmpty) return;
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.replaceAllSubTasks(
+      descriptions
+          .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
+          .toList(),
+    );
+    _repository.save(goal);
+  }
+
   // Replaces a single subtask with one or more smaller steps. Used both by
   // the manual split flow (user types replacements) and the LLM-driven
   // breakdown flow (provider returns 1–3 replacement descriptions).
