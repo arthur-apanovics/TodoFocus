@@ -23,11 +23,11 @@ void main() async {
   final llmSettingsService = await LlmSettingsService.init();
 
   final tabNotifier = ValueNotifier<int>(0);
-  final newGoalNotifier = ValueNotifier<int>(0);
+  final goalNavNotifier = ValueNotifier<(String, int)?>(null);
 
   final notificationService = NotificationService(
     tabNotifier: tabNotifier,
-    newGoalNotifier: newGoalNotifier,
+    goalNavNotifier: goalNavNotifier,
     repository: goalRepository,
   );
   await notificationService.init();
@@ -91,7 +91,7 @@ class TodoApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: AppShell(tabNotifier: tabNotifier, newGoalNotifier: newGoalNotifier),
+        home: AppShell(tabNotifier: tabNotifier, goalNavNotifier: goalNavNotifier),
       ),
     );
   }
@@ -99,12 +99,12 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
-  final ValueNotifier<int> newGoalNotifier;
+  final ValueNotifier<(String, int)?> goalNavNotifier;
 
   const AppShell({
     super.key,
     required this.tabNotifier,
-    required this.newGoalNotifier,
+    required this.goalNavNotifier,
   });
 
   @override
@@ -113,8 +113,6 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late int _currentIndex;
-  // Tracks the last-seen counter value so each increment opens the sheet once.
-  late int _lastNewGoalRequest;
 
   static const _tabTitles = ['Today', 'Goals', 'Inbox'];
 
@@ -128,14 +126,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _currentIndex = widget.tabNotifier.value;
-    _lastNewGoalRequest = widget.newGoalNotifier.value;
     widget.tabNotifier.addListener(_onExternalTabChange);
-    widget.newGoalNotifier.addListener(_onNewGoalRequested);
+    widget.goalNavNotifier.addListener(_onGoalNavRequested);
     WidgetsBinding.instance.addObserver(this);
-    // Cold-start: action fired before AppShell was mounted — catch up now.
-    if (_lastNewGoalRequest > 0) {
+    // Cold-start: notification action fired before AppShell was mounted.
+    if (widget.goalNavNotifier.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _openNewGoalSheet();
+        if (mounted) _navigateToGoal(widget.goalNavNotifier.value!.$1);
       });
     }
   }
@@ -144,7 +141,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
-    widget.newGoalNotifier.removeListener(_onNewGoalRequested);
+    widget.goalNavNotifier.removeListener(_onGoalNavRequested);
     super.dispose();
   }
 
@@ -166,15 +163,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
-  void _onNewGoalRequested() {
-    if (!mounted) return;
-    if (widget.newGoalNotifier.value <= _lastNewGoalRequest) return;
-    _lastNewGoalRequest = widget.newGoalNotifier.value;
-    // addPostFrameCallback guards against calling showModalBottomSheet
-    // mid-frame when the app resumes from background.
+  void _onGoalNavRequested() {
+    final request = widget.goalNavNotifier.value;
+    if (!mounted || request == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _openNewGoalSheet();
+      if (mounted) _navigateToGoal(request.$1);
     });
+  }
+
+  void _navigateToGoal(String goalId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+    );
   }
 
   void _onDestinationSelected(int index) {

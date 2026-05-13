@@ -7,15 +7,19 @@ import 'goal_service.dart';
 
 class NotificationService {
   static const String markDoneActionId = 'mark_done';
-  static const String newGoalActionId = 'new_goal';
+  static const String breakdownActionId = 'breakdown';
   static const int _notifId = 1;
   static const String _channelId = 'focus_task_v2';
   static const String _channelName = 'Focus Task';
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ValueNotifier<int> _tabNotifier;
-  final ValueNotifier<int> _newGoalNotifier;
+  // Carries the goal to navigate to. The int seq increments on every tap so
+  // repeated taps on the same goal each fire the notifier.
+  final ValueNotifier<(String goalId, int seq)?> _goalNavNotifier;
   final GoalRepository _repository;
+
+  int _navSeq = 0;
 
   // Track what's currently shown so update() is a no-op when content hasn't
   // changed. Without this, every app resume triggers show() which Android
@@ -25,11 +29,11 @@ class NotificationService {
 
   NotificationService({
     required ValueNotifier<int> tabNotifier,
-    required ValueNotifier<int> newGoalNotifier,
+    required ValueNotifier<(String, int)?> goalNavNotifier,
     required GoalRepository repository,
   })  : _plugin = FlutterLocalNotificationsPlugin(),
         _tabNotifier = tabNotifier,
-        _newGoalNotifier = newGoalNotifier,
+        _goalNavNotifier = goalNavNotifier,
         _repository = repository;
 
   Future<void> init() async {
@@ -113,18 +117,12 @@ class NotificationService {
             AndroidNotificationAction(
               markDoneActionId,
               goal.nextSubTask != null ? 'Next step' : 'Finish goal',
-              // showsUserInterface: true is required for the Dart callback to
-              // fire reliably on Android 12+. The alternative (false +
-              // background isolate IPC) is not consistently supported by the
-              // Android system. The app will briefly come to the foreground
-              // when this action is tapped, but _onResponse deliberately
-              // avoids navigating so it returns to wherever the user was.
               showsUserInterface: true,
               cancelNotification: false,
             ),
             const AndroidNotificationAction(
-              newGoalActionId,
-              'New goal',
+              breakdownActionId,
+              'Break it down',
               showsUserInterface: true,
               cancelNotification: false,
             ),
@@ -139,19 +137,17 @@ class NotificationService {
 
   void _onResponse(NotificationResponse response) {
     if (response.actionId == markDoneActionId) {
-      // Action button tapped — complete the subtask but do not navigate.
-      // The app comes to the foreground (Android system behaviour with
-      // showsUserInterface: true) but stays on whatever screen was active.
       if (response.payload != null) {
         GoalService(_repository).completeCurrentSubTask(response.payload!);
+        _goalNavNotifier.value = (response.payload!, ++_navSeq);
       }
       return;
     }
 
-    if (response.actionId == newGoalActionId) {
-      // Signal AppShell to open the new goal sheet. Using an incrementing
-      // counter rather than a bool so repeated taps each trigger the action.
-      _newGoalNotifier.value++;
+    if (response.actionId == breakdownActionId) {
+      if (response.payload != null) {
+        _goalNavNotifier.value = (response.payload!, ++_navSeq);
+      }
       return;
     }
 
