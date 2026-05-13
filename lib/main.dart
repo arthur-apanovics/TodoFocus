@@ -23,9 +23,11 @@ void main() async {
   final llmSettingsService = await LlmSettingsService.init();
 
   final tabNotifier = ValueNotifier<int>(0);
+  final newGoalNotifier = ValueNotifier<int>(0);
 
   final notificationService = NotificationService(
     tabNotifier: tabNotifier,
+    newGoalNotifier: newGoalNotifier,
     repository: goalRepository,
   );
   await notificationService.init();
@@ -89,7 +91,7 @@ class TodoApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: AppShell(tabNotifier: tabNotifier),
+        home: AppShell(tabNotifier: tabNotifier, newGoalNotifier: newGoalNotifier),
       ),
     );
   }
@@ -97,8 +99,13 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<int> newGoalNotifier;
 
-  const AppShell({super.key, required this.tabNotifier});
+  const AppShell({
+    super.key,
+    required this.tabNotifier,
+    required this.newGoalNotifier,
+  });
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -106,6 +113,8 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late int _currentIndex;
+  // Tracks the last-seen counter value so each increment opens the sheet once.
+  late int _lastNewGoalRequest;
 
   static const _tabTitles = ['Today', 'Goals', 'Inbox'];
 
@@ -119,14 +128,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _currentIndex = widget.tabNotifier.value;
+    _lastNewGoalRequest = widget.newGoalNotifier.value;
     widget.tabNotifier.addListener(_onExternalTabChange);
+    widget.newGoalNotifier.addListener(_onNewGoalRequested);
     WidgetsBinding.instance.addObserver(this);
+    // Cold-start: action fired before AppShell was mounted — catch up now.
+    if (_lastNewGoalRequest > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openNewGoalSheet();
+      });
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
+    widget.newGoalNotifier.removeListener(_onNewGoalRequested);
     super.dispose();
   }
 
@@ -148,40 +166,52 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  void _onNewGoalRequested() {
+    if (!mounted) return;
+    if (widget.newGoalNotifier.value <= _lastNewGoalRequest) return;
+    _lastNewGoalRequest = widget.newGoalNotifier.value;
+    // addPostFrameCallback guards against calling showModalBottomSheet
+    // mid-frame when the app resumes from background.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openNewGoalSheet();
+    });
+  }
+
   void _onDestinationSelected(int index) {
     setState(() => _currentIndex = index);
     widget.tabNotifier.value = index;
   }
 
+  // Opens the new-goal bottom sheet and navigates to the detail screen on
+  // success. Called from the FAB and the notification action.
+  Future<void> _openNewGoalSheet() async {
+    // Read inside the method so we always get current instances — reading at
+    // build time would capture stale refs when ProxyProvider rebuilds.
+    final goalService = context.read<GoalService>();
+    final decompositionService = context.read<GoalDecompositionService>();
+    final decompositionState = context.read<DecompositionState>();
+
+    final goalId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => NewGoalSheet(
+        goalService: goalService,
+        decompositionService: decompositionService,
+        decompositionState: decompositionState,
+      ),
+    );
+    if (goalId != null && context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+      );
+    }
+  }
+
   FloatingActionButton _buildFab(BuildContext context) {
     return FloatingActionButton(
-      onPressed: () async {
-        // Read inside onPressed so we always get the current instances —
-        // reading at build time would capture stale references when
-        // LlmSettingsService notifies and ProxyProvider rebuilds the service.
-        final goalService = context.read<GoalService>();
-        final decompositionService = context.read<GoalDecompositionService>();
-        final decompositionState = context.read<DecompositionState>();
-
-        final goalId = await showModalBottomSheet<String>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
-          builder: (_) => NewGoalSheet(
-            goalService: goalService,
-            decompositionService: decompositionService,
-            decompositionState: decompositionState,
-          ),
-        );
-        if (goalId != null && context.mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => GoalDetailScreen(goalId: goalId),
-            ),
-          );
-        }
-      },
+      onPressed: _openNewGoalSheet,
       child: const Icon(Icons.add),
     );
   }

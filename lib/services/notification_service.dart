@@ -7,12 +7,14 @@ import 'goal_service.dart';
 
 class NotificationService {
   static const String markDoneActionId = 'mark_done';
+  static const String newGoalActionId = 'new_goal';
   static const int _notifId = 1;
   static const String _channelId = 'focus_task_v2';
   static const String _channelName = 'Focus Task';
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ValueNotifier<int> _tabNotifier;
+  final ValueNotifier<int> _newGoalNotifier;
   final GoalRepository _repository;
 
   // Track what's currently shown so update() is a no-op when content hasn't
@@ -23,9 +25,11 @@ class NotificationService {
 
   NotificationService({
     required ValueNotifier<int> tabNotifier,
+    required ValueNotifier<int> newGoalNotifier,
     required GoalRepository repository,
   })  : _plugin = FlutterLocalNotificationsPlugin(),
         _tabNotifier = tabNotifier,
+        _newGoalNotifier = newGoalNotifier,
         _repository = repository;
 
   Future<void> init() async {
@@ -118,6 +122,12 @@ class NotificationService {
               showsUserInterface: true,
               cancelNotification: false,
             ),
+            const AndroidNotificationAction(
+              newGoalActionId,
+              'New goal',
+              showsUserInterface: true,
+              cancelNotification: false,
+            ),
           ],
         ),
       ),
@@ -135,6 +145,13 @@ class NotificationService {
       if (response.payload != null) {
         GoalService(_repository).completeCurrentSubTask(response.payload!);
       }
+      return;
+    }
+
+    if (response.actionId == newGoalActionId) {
+      // Signal AppShell to open the new goal sheet. Using an incrementing
+      // counter rather than a bool so repeated taps each trigger the action.
+      _newGoalNotifier.value++;
       return;
     }
 
