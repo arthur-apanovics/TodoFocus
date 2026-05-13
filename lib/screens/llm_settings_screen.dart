@@ -6,7 +6,7 @@ import '../services/settings/llm_settings_service.dart';
 // LLM configuration screen. Add new profile types by:
 //   1. Adding a subtype in llm_profile.dart
 //   2. Adding its name to _presets
-//   3. Adding a case in _defaultDraftForPreset and _buildForm
+//   3. Adding a case in _buildForm and handling in initState / _onPresetChanged
 
 class LlmSettingsScreen extends StatefulWidget {
   const LlmSettingsScreen({super.key});
@@ -19,32 +19,40 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   static const _presets = ['OpenAI Compatible', 'Goblin Tools'];
 
   late bool _enabled;
-  late LlmProfile _draft;
+
+  // Each profile type has its own draft so switching presets and back
+  // does not discard previously entered values.
+  late OpenAiCompatibleProfile _openAiDraft;
+  late GoblinToolsProfile _goblinDraft;
+  late String _selectedPreset;
+
+  LlmProfile get _draft => switch (_selectedPreset) {
+    'Goblin Tools' => _goblinDraft,
+    _ => _openAiDraft,
+  };
 
   @override
   void initState() {
     super.initState();
     final service = context.read<LlmSettingsService>();
     _enabled = service.isEnabled;
-    // Seed from whatever profile is stored (even if currently disabled) so
-    // fields survive toggle-off → save → toggle-on.
-    _draft = service.activeProfile ??
-        const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
-  }
 
-  String get _selectedPreset => switch (_draft) {
-    OpenAiCompatibleProfile() => 'OpenAI Compatible',
-    GoblinToolsProfile() => 'Goblin Tools',
-  };
+    final stored = service.activeProfile;
+    _openAiDraft = stored is OpenAiCompatibleProfile
+        ? stored
+        : const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
+    _goblinDraft =
+        stored is GoblinToolsProfile ? stored : const GoblinToolsProfile();
+
+    _selectedPreset = switch (stored) {
+      GoblinToolsProfile() => 'Goblin Tools',
+      _ => 'OpenAI Compatible',
+    };
+  }
 
   void _onPresetChanged(String preset) {
-    setState(() => _draft = _defaultDraftForPreset(preset));
+    setState(() => _selectedPreset = preset);
   }
-
-  LlmProfile _defaultDraftForPreset(String preset) => switch (preset) {
-    'Goblin Tools' => const GoblinToolsProfile(),
-    _ => const OpenAiCompatibleProfile(endpointUrl: '', modelId: ''),
-  };
 
   void _save() {
     final service = context.read<LlmSettingsService>();
@@ -89,14 +97,14 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     );
   }
 
-  Widget _buildForm() => switch (_draft) {
-    OpenAiCompatibleProfile p => _OpenAiCompatibleForm(
-        profile: p,
-        onChanged: (updated) => setState(() => _draft = updated),
+  Widget _buildForm() => switch (_selectedPreset) {
+    'Goblin Tools' => _GoblinToolsForm(
+        profile: _goblinDraft,
+        onChanged: (p) => setState(() => _goblinDraft = p),
       ),
-    GoblinToolsProfile p => _GoblinToolsForm(
-        profile: p,
-        onChanged: (updated) => setState(() => _draft = updated),
+    _ => _OpenAiCompatibleForm(
+        profile: _openAiDraft,
+        onChanged: (p) => setState(() => _openAiDraft = p),
       ),
   };
 }
@@ -145,10 +153,7 @@ class _OpenAiCompatibleForm extends StatefulWidget {
   final OpenAiCompatibleProfile profile;
   final ValueChanged<OpenAiCompatibleProfile> onChanged;
 
-  const _OpenAiCompatibleForm({
-    required this.profile,
-    required this.onChanged,
-  });
+  const _OpenAiCompatibleForm({required this.profile, required this.onChanged});
 
   @override
   State<_OpenAiCompatibleForm> createState() => _OpenAiCompatibleFormState();
@@ -158,6 +163,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
   late final TextEditingController _urlController;
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
+  late final TextEditingController _promptController;
   bool _apiKeyVisible = false;
 
   @override
@@ -166,6 +172,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _urlController = TextEditingController(text: widget.profile.endpointUrl);
     _modelController = TextEditingController(text: widget.profile.modelId);
     _apiKeyController = TextEditingController(text: widget.profile.apiKey ?? '');
+    _promptController = TextEditingController(text: widget.profile.systemPrompt);
   }
 
   @override
@@ -173,22 +180,34 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _urlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
+    _promptController.dispose();
     super.dispose();
   }
 
-  void _notify() {
+  void _notifyFields() {
     widget.onChanged(widget.profile.copyWith(
       endpointUrl: _urlController.text.trim(),
       modelId: _modelController.text.trim(),
       apiKey: _apiKeyController.text.trim().isEmpty
           ? null
           : _apiKeyController.text.trim(),
+      systemPrompt: _promptController.text,
+    ));
+  }
+
+  void _restoreDefaultPrompt() {
+    _promptController.text = OpenAiCompatibleProfile.defaultSystemPrompt;
+    widget.onChanged(widget.profile.copyWith(
+      systemPrompt: OpenAiCompatibleProfile.defaultSystemPrompt,
     ));
   }
 
   @override
   Widget build(BuildContext context) {
     const padding = EdgeInsets.fromLTRB(16, 12, 16, 4);
+    final isDefaultPrompt =
+        widget.profile.systemPrompt == OpenAiCompatibleProfile.defaultSystemPrompt;
+
     return Column(
       children: [
         Padding(
@@ -203,7 +222,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             keyboardType: TextInputType.url,
             autocorrect: false,
             textCapitalization: TextCapitalization.none,
-            onChanged: (_) => _notify(),
+            onChanged: (_) => _notifyFields(),
           ),
         ),
         Padding(
@@ -217,7 +236,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             ),
             autocorrect: false,
             textCapitalization: TextCapitalization.none,
-            onChanged: (_) => _notify(),
+            onChanged: (_) => _notifyFields(),
           ),
         ),
         Padding(
@@ -239,7 +258,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             obscureText: !_apiKeyVisible,
             autocorrect: false,
             textCapitalization: TextCapitalization.none,
-            onChanged: (_) => _notify(),
+            onChanged: (_) => _notifyFields(),
           ),
         ),
         Padding(
@@ -266,9 +285,8 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
                 min: 0.0,
                 max: 1.0,
                 divisions: 20,
-                onChanged: (v) => widget.onChanged(
-                  widget.profile.copyWith(temperature: v),
-                ),
+                onChanged: (v) =>
+                    widget.onChanged(widget.profile.copyWith(temperature: v)),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -284,6 +302,42 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
                                 Theme.of(context).colorScheme.onSurfaceVariant,
                           )),
                 ],
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text('System prompt',
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  if (!isDefaultPrompt)
+                    TextButton(
+                      onPressed: _restoreDefaultPrompt,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('Restore default'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _promptController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: null,
+                minLines: 3,
+                textCapitalization: TextCapitalization.sentences,
+                onChanged: (_) => _notifyFields(),
               ),
             ],
           ),

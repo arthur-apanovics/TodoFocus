@@ -6,9 +6,15 @@ import 'llm_client.dart';
 // JSON schema constraint, and output parsing. Extracted from GoalDecompositionService
 // so the service stays provider-agnostic.
 class OpenAiDecompositionClient implements DecompositionClient {
-  final LlmClient _llm;
+  static const defaultSystemPrompt =
+      'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
+      'Each step must be a single sentence that is very easy to action.';
 
-  OpenAiDecompositionClient(this._llm);
+  final LlmClient _llm;
+  final String systemPrompt;
+
+  OpenAiDecompositionClient(this._llm,
+      {this.systemPrompt = defaultSystemPrompt});
 
   static const _subtasksSchema = {
     'type': 'array',
@@ -19,15 +25,11 @@ class OpenAiDecompositionClient implements DecompositionClient {
 
   @override
   Future<List<String>> decompose(String title, {String? description}) async {
-    const system =
-        'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
-        'Each step must be a single sentence that is very easy to action.';
-
     final user = description?.isNotEmpty == true
         ? 'Goal: "$title". Context: $description'
         : 'Goal: "$title"';
 
-    final raw = await _llm.complete(system, user, responseSchema: _subtasksSchema);
+    final raw = await _llm.complete(systemPrompt, user, responseSchema: _subtasksSchema);
     return _parseJsonArray(raw);
   }
 

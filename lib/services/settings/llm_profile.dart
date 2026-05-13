@@ -5,6 +5,7 @@ import '../llm/llm_client.dart';
 import '../llm/llm_config.dart';
 import '../llm/openai_decomposition_client.dart';
 
+
 // Sealed class hierarchy for LLM provider profiles.
 // Each subtype serialises itself and builds a DecompositionClient.
 // Add new subtypes here as new provider integrations are needed.
@@ -39,17 +40,21 @@ sealed class LlmProfile {
 
 final class OpenAiCompatibleProfile extends LlmProfile {
   static const String typeKey = 'openai_compatible';
+  static const String defaultSystemPrompt =
+      OpenAiDecompositionClient.defaultSystemPrompt;
 
   final String endpointUrl;
   final String modelId;
   final String? apiKey;
   final double temperature;
+  final String systemPrompt;
 
   const OpenAiCompatibleProfile({
     required this.endpointUrl,
     required this.modelId,
     this.apiKey,
     this.temperature = 0.3,
+    this.systemPrompt = defaultSystemPrompt,
   });
 
   @override
@@ -62,6 +67,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     'modelId': modelId,
     if (apiKey?.isNotEmpty == true) 'apiKey': apiKey,
     'temperature': temperature,
+    if (systemPrompt != defaultSystemPrompt) 'systemPrompt': systemPrompt,
   };
 
   factory OpenAiCompatibleProfile.fromJson(Map<String, dynamic> json) {
@@ -70,6 +76,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       modelId: json['modelId'] as String? ?? '',
       apiKey: json['apiKey'] as String?,
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.3,
+      systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
     );
   }
 
@@ -78,23 +85,28 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     String? modelId,
     String? apiKey,
     double? temperature,
+    String? systemPrompt,
   }) {
     return OpenAiCompatibleProfile(
       endpointUrl: endpointUrl ?? this.endpointUrl,
       modelId: modelId ?? this.modelId,
       apiKey: apiKey ?? this.apiKey,
       temperature: temperature ?? this.temperature,
+      systemPrompt: systemPrompt ?? this.systemPrompt,
     );
   }
 
   @override
   DecompositionClient buildClient() {
-    return OpenAiDecompositionClient(LlmClient(LlmConfig(
-      baseUrl: endpointUrl,
-      model: modelId,
-      apiKey: apiKey,
-      temperature: temperature,
-    )));
+    return OpenAiDecompositionClient(
+      LlmClient(LlmConfig(
+        baseUrl: endpointUrl,
+        model: modelId,
+        apiKey: apiKey,
+        temperature: temperature,
+      )),
+      systemPrompt: systemPrompt,
+    );
   }
 }
 
