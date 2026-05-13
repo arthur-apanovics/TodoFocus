@@ -67,26 +67,69 @@ class GoalDecompositionService {
     return _scaffoldSubTasks(goalId, title, description);
   }
 
-  Future<List<SubTask>> _llmSubTasks(
-    String title,
-    String? description,
-  ) async {
+  // JSON Schema for the subtask array — passed to llama-server's response_format
+  // so the sampler enforces structure via GBNF grammar. The model cannot
+  // produce output that violates the schema; _parseJsonArray is then just a
+  // safety net for backends that ignore response_format.
+  static const _subtasksSchema = {
+    'type': 'array',
+    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
+    'minItems': 2,
+    'maxItems': 10,
+  };
+
+  Future<List<SubTask>> _llmSubTasks(String title, String? description) async {
     const system =
-        'Break the goal into 3–6 short, concrete, actionable steps. '
-        'Return ONLY a JSON array of strings — no explanation, no markdown. '
-        'Example: ["Step one","Step two","Step three"]';
+        'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
+        'Each step must be a single sentence that is very easy to action.';
 
     final user = description?.isNotEmpty == true
         ? 'Goal: "$title". Context: $description'
         : 'Goal: "$title"';
 
-    final raw = await _llm!.complete(system, user);
+    final raw = await _llm!.complete(
+      system,
+      user,
+      responseSchema: _subtasksSchema,
+    );
 
-    // Parse JSON array — throws on malformed response, caught by _buildSubTasks
-    final parsed = jsonDecode(raw) as List;
+    // Throws on malformed response — _buildSubTasks catches and falls back.
+    final parsed = _parseJsonArray(raw);
     return parsed
-        .map((s) => SubTask(subtaskId: _uuid.v4(), description: s as String))
+        .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
         .toList();
+  }
+
+  // Extracts a JSON string array from raw LLM output, tolerating common
+  // slop: markdown fences (```json … ``` or ``` … ```), leading/trailing
+  // whitespace, and escaped quotes. Throws FormatException if no valid array
+  // is found — caller catches and triggers the keyword fallback.
+  List<String> _parseJsonArray(String raw) {
+    // 1. Strip markdown code fences — handles ```json, ```JSON, ``` alone, etc.
+    var cleaned = raw.replaceAll(RegExp(r'```[a-zA-Z]*\n?'), '').trim();
+
+    // 2. Try direct decode first (fast path for well-behaved models).
+    try {
+      final decoded = jsonDecode(cleaned);
+      if (decoded is List) return _toStringList(decoded);
+    } catch (_) {}
+
+    // 3. Extract the first [...] block — handles models that wrap the array
+    //    in prose ("Here are your steps: [...]").
+    final match = RegExp(r'\[.*?\]', dotAll: true).firstMatch(cleaned);
+    if (match != null) {
+      final extracted = jsonDecode(match.group(0)!);
+      if (extracted is List) return _toStringList(extracted);
+    }
+
+    throw const FormatException('LLM response contained no valid JSON array');
+  }
+
+  List<String> _toStringList(List<dynamic> list) {
+    final strings = list.whereType<String>().toList();
+    if (strings.isEmpty)
+      throw const FormatException('JSON array contained no strings');
+    return strings;
   }
 
   // Private — replaced by _llmSubTasks when LLM is available.
@@ -97,7 +140,8 @@ class GoalDecompositionService {
     String? description,
   ) {
     final intent = _detectIntent(title, description);
-    final templates = _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
+    final templates =
+        _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
 
     return templates
         .map((desc) => SubTask(subtaskId: _uuid.v4(), description: desc))
@@ -113,27 +157,108 @@ class GoalDecompositionService {
     // broader single-word matches further down the list.
     const patterns = <String, List<String>>{
       // Everyday / one-shot tasks
-      'reminder': ['remember to', "don't forget", 'do not forget', 'dont forget'],
-      'errand': ['pick up', 'pickup', 'drop off', 'dropoff', 'drop by', 'collect from'],
-      'travel': ['trip', 'vacation', 'holiday', 'flight', 'hotel', 'fly to', 'drive to', 'travel'],
-      'cook': ['cook', 'bake', 'meal prep', 'prepare meal', 'make dinner', 'make lunch', 'make breakfast'],
+      'reminder': [
+        'remember to',
+        "don't forget",
+        'do not forget',
+        'dont forget',
+      ],
+      'errand': [
+        'pick up',
+        'pickup',
+        'drop off',
+        'dropoff',
+        'drop by',
+        'collect from',
+      ],
+      'travel': [
+        'trip',
+        'vacation',
+        'holiday',
+        'flight',
+        'hotel',
+        'fly to',
+        'drive to',
+        'travel',
+      ],
+      'cook': [
+        'cook',
+        'bake',
+        'meal prep',
+        'prepare meal',
+        'make dinner',
+        'make lunch',
+        'make breakfast',
+      ],
       'apply': ['apply for', 'submit application'],
       'appointment': ['book', 'reschedule', 'appointment'],
       'buy': ['buy', 'purchase', 'order', 'shop for'],
-      'call': ['call', 'phone', 'email', 'text', 'message', 'contact', 'reach out'],
+      'call': [
+        'call',
+        'phone',
+        'email',
+        'text',
+        'message',
+        'contact',
+        'reach out',
+      ],
       'clean': ['clean', 'tidy', 'declutter', 'wash', 'do laundry', 'vacuum'],
       'pay': ['pay', 'renew', 'file taxes'],
       // Project / improvement tasks
-      'learn': ['learn', 'study', 'understand', 'master', 'practise', 'practice'],
+      'learn': [
+        'learn',
+        'study',
+        'understand',
+        'master',
+        'practise',
+        'practice',
+      ],
       'build': ['build', 'develop', 'implement', 'code', 'program', 'create'],
-      'write': ['write', 'draft', 'author', 'document', 'compose', 'blog', 'essay'],
-      'plan': ['plan', 'organise', 'organize', 'prepare', 'schedule', 'arrange', 'set up'],
+      'write': [
+        'write',
+        'draft',
+        'author',
+        'document',
+        'compose',
+        'blog',
+        'essay',
+      ],
+      'plan': [
+        'plan',
+        'organise',
+        'organize',
+        'prepare',
+        'schedule',
+        'arrange',
+        'set up',
+      ],
       'read': ['read', 'finish reading', 'go through'],
       'fix': ['fix', 'debug', 'solve', 'resolve', 'troubleshoot', 'repair'],
-      'research': ['research', 'investigate', 'analyse', 'analyze', 'audit', 'evaluate'],
+      'research': [
+        'research',
+        'investigate',
+        'analyse',
+        'analyze',
+        'audit',
+        'evaluate',
+      ],
       'launch': ['launch', 'ship', 'release', 'deploy', 'publish'],
-      'design': ['design', 'prototype', 'wireframe', 'mockup', 'sketch', 'redesign'],
-      'exercise': ['exercise', 'workout', 'work out', 'train', 'jog', 'stretch'],
+      'design': [
+        'design',
+        'prototype',
+        'wireframe',
+        'mockup',
+        'sketch',
+        'redesign',
+      ],
+      'exercise': [
+        'exercise',
+        'workout',
+        'work out',
+        'train',
+        'jog',
+        'stretch',
+      ],
     };
 
     for (final entry in patterns.entries) {
@@ -149,10 +274,7 @@ class GoalDecompositionService {
   }
 
   static const _templatesByIntent = <String, List<String>>{
-    'reminder': [
-      'Note when this needs to happen',
-      'Do the task',
-    ],
+    'reminder': ['Note when this needs to happen', 'Do the task'],
     'errand': [
       'Confirm details (location, hours, what you need)',
       'Plan when you will go',
