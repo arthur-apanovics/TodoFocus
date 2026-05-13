@@ -392,17 +392,49 @@ class SubTaskTile extends StatelessWidget {
       );
     }
 
+    // Split button — shown on all non-completed subtasks
+    final splitButton = IconButton(
+      icon: const Icon(Icons.call_split, size: 20),
+      tooltip: 'Split into two smaller steps',
+      onPressed: () => _showSplitSheet(context, service),
+    );
+
     if (isCurrent) {
-      // Complete button — only on the active subtask
-      return IconButton(
-        icon: const Icon(Icons.check_circle_outline, color: Colors.indigo),
-        tooltip: 'Mark complete',
-        onPressed: () => service.completeCurrentSubTask(goal.goalId),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          splitButton,
+          IconButton(
+            icon: const Icon(Icons.check_circle_outline, color: Colors.indigo),
+            tooltip: 'Mark complete',
+            onPressed: () => service.completeCurrentSubTask(goal.goalId),
+          ),
+        ],
       );
     }
 
-    // Pending but not current — no action available
-    return const Icon(Icons.lock_outline, size: 18, color: Colors.grey);
+    // Pending but not current
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        splitButton,
+        const Icon(Icons.lock_outline, size: 18, color: Colors.grey),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+
+  void _showSplitSheet(BuildContext context, GoalService service) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _SubTaskSplitSheet(
+        goalId: goal.goalId,
+        subtask: subtask,
+        goalService: service,
+      ),
+    );
   }
 
   void _showEditSheet(BuildContext context, GoalService service) {
@@ -499,6 +531,105 @@ class _SubTaskSheetState extends State<_SubTaskSheet> {
         FilledButton(
           onPressed: _submit,
           child: Text(_isEditing ? 'Save changes' : 'Add subtask'),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Split subtask sheet ---
+
+class _SubTaskSplitSheet extends StatefulWidget {
+  final String goalId;
+  final SubTask subtask;
+  final GoalService goalService;
+
+  const _SubTaskSplitSheet({
+    required this.goalId,
+    required this.subtask,
+    required this.goalService,
+  });
+
+  @override
+  State<_SubTaskSplitSheet> createState() => _SubTaskSplitSheetState();
+}
+
+class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
+  late final TextEditingController _step1Controller;
+  late final TextEditingController _step2Controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill step 1 with the original so the user edits rather than rewrites
+    _step1Controller = TextEditingController(text: widget.subtask.description);
+    _step2Controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _step1Controller.dispose();
+    _step2Controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final step1 = _step1Controller.text.trim();
+    final step2 = _step2Controller.text.trim();
+    if (step1.isEmpty || step2.isEmpty) return;
+
+    widget.goalService.splitSubTask(
+      widget.goalId,
+      widget.subtask.subtaskId,
+      step1,
+      step2,
+    );
+
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBottomSheet(
+      title: 'Split into two steps',
+      children: [
+        // Show original as read-only context
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            widget.subtask.description,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _step1Controller,
+          autofocus: true,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'First step',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _step2Controller,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Second step',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _submit,
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          child: const Text('Replace with these two steps'),
         ),
       ],
     );

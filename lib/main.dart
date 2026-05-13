@@ -8,6 +8,8 @@ import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_decomposition_service.dart';
+import 'services/llm/llm_config.dart';
+import 'services/llm/llm_client.dart';
 
 void main() async {
   // Required before any async work in main()
@@ -17,13 +19,17 @@ void main() async {
   // Initialise Hive and open the box before the app starts
   final goalRepository = await HiveGoalRepository.init();
 
-  runApp(TodoApp(goalRepository: goalRepository));
+  final llmConfig = LlmConfig.fromEnvironment();
+  final llmClient = llmConfig != null ? LlmClient(llmConfig) : null;
+
+  runApp(TodoApp(goalRepository: goalRepository, llmClient: llmClient));
 }
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
+  final LlmClient? llmClient;
 
-  const TodoApp({super.key, required this.goalRepository});
+  const TodoApp({super.key, required this.goalRepository, this.llmClient});
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +44,7 @@ class TodoApp extends StatelessWidget {
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, __) => GoalQueries(repository),
         ),
-        Provider(create: (_) => GoalDecompositionService()),
+        Provider(create: (_) => GoalDecompositionService(llm: llmClient)),
       ],
       child: MaterialApp(
         title: 'Todo App',
