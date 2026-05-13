@@ -443,35 +443,15 @@ class _SubTaskTileState extends State<SubTaskTile> {
           ],
         ),
         child: Opacity(
-          opacity: _isBreakingDown
-              ? 0.6
-              : (isCurrent || isCompleted)
-                  ? 1.0
-                  : 0.45,
+          opacity: _isBreakingDown ? 0.6 : 1.0,
           child: ListTile(
-            // Drag handle — only for non-completed, non-breaking-down rows.
-            leading: isCompleted
-                // Same drag-handle silhouette as the other rows, just faded —
-                // signals "this row exists in the list but can't be moved".
-                // Reuses the shape so completed rows don't feel structurally
-                // different from the rest.
-                ? Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Icon(Icons.drag_handle, color: AppColors.faded),
-                  )
-                : _isBreakingDown
-                    ? Padding(
-                        padding: const EdgeInsets.all(12),
-                        child:
-                            Icon(Icons.drag_handle, color: AppColors.faded),
-                      )
-                    : ReorderableDragStartListener(
-                        index: index,
-                        child: const Icon(Icons.drag_handle),
-                      ),
+            leading: (isCompleted || _isBreakingDown)
+                ? const Icon(Icons.drag_handle, color: Colors.transparent)
+                : ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle),
+                  ),
             title: GestureDetector(
-              // Only allow editing current or pending subtasks, and not while
-              // a breakdown is in flight for this row.
               onTap: (isPending && !_isBreakingDown)
                   ? () => _showEditSheet(context, service)
                   : null,
@@ -482,12 +462,19 @@ class _SubTaskTileState extends State<SubTaskTile> {
                         decoration: TextDecoration.lineThrough,
                         color: AppColors.muted,
                       )
-                    : null,
+                    : isCurrent
+                        ? TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.strong,
+                          )
+                        : null,
               ),
             ),
-            subtitle: Text(_isBreakingDown
-                ? 'Breaking down…'
-                : _stateLabel(isCurrent, isCompleted)),
+            subtitle: _isBreakingDown
+                ? const Text('Breaking down…')
+                : isCompleted
+                    ? const Text('Completed')
+                    : null,
             trailing: _buildTrailingAction(
               context,
               service,
@@ -635,11 +622,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
     );
   }
 
-  String _stateLabel(bool isCurrent, bool isCompleted) {
-    if (isCompleted) return 'Completed';
-    if (isCurrent) return 'Current';
-    return 'Queued';
-  }
 }
 // --- Add / Edit subtask sheet ---
 // Single sheet handles both modes — if existingSubTask is null, it's add mode
