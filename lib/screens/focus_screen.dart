@@ -261,7 +261,7 @@ class _EmptyFocusState extends StatelessWidget {
           const Text('Nothing scheduled for today'),
           const SizedBox(height: 4),
           Text(
-            'Swipe right on a goal to add it here',
+            'Pick a goal to focus on from the goal tab',
             style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
