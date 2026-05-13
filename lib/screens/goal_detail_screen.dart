@@ -282,10 +282,10 @@ class _GoalMenuButton extends StatelessWidget {
               backgroundColor: AppColors.destructive,
             ),
             onPressed: () {
+              Navigator.pop(context); // close dialog
               service.removeGoal(goal.goalId);
-              // Pop both the dialog and the detail screen
-              Navigator.pop(context);
-              Navigator.pop(context);
+              // GoalDetailScreen.build null-guard pops the detail screen
+              // when it rebuilds and finds goal == null.
             },
             child: const Text('Delete'),
           ),
