@@ -11,12 +11,17 @@ import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
+import 'services/llm/llm_config.dart';
+import 'services/llm/llm_client.dart';
 import 'theme/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final goalRepository = await HiveGoalRepository.init();
+
+  final llmConfig = LlmConfig.fromEnvironment();
+  final llmClient = llmConfig != null ? LlmClient(llmConfig) : null;
 
   final tabNotifier = ValueNotifier<int>(0);
 
@@ -35,6 +40,7 @@ void main() async {
 
   runApp(TodoApp(
     goalRepository: goalRepository,
+    llmClient: llmClient,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
   ));
@@ -42,12 +48,14 @@ void main() async {
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
+  final LlmClient? llmClient;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
 
   const TodoApp({
     super.key,
     required this.goalRepository,
+    this.llmClient,
     required this.notificationService,
     required this.tabNotifier,
   });
@@ -63,7 +71,7 @@ class TodoApp extends StatelessWidget {
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, _) => GoalQueries(repository),
         ),
-        Provider(create: (_) => GoalDecompositionService()),
+        Provider(create: (_) => GoalDecompositionService(llm: llmClient)),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
       ],

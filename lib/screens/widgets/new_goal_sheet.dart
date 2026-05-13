@@ -21,6 +21,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   DateTime? _dueDate;
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -29,18 +30,36 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     super.dispose();
   }
 
-  void _createGoal(BuildContext context) {
+  Future<void> _createGoal(BuildContext context) async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
-    final goal = widget.decompositionService.decompose(
+    setState(() => _loading = true);
+
+    bool usedFallback = false;
+    final goal = await widget.decompositionService.decompose(
       title: title,
       description: _descriptionController.text.trim(),
       dueDate: _dueDate,
+      onLlmFallback: () => usedFallback = true,
     );
 
     widget.goalService.addGoal(goal);
-    if (context.mounted) Navigator.pop(context, goal.goalId);
+
+    if (!context.mounted) return;
+
+    // Capture messenger before popping — the sheet's context is invalid after pop.
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pop(context, goal.goalId);
+
+    if (usedFallback) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('AI assistant unavailable — used smart templates instead'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _sendToInbox(BuildContext context) {
@@ -76,6 +95,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         TextField(
           controller: _titleController,
           autofocus: true,
+          enabled: !_loading,
           decoration: const InputDecoration(
             labelText: 'Title',
             hintText: 'What do you want to achieve?',
@@ -86,6 +106,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         TextField(
           controller: _descriptionController,
           maxLines: 2,
+          enabled: !_loading,
           decoration: const InputDecoration(
             labelText: 'Description (optional)',
             hintText: 'Any extra context...',
@@ -98,7 +119,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
             const Icon(Icons.calendar_today_outlined, size: 18),
             const SizedBox(width: 8),
             TextButton(
-              onPressed: _pickDueDate,
+              onPressed: _loading ? null : _pickDueDate,
               child: Text(
                 _dueDate == null
                     ? 'Set due date (optional)'
@@ -108,13 +129,14 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
             if (_dueDate != null)
               IconButton(
                 icon: const Icon(Icons.clear, size: 18),
-                onPressed: () => setState(() => _dueDate = null),
+                onPressed:
+                    _loading ? null : () => setState(() => _dueDate = null),
               ),
           ],
         ),
         const SizedBox(height: 8),
         OutlinedButton(
-          onPressed: () => _sendToInbox(context),
+          onPressed: _loading ? null : () => _sendToInbox(context),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
           ),
@@ -129,18 +151,27 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         ),
         const SizedBox(height: 8),
         FilledButton(
-          onPressed: () => _createGoal(context),
+          onPressed: _loading ? null : () => _createGoal(context),
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
           ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.flag_outlined, size: 18),
-              SizedBox(width: 8),
-              Text('Create Goal'),
-            ],
-          ),
+          child: _loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.flag_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Create Goal'),
+                  ],
+                ),
         ),
       ],
     );

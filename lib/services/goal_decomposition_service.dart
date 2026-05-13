@@ -1,26 +1,41 @@
-import 'package:uuid/uuid.dart'; // we'll add this below
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import 'llm/llm_client.dart';
 
 class GoalDecompositionService {
   final Uuid _uuid = const Uuid();
+  final LlmClient? _llm; // null = keyword-only mode
+
+  GoalDecompositionService({LlmClient? llm}) : _llm = llm;
 
   // The single public method — takes raw user input, returns a structured Goal.
-  // This is the method signature that stays the same when the LLM replaces the internals.
-  Goal decompose({
+  // The method signature stays the same when swapping LLM providers.
+  // [onLlmFallback] is called when an LLM was configured but fell back to
+  // keyword templates due to a network error or bad response.
+  Future<Goal> decompose({
     required String title,
     String? description,
     DateTime? dueDate,
-  }) {
+    VoidCallback? onLlmFallback,
+  }) async {
     final goalId = _uuid.v4();
+    final subtasks = await _buildSubTasks(
+      goalId,
+      title,
+      description,
+      onLlmFallback,
+    );
 
     return Goal(
       goalId: goalId,
       title: title,
       notes: description ?? '',
       dueDate: dueDate,
-      subtasks: _scaffoldSubTasks(goalId, title, description),
+      subtasks: subtasks,
     );
   }
 
@@ -31,11 +46,51 @@ class GoalDecompositionService {
       title: title,
       notes: description ?? '',
       status: GoalStatus.inbox,
-      subtasks: [], // no subtasks yet — decomposition happens later
+      subtasks: [],
     );
   }
 
-  // Private — the LLM will replace this method body entirely, nothing else changes
+  Future<List<SubTask>> _buildSubTasks(
+    String goalId,
+    String title,
+    String? description,
+    VoidCallback? onLlmFallback,
+  ) async {
+    if (_llm != null) {
+      try {
+        return await _llmSubTasks(title, description);
+      } catch (e) {
+        debugPrint('LLM decomposition failed, using keyword fallback: $e');
+        onLlmFallback?.call();
+      }
+    }
+    return _scaffoldSubTasks(goalId, title, description);
+  }
+
+  Future<List<SubTask>> _llmSubTasks(
+    String title,
+    String? description,
+  ) async {
+    const system =
+        'Break the goal into 3–6 short, concrete, actionable steps. '
+        'Return ONLY a JSON array of strings — no explanation, no markdown. '
+        'Example: ["Step one","Step two","Step three"]';
+
+    final user = description?.isNotEmpty == true
+        ? 'Goal: "$title". Context: $description'
+        : 'Goal: "$title"';
+
+    final raw = await _llm!.complete(system, user);
+
+    // Parse JSON array — throws on malformed response, caught by _buildSubTasks
+    final parsed = jsonDecode(raw) as List;
+    return parsed
+        .map((s) => SubTask(subtaskId: _uuid.v4(), description: s as String))
+        .toList();
+  }
+
+  // Private — replaced by _llmSubTasks when LLM is available.
+  // Kept as fallback for offline / unconfigured mode.
   List<SubTask> _scaffoldSubTasks(
     String goalId,
     String title,
@@ -44,8 +99,6 @@ class GoalDecompositionService {
     final intent = _detectIntent(title, description);
     final templates = _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
 
-    // All start as pending — the first one is implicitly
-    // current because it's the first non-completed subtask
     return templates
         .map((desc) => SubTask(subtaskId: _uuid.v4(), description: desc))
         .toList();
@@ -85,7 +138,6 @@ class GoalDecompositionService {
 
     for (final entry in patterns.entries) {
       for (final keyword in entry.value) {
-        // Match at word boundary to avoid partial matches (e.g. "plan" inside "explain")
         final escaped = RegExp.escape(keyword);
         if (RegExp(r'(^|\s)' + escaped + r'(\s|$)').hasMatch(text)) {
           return entry.key;

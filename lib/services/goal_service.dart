@@ -72,6 +72,21 @@ class GoalService {
     _repository.save(goal);
   }
 
+  void splitSubTask(
+    String goalId,
+    String subtaskId,
+    String step1,
+    String step2,
+  ) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.replaceSubTask(subtaskId, [
+      SubTask(subtaskId: _uuid.v4(), description: step1),
+      SubTask(subtaskId: _uuid.v4(), description: step2),
+    ]);
+    _repository.save(goal);
+  }
+
   void deleteSubTask(String goalId, String subtaskId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;

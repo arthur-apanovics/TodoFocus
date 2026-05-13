@@ -66,6 +66,15 @@ class Goal {
     _recalculateStatus();
   }
 
+  // Replaces a single subtask in-place with one or more replacements,
+  // preserving list order. Used for splitting a subtask into smaller steps.
+  void replaceSubTask(String subtaskId, List<SubTask> replacements) {
+    final index = subtasks.indexWhere((t) => t.subtaskId == subtaskId);
+    if (index == -1) return;
+    subtasks.removeAt(index);
+    subtasks.insertAll(index, replacements);
+  }
+
   void removeSubTask(String subtaskId) {
     subtasks.removeWhere((t) => t.subtaskId == subtaskId);
     _recalculateStatus();
