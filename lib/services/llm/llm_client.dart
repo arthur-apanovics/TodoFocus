@@ -22,10 +22,14 @@ class LlmClient {
     Map<String, dynamic>? responseSchema,
   }) async {
     final uri = Uri.parse('${config.baseUrl}/chat/completions');
+    final isOpenRouter = uri.host.contains('openrouter.ai');
     final headers = {
       'Content-Type': 'application/json',
       if (config.apiKey?.isNotEmpty == true)
         'Authorization': 'Bearer ${config.apiKey}',
+      // OpenRouter uses these for rate-limit tiers and model rankings.
+      if (isOpenRouter) 'HTTP-Referer': 'https://github.com/arthur-apanovics/todofocus',
+      if (isOpenRouter) 'X-Title': 'TodoFocus',
     };
     final responseFormat = responseSchema != null
         ? {
@@ -52,7 +56,10 @@ class LlmClient {
         .timeout(config.timeout);
 
     if (response.statusCode != 200) {
-      throw Exception('LLM request failed: ${response.statusCode}');
+      final body = response.body.length > 300
+          ? '${response.body.substring(0, 300)}…'
+          : response.body;
+      throw Exception('HTTP ${response.statusCode}: $body');
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;

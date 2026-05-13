@@ -12,12 +12,14 @@ class LlmSettingsService extends ChangeNotifier {
   static const _goblinKey = 'goblin_profile';
   static const _activeTypeKey = 'active_profile_type';
   static const _enabledKey = 'llm_enabled';
+  static const _debugModeKey = 'llm_debug_mode';
 
   final Box<String> _box;
   OpenAiCompatibleProfile _openAiProfile;
   GoblinToolsProfile _goblinProfile;
   String? _activeType; // typeKey of whichever preset is currently active
   bool _enabled;
+  bool _debugMode;
 
   LlmSettingsService._({
     required Box<String> box,
@@ -25,11 +27,13 @@ class LlmSettingsService extends ChangeNotifier {
     required GoblinToolsProfile goblinProfile,
     required String? activeType,
     required bool enabled,
+    required bool debugMode,
   })  : _box = box,
         _openAiProfile = openAiProfile,
         _goblinProfile = goblinProfile,
         _activeType = activeType,
-        _enabled = enabled;
+        _enabled = enabled,
+        _debugMode = debugMode;
 
   OpenAiCompatibleProfile get openAiProfile => _openAiProfile;
   GoblinToolsProfile get goblinProfile => _goblinProfile;
@@ -41,6 +45,7 @@ class LlmSettingsService extends ChangeNotifier {
       };
 
   bool get isEnabled => _enabled;
+  bool get debugMode => _debugMode;
 
   // Returns a client only when LLM is enabled and a profile is configured.
   DecompositionClient? buildClient() {
@@ -52,6 +57,12 @@ class LlmSettingsService extends ChangeNotifier {
   Future<void> setEnabled(bool enabled) async {
     _enabled = enabled;
     await _box.put(_enabledKey, enabled.toString());
+    notifyListeners();
+  }
+
+  Future<void> setDebugMode(bool value) async {
+    _debugMode = value;
+    await _box.put(_debugModeKey, value.toString());
     notifyListeners();
   }
 
@@ -105,6 +116,7 @@ class LlmSettingsService extends ChangeNotifier {
       goblinProfile: goblinProfile,
       activeType: box.get(_activeTypeKey),
       enabled: box.get(_enabledKey) == 'true',
+      debugMode: box.get(_debugModeKey) == 'true',
     );
 
     // --dart-define env vars overwrite stored OpenAI settings on launch.

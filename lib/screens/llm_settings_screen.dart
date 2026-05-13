@@ -16,9 +16,10 @@ class LlmSettingsScreen extends StatefulWidget {
 }
 
 class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
-  static const _presets = ['OpenAI Compatible', 'Goblin Tools'];
+  static const _presets = ['OpenAI Compatible', 'OpenRouter', 'Goblin Tools'];
 
   late bool _enabled;
+  late bool _debugMode;
 
   // Each profile type has its own draft so switching presets and back
   // does not discard previously entered values.
@@ -31,11 +32,24 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     _ => _openAiDraft,
   };
 
+  // When switching to the OpenRouter preset, pre-fill the URL if it's blank.
+  void _onPresetChangedWithDefaults(String preset) {
+    if (preset == 'OpenRouter' && _openAiDraft.endpointUrl.isEmpty) {
+      setState(() {
+        _openAiDraft = _openAiDraft.copyWith(
+          endpointUrl: 'https://openrouter.ai/api/v1',
+        );
+      });
+    }
+    _onPresetChanged(preset);
+  }
+
   @override
   void initState() {
     super.initState();
     final service = context.read<LlmSettingsService>();
     _enabled = service.isEnabled;
+    _debugMode = service.debugMode;
 
     // Each draft is initialised from its own stored slot, so switching active
     // preset and saving never wipes the other type's configuration.
@@ -44,6 +58,9 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
 
     _selectedPreset = switch (service.activeProfile) {
       GoblinToolsProfile() => 'Goblin Tools',
+      OpenAiCompatibleProfile(endpointUrl: final url)
+          when url.contains('openrouter.ai') =>
+        'OpenRouter',
       _ => 'OpenAI Compatible',
     };
   }
@@ -55,6 +72,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
     await service.setEnabled(_enabled);
+    await service.setDebugMode(_debugMode);
     await service.setProfile(_draft);
     if (!mounted) return;
     Navigator.pop(context);
@@ -86,10 +104,19 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
             _PresetTile(
               selected: _selectedPreset,
               options: _presets,
-              onChanged: _onPresetChanged,
+              onChanged: _onPresetChangedWithDefaults,
             ),
             const Divider(height: 1),
             _buildForm(),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Debug mode'),
+              subtitle: const Text(
+                'Show full error details in failure notifications',
+              ),
+              value: _debugMode,
+              onChanged: (v) => setState(() => _debugMode = v),
+            ),
           ],
         ],
       ),
@@ -100,6 +127,12 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     'Goblin Tools' => _GoblinToolsForm(
         profile: _goblinDraft,
         onChanged: (p) => setState(() => _goblinDraft = p),
+      ),
+    'OpenRouter' => _OpenAiCompatibleForm(
+        profile: _openAiDraft,
+        onChanged: (p) => setState(() => _openAiDraft = p),
+        modelHint: 'e.g. meta-llama/llama-3.2-3b-instruct:free',
+        modelHelper: 'Find models at openrouter.ai/models',
       ),
     _ => _OpenAiCompatibleForm(
         profile: _openAiDraft,
@@ -151,8 +184,15 @@ class _PresetTile extends StatelessWidget {
 class _OpenAiCompatibleForm extends StatefulWidget {
   final OpenAiCompatibleProfile profile;
   final ValueChanged<OpenAiCompatibleProfile> onChanged;
+  final String? modelHint;
+  final String? modelHelper;
 
-  const _OpenAiCompatibleForm({required this.profile, required this.onChanged});
+  const _OpenAiCompatibleForm({
+    required this.profile,
+    required this.onChanged,
+    this.modelHint,
+    this.modelHelper,
+  });
 
   @override
   State<_OpenAiCompatibleForm> createState() => _OpenAiCompatibleFormState();
@@ -239,10 +279,11 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           padding: padding,
           child: TextField(
             controller: _modelController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Model ID',
-              hintText: 'llama3.2',
-              border: OutlineInputBorder(),
+              hintText: widget.modelHint ?? 'llama3.2',
+              helperText: widget.modelHelper,
+              border: const OutlineInputBorder(),
             ),
             autocorrect: false,
             textCapitalization: TextCapitalization.none,

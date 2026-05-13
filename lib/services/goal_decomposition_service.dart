@@ -146,6 +146,7 @@ class GoalDecompositionService {
       } catch (e) {
         debugPrint('LLM decomposition failed, using keyword fallback: $e');
         onFallback?.call();
+        state.fail(goalId, errorMessage: e.toString());
         descriptions = _scaffoldDescriptions(title, description);
       }
       onResult(descriptions);
