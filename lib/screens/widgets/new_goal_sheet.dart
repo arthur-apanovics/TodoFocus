@@ -40,7 +40,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     );
 
     widget.goalService.addGoal(goal);
-    if (context.mounted) Navigator.pop(context);
+    if (context.mounted) Navigator.pop(context, goal.goalId);
   }
 
   void _sendToInbox(BuildContext context) {

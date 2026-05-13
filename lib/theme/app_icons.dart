@@ -31,5 +31,5 @@ class AppIcons {
   static const IconData delete = Icons.delete_outline;
 
   /// Marks an item that is queued up
-  static const IconData nextInQueue = Icons.arrow_right_outlined;
+  static const IconData nextInQueue = Icons.subdirectory_arrow_right_outlined;
 }

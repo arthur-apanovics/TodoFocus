@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/screens/focus_screen.dart';
+import 'package:todo_app/screens/goal_detail_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/inbox_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
@@ -139,8 +140,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final decompositionService = context.read<GoalDecompositionService>();
 
     return FloatingActionButton(
-      onPressed: () {
-        showModalBottomSheet(
+      onPressed: () async {
+        final goalId = await showModalBottomSheet<String>(
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
@@ -149,6 +150,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             decompositionService: decompositionService,
           ),
         );
+        if (goalId != null && context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GoalDetailScreen(goalId: goalId),
+            ),
+          );
+        }
       },
       child: const Icon(Icons.add),
     );

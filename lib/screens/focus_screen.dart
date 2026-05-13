@@ -6,6 +6,7 @@ import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
+import 'goal_detail_screen.dart';
 
 class FocusScreen extends StatelessWidget {
   const FocusScreen({super.key});
@@ -56,9 +57,17 @@ class _FocusGoalCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      clipBehavior: Clip.hardEdge,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Goal header row
@@ -128,6 +137,7 @@ class _FocusGoalCard extends StatelessWidget {
               ],
             ],
           ],
+          ),
         ),
       ),
     );
@@ -192,7 +202,7 @@ class _NextSubTaskPeek extends StatelessWidget {
           // subtask, just passive here (peek) rather than active (CTA).
           // Routing through AppIcons keeps the visual grammar consistent
           // if you swap the pending-shape later.
-          const Icon(AppIcons.nextInQueue, size: 28),
+          const Icon(AppIcons.nextInQueue, size: 18),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
