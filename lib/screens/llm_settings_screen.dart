@@ -19,6 +19,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   static const _presets = ['OpenAI Compatible', 'OpenRouter', 'Goblin Tools'];
 
   late bool _enabled;
+  late bool _debugMode;
 
   // Each profile type has its own draft so switching presets and back
   // does not discard previously entered values.
@@ -48,6 +49,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     super.initState();
     final service = context.read<LlmSettingsService>();
     _enabled = service.isEnabled;
+    _debugMode = service.debugMode;
 
     // Each draft is initialised from its own stored slot, so switching active
     // preset and saving never wipes the other type's configuration.
@@ -70,6 +72,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
     await service.setEnabled(_enabled);
+    await service.setDebugMode(_debugMode);
     await service.setProfile(_draft);
     if (!mounted) return;
     Navigator.pop(context);
@@ -105,6 +108,15 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
             ),
             const Divider(height: 1),
             _buildForm(),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Debug mode'),
+              subtitle: const Text(
+                'Show full error details in failure notifications',
+              ),
+              value: _debugMode,
+              onChanged: (v) => setState(() => _debugMode = v),
+            ),
           ],
         ],
       ),

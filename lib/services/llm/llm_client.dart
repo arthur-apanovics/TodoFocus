@@ -56,7 +56,10 @@ class LlmClient {
         .timeout(config.timeout);
 
     if (response.statusCode != 200) {
-      throw Exception('LLM request failed: ${response.statusCode}');
+      final body = response.body.length > 300
+          ? '${response.body.substring(0, 300)}…'
+          : response.body;
+      throw Exception('HTTP ${response.statusCode}: $body');
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;

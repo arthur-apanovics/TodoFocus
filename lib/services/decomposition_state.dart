@@ -6,10 +6,12 @@ import 'package:flutter/foundation.dart';
 // templates, so the goal detail screen can surface a notification.
 class DecompositionState extends ChangeNotifier {
   final _inFlight = <String>{};
-  final _fallbacks = <String>{};
+  // Maps goalId → error message (null when no detail is available).
+  final _fallbacks = <String, String?>{};
 
   bool isDecomposing(String goalId) => _inFlight.contains(goalId);
-  bool hasFallback(String goalId) => _fallbacks.contains(goalId);
+  bool hasFallback(String goalId) => _fallbacks.containsKey(goalId);
+  String? fallbackError(String goalId) => _fallbacks[goalId];
 
   void begin(String goalId) {
     _inFlight.add(goalId);
@@ -22,12 +24,13 @@ class DecompositionState extends ChangeNotifier {
   }
 
   // Called when an LLM was configured but failed — keyword templates were used.
-  void fail(String goalId) {
-    _fallbacks.add(goalId);
+  // [errorMessage] is the raw exception string; stored for debug display.
+  void fail(String goalId, {String? errorMessage}) {
+    _fallbacks[goalId] = errorMessage;
     notifyListeners();
   }
 
   void clearFallback(String goalId) {
-    if (_fallbacks.remove(goalId)) notifyListeners();
+    if (_fallbacks.remove(goalId) != null) notifyListeners();
   }
 }

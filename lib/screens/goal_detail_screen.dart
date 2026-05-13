@@ -10,6 +10,7 @@ import '../services/decomposition_state.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
@@ -44,11 +45,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   void _onDecompositionChanged() {
     if (!mounted) return;
     if (_decompositionState.hasFallback(widget.goalId)) {
+      final error = _decompositionState.fallbackError(widget.goalId);
       _decompositionState.clearFallback(widget.goalId);
+      final debugMode = context.read<LlmSettingsService>().debugMode;
+      final message = debugMode && error != null
+          ? error
+          : 'AI unavailable — template subtasks used instead';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('AI unavailable — template subtasks used instead'),
-        ),
+        SnackBar(content: Text(message)),
       );
     }
   }
