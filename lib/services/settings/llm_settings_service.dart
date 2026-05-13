@@ -4,49 +4,110 @@ import '../llm/decomposition_client.dart';
 import '../llm/llm_config.dart';
 import 'llm_profile.dart';
 
+// Each profile type is stored under its own key so switching active preset
+// never overwrites the other type's saved configuration.
 class LlmSettingsService extends ChangeNotifier {
   static const _boxName = 'app_settings';
-  static const _profileKey = 'active_profile';
+  static const _openAiKey = 'openai_profile';
+  static const _goblinKey = 'goblin_profile';
+  static const _activeTypeKey = 'active_profile_type';
   static const _enabledKey = 'llm_enabled';
 
   final Box<String> _box;
-  LlmProfile? _profile;
+  OpenAiCompatibleProfile _openAiProfile;
+  GoblinToolsProfile _goblinProfile;
+  String? _activeType; // typeKey of whichever preset is currently active
   bool _enabled;
 
-  LlmSettingsService._(this._box)
-      : _enabled = _box.get(_enabledKey) == 'true' {
-    _profile = LlmProfile.tryDecode(_box.get(_profileKey));
-  }
+  LlmSettingsService._({
+    required Box<String> box,
+    required OpenAiCompatibleProfile openAiProfile,
+    required GoblinToolsProfile goblinProfile,
+    required String? activeType,
+    required bool enabled,
+  })  : _box = box,
+        _openAiProfile = openAiProfile,
+        _goblinProfile = goblinProfile,
+        _activeType = activeType,
+        _enabled = enabled;
 
-  LlmProfile? get activeProfile => _profile;
+  OpenAiCompatibleProfile get openAiProfile => _openAiProfile;
+  GoblinToolsProfile get goblinProfile => _goblinProfile;
+
+  LlmProfile? get activeProfile => switch (_activeType) {
+        OpenAiCompatibleProfile.typeKey => _openAiProfile,
+        GoblinToolsProfile.typeKey => _goblinProfile,
+        _ => null,
+      };
+
   bool get isEnabled => _enabled;
 
   // Returns a client only when LLM is enabled and a profile is configured.
   DecompositionClient? buildClient() {
     if (!_enabled) return null;
-    return _profile?.buildClient();
+    return activeProfile?.buildClient();
   }
 
-  // Toggles LLM on/off without discarding the stored profile.
-  void setEnabled(bool enabled) {
+  // Toggles LLM on/off without discarding the stored profiles.
+  Future<void> setEnabled(bool enabled) async {
     _enabled = enabled;
-    _box.put(_enabledKey, enabled.toString());
+    await _box.put(_enabledKey, enabled.toString());
     notifyListeners();
   }
 
-  // Persists the profile. Never deletes — use setEnabled(false) to disable.
-  void setProfile(LlmProfile profile) {
-    _profile = profile;
-    _box.put(_profileKey, profile.encode());
+  // Saves the profile under its own type key and updates the active type.
+  // Saving OpenAI settings never touches the stored Goblin config, and vice versa.
+  Future<void> setProfile(LlmProfile profile) async {
+    switch (profile) {
+      case OpenAiCompatibleProfile():
+        _openAiProfile = profile;
+        _activeType = OpenAiCompatibleProfile.typeKey;
+        await _box.put(_openAiKey, profile.encode());
+      case GoblinToolsProfile():
+        _goblinProfile = profile;
+        _activeType = GoblinToolsProfile.typeKey;
+        await _box.put(_goblinKey, profile.encode());
+    }
+    await _box.put(_activeTypeKey, _activeType!);
     notifyListeners();
   }
 
   static Future<LlmSettingsService> init() async {
     final box = await Hive.openBox<String>(_boxName);
-    final service = LlmSettingsService._(box);
 
-    // When --dart-define env vars are present they overwrite stored settings,
-    // acting as a build-time configuration shortcut (useful for dev/testing).
+    // --- One-time migration from old single-key format ---
+    final legacy = box.get('active_profile');
+    if (legacy != null &&
+        box.get(_openAiKey) == null &&
+        box.get(_goblinKey) == null) {
+      final old = LlmProfile.tryDecode(legacy);
+      if (old is OpenAiCompatibleProfile) {
+        await box.put(_openAiKey, old.encode());
+        await box.put(_activeTypeKey, OpenAiCompatibleProfile.typeKey);
+      } else if (old is GoblinToolsProfile) {
+        await box.put(_goblinKey, old.encode());
+        await box.put(_activeTypeKey, GoblinToolsProfile.typeKey);
+      }
+    }
+
+    final openAiProfile = _decodeAs<OpenAiCompatibleProfile>(
+          box.get(_openAiKey),
+        ) ??
+        const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
+
+    final goblinProfile =
+        _decodeAs<GoblinToolsProfile>(box.get(_goblinKey)) ??
+            const GoblinToolsProfile();
+
+    final service = LlmSettingsService._(
+      box: box,
+      openAiProfile: openAiProfile,
+      goblinProfile: goblinProfile,
+      activeType: box.get(_activeTypeKey),
+      enabled: box.get(_enabledKey) == 'true',
+    );
+
+    // --dart-define env vars overwrite stored OpenAI settings on launch.
     final envConfig = LlmConfig.fromEnvironment();
     if (envConfig != null) {
       final envProfile = OpenAiCompatibleProfile(
@@ -55,12 +116,19 @@ class LlmSettingsService extends ChangeNotifier {
         apiKey: envConfig.apiKey,
         temperature: envConfig.temperature,
       );
-      service._profile = envProfile;
+      service._openAiProfile = envProfile;
+      service._activeType = OpenAiCompatibleProfile.typeKey;
       service._enabled = true;
-      box.put(_profileKey, envProfile.encode());
-      box.put(_enabledKey, 'true');
+      await box.put(_openAiKey, envProfile.encode());
+      await box.put(_activeTypeKey, OpenAiCompatibleProfile.typeKey);
+      await box.put(_enabledKey, 'true');
     }
 
     return service;
+  }
+
+  static T? _decodeAs<T extends LlmProfile>(String? encoded) {
+    final profile = LlmProfile.tryDecode(encoded);
+    return profile is T ? profile : null;
   }
 }

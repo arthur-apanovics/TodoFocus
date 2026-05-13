@@ -37,14 +37,12 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     final service = context.read<LlmSettingsService>();
     _enabled = service.isEnabled;
 
-    final stored = service.activeProfile;
-    _openAiDraft = stored is OpenAiCompatibleProfile
-        ? stored
-        : const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
-    _goblinDraft =
-        stored is GoblinToolsProfile ? stored : const GoblinToolsProfile();
+    // Each draft is initialised from its own stored slot, so switching active
+    // preset and saving never wipes the other type's configuration.
+    _openAiDraft = service.openAiProfile;
+    _goblinDraft = service.goblinProfile;
 
-    _selectedPreset = switch (stored) {
+    _selectedPreset = switch (service.activeProfile) {
       GoblinToolsProfile() => 'Goblin Tools',
       _ => 'OpenAI Compatible',
     };
@@ -54,10 +52,11 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     setState(() => _selectedPreset = preset);
   }
 
-  void _save() {
+  Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
-    service.setEnabled(_enabled);
-    service.setProfile(_draft);
+    await service.setEnabled(_enabled);
+    await service.setProfile(_draft);
+    if (!mounted) return;
     Navigator.pop(context);
   }
 
@@ -308,6 +307,52 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
                                 Theme.of(context).colorScheme.onSurfaceVariant,
                           )),
                   Text('Creative',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          )),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Request timeout',
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  Text(
+                    '${widget.profile.timeout.inSeconds}s',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+              Slider(
+                value: widget.profile.timeout.inSeconds.toDouble(),
+                min: 10,
+                max: 300,
+                divisions: 29,
+                onChanged: (v) => widget.onChanged(widget.profile.copyWith(
+                  timeout: Duration(seconds: v.round()),
+                )),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('10s',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          )),
+                  Text('5 min',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color:
                                 Theme.of(context).colorScheme.onSurfaceVariant,

@@ -45,10 +45,13 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   static const String defaultBreakdownPrompt =
       OpenAiDecompositionClient.defaultBreakdownPrompt;
 
+  static const Duration defaultTimeout = Duration(seconds: 60);
+
   final String endpointUrl;
   final String modelId;
   final String? apiKey;
   final double temperature;
+  final Duration timeout;
   final String systemPrompt;
   final String breakdownPrompt;
 
@@ -57,6 +60,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     required this.modelId,
     this.apiKey,
     this.temperature = 0.3,
+    this.timeout = defaultTimeout,
     this.systemPrompt = defaultSystemPrompt,
     this.breakdownPrompt = defaultBreakdownPrompt,
   });
@@ -71,6 +75,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     'modelId': modelId,
     if (apiKey?.isNotEmpty == true) 'apiKey': apiKey,
     'temperature': temperature,
+    if (timeout != defaultTimeout) 'timeoutSeconds': timeout.inSeconds,
     if (systemPrompt != defaultSystemPrompt) 'systemPrompt': systemPrompt,
     if (breakdownPrompt != defaultBreakdownPrompt)
       'breakdownPrompt': breakdownPrompt,
@@ -82,6 +87,9 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       modelId: json['modelId'] as String? ?? '',
       apiKey: json['apiKey'] as String?,
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.3,
+      timeout: json['timeoutSeconds'] != null
+          ? Duration(seconds: json['timeoutSeconds'] as int)
+          : defaultTimeout,
       systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
       breakdownPrompt:
           json['breakdownPrompt'] as String? ?? defaultBreakdownPrompt,
@@ -93,6 +101,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     String? modelId,
     String? apiKey,
     double? temperature,
+    Duration? timeout,
     String? systemPrompt,
     String? breakdownPrompt,
   }) {
@@ -101,6 +110,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       modelId: modelId ?? this.modelId,
       apiKey: apiKey ?? this.apiKey,
       temperature: temperature ?? this.temperature,
+      timeout: timeout ?? this.timeout,
       systemPrompt: systemPrompt ?? this.systemPrompt,
       breakdownPrompt: breakdownPrompt ?? this.breakdownPrompt,
     );
@@ -114,6 +124,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
         model: modelId,
         apiKey: apiKey,
         temperature: temperature,
+        timeout: timeout,
       )),
       systemPrompt: systemPrompt,
       breakdownPrompt: breakdownPrompt,
