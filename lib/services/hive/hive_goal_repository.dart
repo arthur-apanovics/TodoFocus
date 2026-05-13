@@ -15,8 +15,8 @@ class HiveGoalRepository extends GoalRepository {
   // repository is used — see main.dart initialisation below
   late final Box<GoalDto> _box;
 
-  HiveGoalRepository(this._box) {
-    if (_box.isEmpty) {
+  HiveGoalRepository(this._box, {bool seed = true}) {
+    if (seed && _box.isEmpty) {
       // Key by goalId to match save()/delete() — otherwise addAll uses
       // auto-incrementing integer keys and later saves create duplicates.
       _box.putAll({
@@ -56,9 +56,14 @@ class HiveGoalRepository extends GoalRepository {
       goalId: dto.goalId,
       title: dto.title,
       notes: dto.notes,
-      status: GoalStatus.values.byName(dto.status),
+      // Legacy "paused" records (from before pause was removed) silently
+      // become active. The next save() rewrites them with the new value.
+      status: dto.status == 'paused'
+          ? GoalStatus.active
+          : GoalStatus.values.byName(dto.status),
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
+      todayOrder: dto.todayOrder,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
   }
@@ -85,6 +90,7 @@ class HiveGoalRepository extends GoalRepository {
       ..status = goal.status.name
       ..dueDate = goal.dueDate
       ..isFocusedToday = goal.isFocusedToday
+      ..todayOrder = goal.todayOrder
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;
   }

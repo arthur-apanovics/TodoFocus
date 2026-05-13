@@ -13,11 +13,18 @@ class GoalQueries {
   List<Goal> get goals =>
       _repository.all.where((g) => g.status != GoalStatus.inbox).toList();
 
-  List<Goal> get todayQueue => _repository.all
-      .where(
-        (g) => g.isFocusedToday && g.isDailyAssignable && g.subtasks.isNotEmpty,
-      )
-      .toList();
+  List<Goal> get inbox =>
+      _repository.all.where((g) => g.status == GoalStatus.inbox).toList();
+
+  List<Goal> get todayQueue {
+    final queue = _repository.all
+        .where(
+          (g) => g.isFocusedToday && g.isDailyAssignable && g.subtasks.isNotEmpty,
+        )
+        .toList();
+    queue.sort((a, b) => a.todayOrder.compareTo(b.todayOrder));
+    return queue;
+  }
 
   List<SubTask> pendingSubTasksFor(String goalId) =>
       _repository

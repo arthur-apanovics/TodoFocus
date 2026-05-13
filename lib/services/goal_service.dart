@@ -24,23 +24,42 @@ class GoalService {
     _repository.save(goal);
   }
 
-  void pauseGoal(String goalId) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) return;
-    goal.pause();
-    _repository.save(goal);
-  }
-
-  void resumeGoal(String goalId) {
-    final goal = _repository.findById(goalId);
-    if (goal == null) return;
-    goal.resume();
-    _repository.save(goal);
-  }
-
   void toggleFocusToday(Goal goal) {
     goal.isFocusedToday = !goal.isFocusedToday;
+    if (goal.isFocusedToday) {
+      // Append to the bottom of the today queue by giving this goal a higher
+      // todayOrder than any currently-focused goal.
+      final maxOrder = _repository.all
+          .where((g) => g.isFocusedToday && g.goalId != goal.goalId)
+          .fold<int>(-1, (m, g) => g.todayOrder > m ? g.todayOrder : m);
+      goal.todayOrder = maxOrder + 1;
+    }
     _repository.save(goal);
+  }
+
+  // Reorders the today queue based on the visible list shown to the user.
+  // Caller passes the *current* ordered queue (e.g. queries.todayQueue) and
+  // the indices supplied by ReorderableListView. We normalise newIndex,
+  // rebuild the list, then write back 0..n-1 to each goal's todayOrder.
+  void reorderTodayQueue(
+    List<Goal> currentQueue,
+    int oldIndex,
+    int newIndex,
+  ) {
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (oldIndex == newIndex) return;
+
+    final reordered = List<Goal>.from(currentQueue);
+    final moving = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, moving);
+
+    for (var i = 0; i < reordered.length; i++) {
+      final goal = reordered[i];
+      if (goal.todayOrder != i) {
+        goal.todayOrder = i;
+        _repository.save(goal);
+      }
+    }
   }
 
   // --- SubTask operations ---

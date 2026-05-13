@@ -1,0 +1,72 @@
+name: Build Android APK
+
+# Two ways this workflow runs:
+#   1. workflow_dispatch — manual trigger from the Actions tab in GitHub.
+#      The APK is uploaded as a workflow artifact (zip, requires GitHub login).
+#   2. push of a tag matching `v*` (e.g. v1.0.0) — produces a public GitHub
+#      Release with the APKs attached, giving you direct download URLs.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# Releases need write access to the repo's Contents API.
+# workflow_dispatch runs don't need this, but granting it at the workflow
+# level keeps the config simple and only applies during tag pushes.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Flutter needs a JDK to invoke Gradle for the Android build.
+      # JDK 17 is the current LTS that Android Gradle Plugin 8.x expects.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # subosito/flutter-action is the de facto Flutter CI action.
+      # `channel: stable` tracks the latest stable Flutter release.
+      # Pin `flutter-version` (e.g. '3.27.1') if you want reproducible builds.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # --target-platform restricts the build to a single ABI. arm64-v8a
+      # covers all modern Android phones (last ~6 years). Faster build,
+      # smaller output, no unused variants.
+      - name: Build release APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      # Always upload as an artifact so manual runs have something to download.
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: todo-app-apks
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+
+      # Only runs when the trigger was a tag push. `startsWith` matches our
+      # `v*` tag pattern. The release is created (or updated) with the same
+      # name as the tag, and the APKs are attached as downloadable assets.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/*.apk
+          # generate_release_notes auto-builds the release body from commits
+          # since the last tag — saves you writing changelogs by hand.
+          generate_release_notes: true

@@ -9,6 +9,9 @@ class Goal {
   GoalStatus status;
   final DateTime? dueDate;
   bool isFocusedToday;
+  // Position within the today queue when isFocusedToday is true. Ignored
+  // otherwise. Lower values render first in the Focus screen.
+  int todayOrder;
   final List<SubTask> subtasks;
 
   Goal({
@@ -18,6 +21,7 @@ class Goal {
     this.status = GoalStatus.active,
     this.dueDate,
     this.isFocusedToday = false,
+    this.todayOrder = 0,
     List<SubTask>? subtasks,
   }) : subtasks = subtasks ?? [];
 
@@ -54,7 +58,13 @@ class Goal {
 
   // --- Mutations ---
 
-  void addSubTask(SubTask task) => subtasks.add(task);
+  void addSubTask(SubTask task) {
+    subtasks.add(task);
+    // Recalculate so an inbox goal becomes active when its first subtask
+    // is added, and a completed goal becomes active again if a subtask
+    // is appended after the fact.
+    _recalculateStatus();
+  }
 
   // Replaces a single subtask in-place with one or more replacements,
   // preserving list order. Used for splitting a subtask into smaller steps.
@@ -115,15 +125,7 @@ class Goal {
     subtasks.insert(newIndex, movingTask);
   }
 
-  void pause() => status = GoalStatus.paused;
-
-  void resume() {
-    status = GoalStatus.active;
-    _recalculateStatus();
-  }
-
   void _recalculateStatus() {
-    if (status == GoalStatus.paused) return;
     final allDone =
         subtasks.isNotEmpty &&
         subtasks.every((t) => t.state == SubTaskState.completed);
@@ -139,6 +141,7 @@ class Goal {
     'status': status.name,
     'dueDate': dueDate?.toIso8601String(),
     'isFocusedToday': isFocusedToday,
+    'todayOrder': todayOrder,
     'subtasks': subtasks.map((t) => t.toJson()).toList(),
   };
 
@@ -152,6 +155,7 @@ class Goal {
           ? DateTime.parse(json['dueDate'] as String)
           : null,
       isFocusedToday: json['isFocusedToday'] as bool? ?? false,
+      todayOrder: json['todayOrder'] as int? ?? 0,
       subtasks:
           (json['subtasks'] as List<dynamic>?)
               ?.map((t) => SubTask.fromJson(t as Map<String, dynamic>))

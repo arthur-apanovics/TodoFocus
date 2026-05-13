@@ -48,10 +48,9 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
 
     if (!context.mounted) return;
 
-    // Capture messenger before popping so we can show the snackbar after
-    // the sheet is dismissed (the sheet's context becomes invalid after pop).
+    // Capture messenger before popping — the sheet's context is invalid after pop.
     final messenger = ScaffoldMessenger.of(context);
-    Navigator.pop(context);
+    Navigator.pop(context, goal.goalId);
 
     if (usedFallback) {
       messenger.showSnackBar(

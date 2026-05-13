@@ -4,6 +4,9 @@ import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
+import 'goal_detail_screen.dart';
 
 class FocusScreen extends StatelessWidget {
   const FocusScreen({super.key});
@@ -17,11 +20,24 @@ class FocusScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Today')),
       body: focusedGoals.isEmpty
           ? const _EmptyFocusState()
-          : ListView.builder(
+          : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: focusedGoals.length,
+              // Drag handle is rendered explicitly on each card, so the
+              // whole tile isn't grab-on-long-press.
+              buildDefaultDragHandles: false,
+              onReorder: (oldIndex, newIndex) {
+                context
+                    .read<GoalService>()
+                    .reorderTodayQueue(focusedGoals, oldIndex, newIndex);
+              },
               itemBuilder: (context, index) {
-                return _FocusGoalCard(goal: focusedGoals[index]);
+                final goal = focusedGoals[index];
+                return _FocusGoalCard(
+                  key: ValueKey(goal.goalId),
+                  goal: goal,
+                  index: index,
+                );
               },
             ),
     );
@@ -31,8 +47,9 @@ class FocusScreen extends StatelessWidget {
 // Each goal gets a card showing current + next subtask
 class _FocusGoalCard extends StatelessWidget {
   final Goal goal;
+  final int index;
 
-  const _FocusGoalCard({required this.goal});
+  const _FocusGoalCard({super.key, required this.goal, required this.index});
 
   @override
   Widget build(BuildContext context) {
@@ -40,14 +57,32 @@ class _FocusGoalCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      clipBehavior: Clip.hardEdge,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Goal header row
             Row(
               children: [
+                // Drag handle — touch target for reordering the today queue.
+                // ReorderableDragStartListener works only inside a
+                // ReorderableListView with matching index.
+                ReorderableDragStartListener(
+                  index: index,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(Icons.drag_handle, color: AppColors.muted),
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     goal.title,
@@ -64,8 +99,8 @@ class _FocusGoalCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: isAllDone
-                        ? Colors.green.shade50
-                        : Colors.indigo.shade50,
+                        ? AppColors.successSurface
+                        : AppColors.accentSurface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -73,7 +108,7 @@ class _FocusGoalCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: isAllDone ? Colors.green : Colors.indigo,
+                      color: isAllDone ? AppColors.success : AppColors.accent,
                     ),
                   ),
                 ),
@@ -102,6 +137,7 @@ class _FocusGoalCard extends StatelessWidget {
               ],
             ],
           ],
+          ),
         ),
       ),
     );
@@ -120,21 +156,19 @@ class _CurrentSubTaskRow extends StatelessWidget {
     final current = goal.currentSubTask!;
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Complete button
+        // Complete button — hollow circle, matching the Goal Detail screen.
+        // Filled green check is reserved for the all-done celebration state
+        // (see _AllDoneRow), so the shape distinction stays clear:
+        // hollow = "tap me", filled = "settled state".
         IconButton(
-          icon: const Icon(
-            Icons.check_circle_outline,
-            color: Colors.indigo,
-            size: 28,
-          ),
+          icon: Icon(AppIcons.complete, color: AppColors.accent, size: 28),
           tooltip: 'Mark complete',
           onPressed: () => service.completeCurrentSubTask(goal.goalId),
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(),
         ),
-        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,13 +176,6 @@ class _CurrentSubTaskRow extends StatelessWidget {
               Text(
                 current.description,
                 style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Current step',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.indigo),
               ),
             ],
           ),
@@ -169,9 +196,13 @@ class _NextSubTaskPeek extends StatelessWidget {
     return Opacity(
       opacity: 0.45,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Icon(Icons.radio_button_unchecked, size: 28),
+          // Same glyph as AppIcons.complete — both represent a pending
+          // subtask, just passive here (peek) rather than active (CTA).
+          // Routing through AppIcons keeps the visual grammar consistent
+          // if you swap the pending-shape later.
+          const Icon(AppIcons.nextInQueue, size: 18),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -180,13 +211,6 @@ class _NextSubTaskPeek extends StatelessWidget {
                 Text(
                   subtask.description,
                   style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Up next',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                 ),
               ],
             ),
@@ -207,13 +231,13 @@ class _AllDoneRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(Icons.check_circle, color: Colors.green, size: 28),
+        Icon(Icons.check_circle, color: AppColors.success, size: 28),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             'All ${goal.subtasks.length} steps complete',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.green,
+              color: AppColors.success,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -229,17 +253,17 @@ class _EmptyFocusState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.bolt_outlined, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
-          Text('Nothing scheduled for today'),
-          SizedBox(height: 4),
+          Icon(Icons.bolt_outlined, size: 48, color: AppColors.muted),
+          const SizedBox(height: 12),
+          const Text('Nothing scheduled for today'),
+          const SizedBox(height: 4),
           Text(
             'Swipe right on a goal to add it here',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
         ],

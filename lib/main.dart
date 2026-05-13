@@ -1,89 +1,155 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/screens/focus_screen.dart';
+import 'package:todo_app/screens/goal_detail_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
+import 'package:todo_app/screens/inbox_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
+import 'package:todo_app/services/notification_service.dart';
+import 'services/goal_decomposition_service.dart';
+import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
-import 'services/goal_queries.dart';
-import 'services/goal_decomposition_service.dart';
 import 'services/llm/llm_config.dart';
 import 'services/llm/llm_client.dart';
+import 'theme/app_colors.dart';
 
 void main() async {
-  // Required before any async work in main()
-  // Ensures Flutter engine is ready before we do anything
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialise Hive and open the box before the app starts
   final goalRepository = await HiveGoalRepository.init();
 
   final llmConfig = LlmConfig.fromEnvironment();
   final llmClient = llmConfig != null ? LlmClient(llmConfig) : null;
 
-  runApp(TodoApp(goalRepository: goalRepository, llmClient: llmClient));
+  final tabNotifier = ValueNotifier<int>(0);
+
+  final notificationService = NotificationService(
+    tabNotifier: tabNotifier,
+    repository: goalRepository,
+  );
+  await notificationService.init();
+
+  goalRepository.addListener(() {
+    notificationService.update(GoalQueries(goalRepository).todayQueue);
+  });
+
+  // Show initial state on startup (covers app restart with focused goals).
+  notificationService.update(GoalQueries(goalRepository).todayQueue);
+
+  runApp(TodoApp(
+    goalRepository: goalRepository,
+    llmClient: llmClient,
+    notificationService: notificationService,
+    tabNotifier: tabNotifier,
+  ));
 }
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
   final LlmClient? llmClient;
+  final NotificationService notificationService;
+  final ValueNotifier<int> tabNotifier;
 
-  const TodoApp({super.key, required this.goalRepository, this.llmClient});
+  const TodoApp({
+    super.key,
+    required this.goalRepository,
+    this.llmClient,
+    required this.notificationService,
+    required this.tabNotifier,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // Provide the already-initialised repository directly
         ChangeNotifierProvider<GoalRepository>.value(value: goalRepository),
-
         ProxyProvider<GoalRepository, GoalService>(
-          update: (_, repository, __) => GoalService(repository),
+          update: (_, repository, _) => GoalService(repository),
         ),
         ProxyProvider<GoalRepository, GoalQueries>(
-          update: (_, repository, __) => GoalQueries(repository),
+          update: (_, repository, _) => GoalQueries(repository),
         ),
         Provider(create: (_) => GoalDecompositionService(llm: llmClient)),
+        // Exposed so AppShell can re-post the notification on resume.
+        Provider<NotificationService>.value(value: notificationService),
       ],
       child: MaterialApp(
         title: 'Todo App',
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+          colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: const AppShell(),
+        home: AppShell(tabNotifier: tabNotifier),
       ),
     );
   }
 }
 
-// Bottom navigation shell — holds the three top-level screens
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  final ValueNotifier<int> tabNotifier;
+
+  const AppShell({super.key, required this.tabNotifier});
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
-  int _currentIndex = 0;
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
+  late int _currentIndex;
 
-  // The three top-level screens — instantiated once, not rebuilt on tab switch
   static const List<Widget> _screens = [
     FocusScreen(),
     GoalsScreen(),
-    Center(child: Text('Inbox — coming soon')),
+    InboxScreen(),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.tabNotifier.value;
+    widget.tabNotifier.addListener(_onExternalTabChange);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.tabNotifier.removeListener(_onExternalTabChange);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-post the notification in case it was cleared while backgrounded.
+      // ongoing: true blocks swipe-to-dismiss but not long-press clear or
+      // system memory pressure, so we always re-assert it on resume.
+      final repo = context.read<GoalRepository>();
+      context.read<NotificationService>()
+          .update(GoalQueries(repo).todayQueue);
+    }
+  }
+
+  void _onExternalTabChange() {
+    if (mounted && widget.tabNotifier.value != _currentIndex) {
+      setState(() => _currentIndex = widget.tabNotifier.value);
+    }
+  }
+
+  void _onDestinationSelected(int index) {
+    setState(() => _currentIndex = index);
+    widget.tabNotifier.value = index;
+  }
+
   FloatingActionButton _buildFab(BuildContext context) {
-    // Read services once — not watched, just needed for the action
     final goalService = context.read<GoalService>();
     final decompositionService = context.read<GoalDecompositionService>();
 
     return FloatingActionButton(
-      onPressed: () {
-        showModalBottomSheet(
+      onPressed: () async {
+        final goalId = await showModalBottomSheet<String>(
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
@@ -92,6 +158,14 @@ class _AppShellState extends State<AppShell> {
             decompositionService: decompositionService,
           ),
         );
+        if (goalId != null && context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GoalDetailScreen(goalId: goalId),
+            ),
+          );
+        }
       },
       child: const Icon(Icons.add),
     );
@@ -104,9 +178,7 @@ class _AppShellState extends State<AppShell> {
       floatingActionButton: _buildFab(context),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
+        onDestinationSelected: _onDestinationSelected,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.bolt_outlined),
