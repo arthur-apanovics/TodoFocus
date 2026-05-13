@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/goal_repository.dart';
+import '../services/settings/llm_settings_service.dart';
+import 'llm_settings_screen.dart';
 
 // Settings are organised into named sections. To add a new setting:
 //   1. Add a ListTile (or custom widget) inside the relevant _SettingsSection.
@@ -19,11 +21,7 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'AI Assistant',
             children: [
-              _ComingSoonTile(
-                icon: Icons.psychology_outlined,
-                title: 'LLM configuration',
-                subtitle: 'Server URL, model, and API key',
-              ),
+              _LlmConfigTile(),
             ],
           ),
           _SettingsSection(
@@ -115,6 +113,37 @@ class _ComingSoonBadge extends StatelessWidget {
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI Assistant section
+// ---------------------------------------------------------------------------
+
+class _LlmConfigTile extends StatelessWidget {
+  const _LlmConfigTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<LlmSettingsService>();
+    final profile = settings.activeProfile;
+    final enabled = settings.isEnabled;
+    return ListTile(
+      leading: const Icon(Icons.psychology_outlined),
+      title: const Text('LLM configuration'),
+      subtitle: Text(
+        enabled && profile != null
+            ? '${profile.displayName} — enabled'
+            : profile != null
+                ? '${profile.displayName} — disabled'
+                : 'Not configured',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LlmSettingsScreen()),
       ),
     );
   }

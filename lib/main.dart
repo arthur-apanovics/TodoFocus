@@ -12,17 +12,14 @@ import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
-import 'services/llm/llm_config.dart';
-import 'services/llm/llm_client.dart';
+import 'services/settings/llm_settings_service.dart';
 import 'theme/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final goalRepository = await HiveGoalRepository.init();
-
-  final llmConfig = LlmConfig.fromEnvironment();
-  final llmClient = llmConfig != null ? LlmClient(llmConfig) : null;
+  final llmSettingsService = await LlmSettingsService.init();
 
   final tabNotifier = ValueNotifier<int>(0);
 
@@ -41,7 +38,7 @@ void main() async {
 
   runApp(TodoApp(
     goalRepository: goalRepository,
-    llmClient: llmClient,
+    llmSettingsService: llmSettingsService,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
   ));
@@ -49,14 +46,14 @@ void main() async {
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
-  final LlmClient? llmClient;
+  final LlmSettingsService llmSettingsService;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
 
   const TodoApp({
     super.key,
     required this.goalRepository,
-    this.llmClient,
+    required this.llmSettingsService,
     required this.notificationService,
     required this.tabNotifier,
   });
@@ -66,13 +63,19 @@ class TodoApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<GoalRepository>.value(value: goalRepository),
+        ChangeNotifierProvider<LlmSettingsService>.value(
+          value: llmSettingsService,
+        ),
         ProxyProvider<GoalRepository, GoalService>(
           update: (_, repository, _) => GoalService(repository),
         ),
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, _) => GoalQueries(repository),
         ),
-        Provider(create: (_) => GoalDecompositionService(llm: llmClient)),
+        ProxyProvider<LlmSettingsService, GoalDecompositionService>(
+          update: (_, settings, __) =>
+              GoalDecompositionService(llm: settings.buildClient()),
+        ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
       ],
@@ -147,11 +150,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   FloatingActionButton _buildFab(BuildContext context) {
-    final goalService = context.read<GoalService>();
-    final decompositionService = context.read<GoalDecompositionService>();
-
     return FloatingActionButton(
       onPressed: () async {
+        // Read inside onPressed so we always get the current instances —
+        // reading at build time would capture stale references when
+        // LlmSettingsService notifies and ProxyProvider rebuilds the service.
+        final goalService = context.read<GoalService>();
+        final decompositionService = context.read<GoalDecompositionService>();
+
         final goalId = await showModalBottomSheet<String>(
           context: context,
           isScrollControlled: true,

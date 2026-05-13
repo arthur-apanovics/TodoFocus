@@ -44,7 +44,7 @@ class LlmClient {
         {'role': 'system', 'content': systemPrompt},
         {'role': 'user', 'content': userPrompt},
       ],
-      // 'temperature': 0.3,
+      'temperature': config.temperature,
     });
 
     final response = await _http

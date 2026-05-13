@@ -3,12 +3,14 @@ class LlmConfig {
   final String model;
   final String? apiKey;
   final Duration timeout;
+  final double temperature;
 
   const LlmConfig({
     required this.baseUrl,
     required this.model,
     this.apiKey,
     this.timeout = const Duration(seconds: 20),
+    this.temperature = 0.3,
   });
 
   // Reads from --dart-define build args; returns null when LLM_BASE_URL is absent,
