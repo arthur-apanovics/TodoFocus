@@ -45,6 +45,7 @@ void main() async {
     llmSettingsService: llmSettingsService,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
+    goalNavNotifier: goalNavNotifier,
   ));
 }
 
@@ -53,6 +54,7 @@ class TodoApp extends StatelessWidget {
   final LlmSettingsService llmSettingsService;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
   const TodoApp({
     super.key,
@@ -60,6 +62,7 @@ class TodoApp extends StatelessWidget {
     required this.llmSettingsService,
     required this.notificationService,
     required this.tabNotifier,
+    required this.goalNavNotifier,
   });
 
   @override

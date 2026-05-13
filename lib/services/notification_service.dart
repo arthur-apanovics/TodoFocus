@@ -1,82 +1,76 @@
-import 'package:flutter/foundation.dart';
+import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/goal.dart';
 import 'goal_repository.dart';
 import 'goal_service.dart';
 
 class NotificationService {
-  static const String markDoneActionId = 'mark_done';
-  static const String breakdownActionId = 'breakdown';
+  static const String markDoneActionKey = 'mark_done';
+  static const String breakdownActionKey = 'breakdown';
   static const int _notifId = 1;
-  static const String _channelId = 'focus_task_v2';
+  static const String _channelKey = 'focus_task';
   static const String _channelName = 'Focus Task';
 
-  final FlutterLocalNotificationsPlugin _plugin;
-  final ValueNotifier<int> _tabNotifier;
-  // Carries the goal to navigate to. The int seq increments on every tap so
-  // repeated taps on the same goal each fire the notifier.
-  final ValueNotifier<({String goalId, int seq, bool breakdown})?> _goalNavNotifier;
-  final GoalRepository _repository;
-
-  int _navSeq = 0;
+  // Static references used by the action callback. Must be static because
+  // awesome_notifications invokes the handler as a top-level entry point.
+  static GoalRepository? _repository;
+  static ValueNotifier<int>? _tabNotifier;
+  static ValueNotifier<({String goalId, int seq, bool breakdown})?>?
+      _goalNavNotifier;
+  static int _navSeq = 0;
 
   // Track what's currently shown so update() is a no-op when content hasn't
-  // changed. Without this, every app resume triggers show() which Android
-  // treats as a new notification event — sound and vibration included.
+  // changed — avoids re-triggering sound/vibration on every app resume.
   String? _shownGoalId;
   String? _shownSubtaskId;
 
   NotificationService({
     required ValueNotifier<int> tabNotifier,
-    required ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier,
+    required ValueNotifier<({String goalId, int seq, bool breakdown})?>
+        goalNavNotifier,
     required GoalRepository repository,
-  })  : _plugin = FlutterLocalNotificationsPlugin(),
-        _tabNotifier = tabNotifier,
-        _goalNavNotifier = goalNavNotifier,
-        _repository = repository;
+  }) {
+    _repository = repository;
+    _tabNotifier = tabNotifier;
+    _goalNavNotifier = goalNavNotifier;
+  }
 
   Future<void> init() async {
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-
-    // Importance must be set on channel creation and cannot be changed
-    // once the channel exists on the device.
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        _channelId,
-        _channelName,
-        description: 'Shows your current active subtask',
-        importance: Importance.high,
-      ),
+    await AwesomeNotifications().initialize(
+      null, // null = use the app's default launcher icon
+      [
+        NotificationChannel(
+          channelKey: _channelKey,
+          channelName: _channelName,
+          channelDescription: 'Shows your current active subtask',
+          importance: NotificationImportance.High,
+          defaultPrivacy: NotificationPrivacy.Public,
+        ),
+      ],
+      debug: false,
     );
 
-    // Request Android 13+ (API 33) notification permission.
-    // No-op on older APIs.
-    await androidPlugin?.requestNotificationsPermission();
-
-    await _plugin.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
-      onDidReceiveNotificationResponse: _onResponse,
+    await AwesomeNotifications().setListeners(
+      onActionReceivedMethod: _onActionReceived,
     );
 
-    // When the app is killed, onDidReceiveNotificationResponse never fires.
-    // Instead, check whether the app was cold-started by a notification tap
-    // and replay the action now that the repository is ready.
-    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
-    if (launchDetails?.didNotificationLaunchApp == true) {
-      final response = launchDetails!.notificationResponse;
-      if (response != null) _onResponse(response);
+    // Request Android 13+ notification permission; no-op on older APIs.
+    final allowed = await AwesomeNotifications().isNotificationAllowed();
+    if (!allowed) {
+      await AwesomeNotifications().requestPermissionToSendNotifications();
+    }
+
+    // Cold-start: app was launched by tapping a notification action.
+    final initialAction = await AwesomeNotifications()
+        .getInitialNotificationAction(removeFromActionEvents: true);
+    if (initialAction != null) {
+      await _onActionReceived(initialAction);
     }
   }
 
   Future<void> update(List<Goal> todayQueue) async {
     if (todayQueue.isEmpty) {
-      await _plugin.cancel(_notifId);
-      _shownGoalId = null;
-      _shownSubtaskId = null;
+      await dismiss();
       return;
     }
 
@@ -84,63 +78,63 @@ class NotificationService {
     final current = goal.currentSubTask;
 
     if (current == null) {
-      await _plugin.cancel(_notifId);
-      _shownGoalId = null;
-      _shownSubtaskId = null;
+      await dismiss();
       return;
     }
 
-    // Skip if the visible content hasn't changed — avoids re-triggering
-    // sound/vibration on app resume when the task is still the same.
+    // Skip re-posting unchanged content — avoids sound/vibration on resume.
     if (goal.goalId == _shownGoalId && current.subtaskId == _shownSubtaskId) {
       return;
     }
     _shownGoalId = goal.goalId;
     _shownSubtaskId = current.subtaskId;
 
-    await _plugin.show(
-      _notifId,
-      '❯ ${current.description}',
-      '↳ ${goal.nextSubTask != null ? goal.nextSubTask!.description : 'Completed!'}',
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: 'Shows your current active subtask',
-          importance: Importance.high,
-          priority: Priority.high,
-          ongoing: true,
-          autoCancel: false,
-          showWhen: false,
-          subText: goal.title,
-          actions: [
-            AndroidNotificationAction(
-              markDoneActionId,
-              goal.nextSubTask != null ? 'Next step' : 'Finish goal',
-              showsUserInterface: true,
-              cancelNotification: false,
-            ),
-            const AndroidNotificationAction(
-              breakdownActionId,
-              'Break it down',
-              showsUserInterface: true,
-              cancelNotification: false,
-            ),
-          ],
-        ),
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: _notifId,
+        channelKey: _channelKey,
+        title: '❯ ${current.description}',
+        body: goal.nextSubTask != null
+            ? '↳ ${goal.nextSubTask!.description}'
+            : '↳ Completed!',
+        summary: goal.title,
+        payload: {'goalId': goal.goalId},
+        notificationLayout: NotificationLayout.Default,
+        autoDismissible: false,
+        locked: true,
+        showWhen: false,
       ),
-      payload: goal.goalId,
+      actionButtons: [
+        NotificationActionButton(
+          key: markDoneActionKey,
+          label: goal.nextSubTask != null ? 'Next step' : 'Finish goal',
+        ),
+        const NotificationActionButton(
+          key: breakdownActionKey,
+          label: 'Break it down',
+        ),
+      ],
     );
   }
 
-  Future<void> dismiss() => _plugin.cancel(_notifId);
+  Future<void> dismiss() async {
+    await AwesomeNotifications().cancel(_notifId);
+    _shownGoalId = null;
+    _shownSubtaskId = null;
+  }
 
-  void _onResponse(NotificationResponse response) {
-    if (response.actionId == markDoneActionId) {
-      if (response.payload != null) {
-        GoalService(_repository).completeCurrentSubTask(response.payload!);
-        _goalNavNotifier.value = (
-          goalId: response.payload!,
+  // Must be a static method annotated with @pragma('vm:entry-point') so the
+  // Dart tree-shaker keeps it in release builds and awesome_notifications can
+  // invoke it from its plugin entry point.
+  @pragma('vm:entry-point')
+  static Future<void> _onActionReceived(ReceivedAction action) async {
+    final goalId = action.payload?['goalId'];
+
+    if (action.buttonKeyPressed == markDoneActionKey) {
+      if (goalId != null && _repository != null) {
+        GoalService(_repository!).completeCurrentSubTask(goalId);
+        _goalNavNotifier?.value = (
+          goalId: goalId,
           seq: ++_navSeq,
           breakdown: false,
         );
@@ -148,10 +142,10 @@ class NotificationService {
       return;
     }
 
-    if (response.actionId == breakdownActionId) {
-      if (response.payload != null) {
-        _goalNavNotifier.value = (
-          goalId: response.payload!,
+    if (action.buttonKeyPressed == breakdownActionKey) {
+      if (goalId != null) {
+        _goalNavNotifier?.value = (
+          goalId: goalId,
           seq: ++_navSeq,
           breakdown: true,
         );
@@ -159,7 +153,7 @@ class NotificationService {
       return;
     }
 
-    // Notification body tapped — open the Focus tab.
-    _tabNotifier.value = 0;
+    // Notification body tapped — switch to the Focus tab.
+    _tabNotifier?.value = 0;
   }
 }
