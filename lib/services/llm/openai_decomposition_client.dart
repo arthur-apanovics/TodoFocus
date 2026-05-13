@@ -10,17 +10,35 @@ class OpenAiDecompositionClient implements DecompositionClient {
       'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
       'Each step must be a single sentence that is very easy to action.';
 
+  static const defaultBreakdownPrompt =
+      'The user has ADHD and is feeling stuck on a subtask because it still feels too big. '
+      'Break it down further into 1–3 even smaller, more concrete, immediately actionable steps. '
+      'Each step must be a single sentence that requires almost no decision-making to start.';
+
   final LlmClient _llm;
   final String systemPrompt;
+  final String breakdownPrompt;
 
-  OpenAiDecompositionClient(this._llm,
-      {this.systemPrompt = defaultSystemPrompt});
+  OpenAiDecompositionClient(
+    this._llm, {
+    this.systemPrompt = defaultSystemPrompt,
+    this.breakdownPrompt = defaultBreakdownPrompt,
+  });
 
   static const _subtasksSchema = {
     'type': 'array',
     'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
     'minItems': 2,
     'maxItems': 10,
+  };
+
+  // Tighter bounds than decompose — breakdown turns one overwhelming subtask
+  // into 1–3 even smaller steps. More than 3 defeats the purpose.
+  static const _breakdownSchema = {
+    'type': 'array',
+    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
+    'minItems': 1,
+    'maxItems': 3,
   };
 
   @override
@@ -30,6 +48,16 @@ class OpenAiDecompositionClient implements DecompositionClient {
         : 'Goal: "$title"';
 
     final raw = await _llm.complete(systemPrompt, user, responseSchema: _subtasksSchema);
+    return _parseJsonArray(raw);
+  }
+
+  @override
+  Future<List<String>> breakdown(String subtaskDescription) async {
+    final raw = await _llm.complete(
+      breakdownPrompt,
+      'Subtask: "$subtaskDescription"',
+      responseSchema: _breakdownSchema,
+    );
     return _parseJsonArray(raw);
   }
 

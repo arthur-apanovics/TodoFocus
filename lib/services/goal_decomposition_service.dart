@@ -11,6 +11,25 @@ class GoalDecompositionService {
 
   GoalDecompositionService({DecompositionClient? client}) : _client = client;
 
+  /// Whether the service can break down individual subtasks via an external
+  /// provider. False means no LLM/Goblin profile is configured.
+  bool get canAutoBreakdown => _client != null;
+
+  /// Breaks an existing subtask down into 1–3 smaller steps via the configured
+  /// provider. Returns null if no provider is configured or the call failed —
+  /// callers should fall back to a manual flow.
+  Future<List<String>?> breakdownSubtask(String description) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.breakdown(description);
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Subtask breakdown failed: $e');
+      return null;
+    }
+  }
+
   // The single public method — takes raw user input, returns a structured Goal.
   // The method signature stays the same when swapping LLM providers.
   // [onLlmFallback] is called when an LLM was configured but fell back to

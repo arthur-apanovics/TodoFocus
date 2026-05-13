@@ -164,6 +164,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _promptController;
+  late final TextEditingController _breakdownPromptController;
   bool _apiKeyVisible = false;
 
   @override
@@ -173,6 +174,8 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _modelController = TextEditingController(text: widget.profile.modelId);
     _apiKeyController = TextEditingController(text: widget.profile.apiKey ?? '');
     _promptController = TextEditingController(text: widget.profile.systemPrompt);
+    _breakdownPromptController =
+        TextEditingController(text: widget.profile.breakdownPrompt);
   }
 
   @override
@@ -181,6 +184,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _modelController.dispose();
     _apiKeyController.dispose();
     _promptController.dispose();
+    _breakdownPromptController.dispose();
     super.dispose();
   }
 
@@ -192,6 +196,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           ? null
           : _apiKeyController.text.trim(),
       systemPrompt: _promptController.text,
+      breakdownPrompt: _breakdownPromptController.text,
     ));
   }
 
@@ -202,11 +207,17 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     ));
   }
 
+  void _restoreDefaultBreakdownPrompt() {
+    _breakdownPromptController.text =
+        OpenAiCompatibleProfile.defaultBreakdownPrompt;
+    widget.onChanged(widget.profile.copyWith(
+      breakdownPrompt: OpenAiCompatibleProfile.defaultBreakdownPrompt,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     const padding = EdgeInsets.fromLTRB(16, 12, 16, 4);
-    final isDefaultPrompt =
-        widget.profile.systemPrompt == OpenAiCompatibleProfile.defaultSystemPrompt;
 
     return Column(
       children: [
@@ -306,44 +317,91 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text('System prompt',
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  if (!isDefaultPrompt)
-                    TextButton(
-                      onPressed: _restoreDefaultPrompt,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('Restore default'),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _promptController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: null,
-                minLines: 3,
-                textCapitalization: TextCapitalization.sentences,
-                onChanged: (_) => _notifyFields(),
-              ),
-            ],
-          ),
+        _PromptSection(
+          label: 'Goal decomposition prompt',
+          helper: 'Used when a new goal is broken into subtasks.',
+          controller: _promptController,
+          isDefault: widget.profile.systemPrompt ==
+              OpenAiCompatibleProfile.defaultSystemPrompt,
+          onRestore: _restoreDefaultPrompt,
+          onChanged: _notifyFields,
+        ),
+        _PromptSection(
+          label: 'Subtask breakdown prompt',
+          helper:
+              'Used when an existing subtask is broken down into smaller steps.',
+          controller: _breakdownPromptController,
+          isDefault: widget.profile.breakdownPrompt ==
+              OpenAiCompatibleProfile.defaultBreakdownPrompt,
+          onRestore: _restoreDefaultBreakdownPrompt,
+          onChanged: _notifyFields,
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+class _PromptSection extends StatelessWidget {
+  final String label;
+  final String helper;
+  final TextEditingController controller;
+  final bool isDefault;
+  final VoidCallback onRestore;
+  final VoidCallback onChanged;
+
+  const _PromptSection({
+    required this.label,
+    required this.helper,
+    required this.controller,
+    required this.isDefault,
+    required this.onRestore,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodyMedium),
+              if (!isDefault)
+                TextButton(
+                  onPressed: onRestore,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Restore default'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            helper,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+            ),
+            maxLines: null,
+            minLines: 3,
+            textCapitalization: TextCapitalization.sentences,
+            onChanged: (_) => onChanged(),
+          ),
+        ],
+      ),
     );
   }
 }

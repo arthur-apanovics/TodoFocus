@@ -42,12 +42,15 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   static const String typeKey = 'openai_compatible';
   static const String defaultSystemPrompt =
       OpenAiDecompositionClient.defaultSystemPrompt;
+  static const String defaultBreakdownPrompt =
+      OpenAiDecompositionClient.defaultBreakdownPrompt;
 
   final String endpointUrl;
   final String modelId;
   final String? apiKey;
   final double temperature;
   final String systemPrompt;
+  final String breakdownPrompt;
 
   const OpenAiCompatibleProfile({
     required this.endpointUrl,
@@ -55,6 +58,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     this.apiKey,
     this.temperature = 0.3,
     this.systemPrompt = defaultSystemPrompt,
+    this.breakdownPrompt = defaultBreakdownPrompt,
   });
 
   @override
@@ -68,6 +72,8 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     if (apiKey?.isNotEmpty == true) 'apiKey': apiKey,
     'temperature': temperature,
     if (systemPrompt != defaultSystemPrompt) 'systemPrompt': systemPrompt,
+    if (breakdownPrompt != defaultBreakdownPrompt)
+      'breakdownPrompt': breakdownPrompt,
   };
 
   factory OpenAiCompatibleProfile.fromJson(Map<String, dynamic> json) {
@@ -77,6 +83,8 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       apiKey: json['apiKey'] as String?,
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.3,
       systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
+      breakdownPrompt:
+          json['breakdownPrompt'] as String? ?? defaultBreakdownPrompt,
     );
   }
 
@@ -86,6 +94,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     String? apiKey,
     double? temperature,
     String? systemPrompt,
+    String? breakdownPrompt,
   }) {
     return OpenAiCompatibleProfile(
       endpointUrl: endpointUrl ?? this.endpointUrl,
@@ -93,6 +102,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       apiKey: apiKey ?? this.apiKey,
       temperature: temperature ?? this.temperature,
       systemPrompt: systemPrompt ?? this.systemPrompt,
+      breakdownPrompt: breakdownPrompt ?? this.breakdownPrompt,
     );
   }
 
@@ -106,6 +116,7 @@ final class OpenAiCompatibleProfile extends LlmProfile {
         temperature: temperature,
       )),
       systemPrompt: systemPrompt,
+      breakdownPrompt: breakdownPrompt,
     );
   }
 }

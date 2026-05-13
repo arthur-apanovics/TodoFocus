@@ -3,6 +3,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
@@ -304,7 +305,7 @@ class _GoalMenuButton extends StatelessWidget {
 
 // --- Subtask tile ---
 
-class SubTaskTile extends StatelessWidget {
+class SubTaskTile extends StatefulWidget {
   final SubTask subtask;
   final Goal goal; // need the parent goal to check isCurrentSubTask
   final int index;
@@ -315,6 +316,19 @@ class SubTaskTile extends StatelessWidget {
     required this.goal,
     required this.index,
   });
+
+  @override
+  State<SubTaskTile> createState() => _SubTaskTileState();
+}
+
+class _SubTaskTileState extends State<SubTaskTile> {
+  // Locks editing, swiping, dragging, and the trailing action while the
+  // breakdown provider is being awaited.
+  bool _isBreakingDown = false;
+
+  SubTask get subtask => widget.subtask;
+  Goal get goal => widget.goal;
+  int get index => widget.index;
 
   @override
   Widget build(BuildContext context) {
@@ -334,6 +348,10 @@ class SubTaskTile extends StatelessWidget {
       color: Theme.of(context).colorScheme.surface,
       child: Slidable(
         key: ValueKey(subtask.subtaskId),
+        // Disable swipe-to-delete during breakdown — otherwise the user could
+        // delete the row while the result is in flight and the response would
+        // silently miss its target.
+        enabled: !_isBreakingDown,
         endActionPane: ActionPane(
           motion: const BehindMotion(),
           extentRatio: 0.25,
@@ -349,9 +367,13 @@ class SubTaskTile extends StatelessWidget {
           ],
         ),
         child: Opacity(
-          opacity: (isCurrent || isCompleted) ? 1.0 : 0.45,
+          opacity: _isBreakingDown
+              ? 0.6
+              : (isCurrent || isCompleted)
+                  ? 1.0
+                  : 0.45,
           child: ListTile(
-            // Drag handle — only for non-completed subtasks
+            // Drag handle — only for non-completed, non-breaking-down rows.
             leading: isCompleted
                 // Same drag-handle silhouette as the other rows, just faded —
                 // signals "this row exists in the list but can't be moved".
@@ -361,13 +383,22 @@ class SubTaskTile extends StatelessWidget {
                     padding: const EdgeInsets.all(12),
                     child: Icon(Icons.drag_handle, color: AppColors.faded),
                   )
-                : ReorderableDragStartListener(
-                    index: index,
-                    child: const Icon(Icons.drag_handle),
-                  ),
+                : _isBreakingDown
+                    ? Padding(
+                        padding: const EdgeInsets.all(12),
+                        child:
+                            Icon(Icons.drag_handle, color: AppColors.faded),
+                      )
+                    : ReorderableDragStartListener(
+                        index: index,
+                        child: const Icon(Icons.drag_handle),
+                      ),
             title: GestureDetector(
-              // Only allow editing current or pending subtasks
-              onTap: isPending ? () => _showEditSheet(context, service) : null,
+              // Only allow editing current or pending subtasks, and not while
+              // a breakdown is in flight for this row.
+              onTap: (isPending && !_isBreakingDown)
+                  ? () => _showEditSheet(context, service)
+                  : null,
               child: Text(
                 subtask.description,
                 style: isCompleted
@@ -378,7 +409,9 @@ class SubTaskTile extends StatelessWidget {
                     : null,
               ),
             ),
-            subtitle: Text(_stateLabel(isCurrent, isCompleted)),
+            subtitle: Text(_isBreakingDown
+                ? 'Breaking down…'
+                : _stateLabel(isCurrent, isCompleted)),
             trailing: _buildTrailingAction(
               context,
               service,
@@ -397,6 +430,18 @@ class SubTaskTile extends StatelessWidget {
     bool isCurrent,
     bool isCompleted,
   ) {
+    // While breaking down, replace the whole trailing area with a spinner so
+    // nothing else can be tapped on this row.
+    if (_isBreakingDown) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12),
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
     // Monotone palette — three semantic shades carry the meaning.
     // See AppColors for the actual values; tweak there to experiment.
     //   faded   → completed row leading icon
@@ -411,11 +456,13 @@ class SubTaskTile extends StatelessWidget {
       );
     }
 
-    // Split button — shown on all non-completed subtasks
+    // Split button — shown on all non-completed subtasks.
+    // Primary path uses the configured LLM/Goblin provider to break this
+    // subtask down further. Falls back to manual entry when no provider is set.
     final splitButton = IconButton(
       icon: const Icon(Icons.call_split, size: 20),
-      tooltip: 'Split into two smaller steps',
-      onPressed: () => _showSplitSheet(context, service),
+      tooltip: 'Break down further',
+      onPressed: () => _handleSplit(context, service),
     );
 
     if (isCurrent) {
@@ -443,7 +490,50 @@ class SubTaskTile extends StatelessWidget {
     );
   }
 
-  void _showSplitSheet(BuildContext context, GoalService service) {
+  // Calls the configured decomposition provider to break this subtask into
+  // 1–3 smaller steps. While in flight, the row is locked via _isBreakingDown
+  // so the user can't edit/swipe/drag/complete the row out from under the
+  // result. On failure or when no provider is configured, falls back to the
+  // manual entry sheet.
+  Future<void> _handleSplit(BuildContext context, GoalService service) async {
+    final decomp = context.read<GoalDecompositionService>();
+
+    if (!decomp.canAutoBreakdown) {
+      _showManualSplitSheet(context, service);
+      return;
+    }
+
+    // Capture messenger before the await so we don't reach through context
+    // after the widget is potentially disposed.
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isBreakingDown = true);
+
+    final descriptions = await decomp.breakdownSubtask(subtask.description);
+
+    // If the widget was disposed mid-await (e.g. the goal got deleted),
+    // bail out before touching state or the service.
+    if (!mounted) return;
+
+    if (descriptions == null) {
+      setState(() => _isBreakingDown = false);
+      messenger.showSnackBar(SnackBar(
+        content: const Text("Couldn't break this down automatically"),
+        action: SnackBarAction(
+          label: 'Edit manually',
+          onPressed: () {
+            if (mounted) _showManualSplitSheet(this.context, service);
+          },
+        ),
+      ));
+      return;
+    }
+
+    // splitSubTask replaces this subtask in the list, so the widget is about
+    // to be disposed by the parent rebuild. No need to clear _isBreakingDown.
+    service.splitSubTask(goal.goalId, subtask.subtaskId, descriptions);
+  }
+
+  void _showManualSplitSheet(BuildContext context, GoalService service) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -601,8 +691,7 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
     widget.goalService.splitSubTask(
       widget.goalId,
       widget.subtask.subtaskId,
-      step1,
-      step2,
+      [step1, step2],
     );
 
     if (context.mounted) Navigator.pop(context);
