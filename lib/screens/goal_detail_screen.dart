@@ -16,16 +16,48 @@ import 'widgets/app_bottom_sheet.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
 
-class GoalDetailScreen extends StatelessWidget {
+class GoalDetailScreen extends StatefulWidget {
   final String goalId;
 
   const GoalDetailScreen({super.key, required this.goalId});
 
   @override
+  State<GoalDetailScreen> createState() => _GoalDetailScreenState();
+}
+
+class _GoalDetailScreenState extends State<GoalDetailScreen> {
+  late final DecompositionState _decompositionState;
+
+  @override
+  void initState() {
+    super.initState();
+    _decompositionState = context.read<DecompositionState>();
+    _decompositionState.addListener(_onDecompositionChanged);
+  }
+
+  @override
+  void dispose() {
+    _decompositionState.removeListener(_onDecompositionChanged);
+    super.dispose();
+  }
+
+  void _onDecompositionChanged() {
+    if (!mounted) return;
+    if (_decompositionState.hasFallback(widget.goalId)) {
+      _decompositionState.clearFallback(widget.goalId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('AI unavailable — template subtasks used instead'),
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Watch the repository directly so we rebuild when any goal changes
     final repository = context.watch<GoalRepository>();
-    final goal = repository.findById(goalId);
+    final goal = repository.findById(widget.goalId);
 
     // Guard against the goal being deleted while this screen is open
     if (goal == null) {
@@ -36,7 +68,7 @@ class GoalDetailScreen extends StatelessWidget {
     }
 
     final isDecomposing =
-        context.watch<DecompositionState>().isDecomposing(goalId);
+        context.watch<DecompositionState>().isDecomposing(widget.goalId);
 
     return Scaffold(
       appBar: AppBar(
@@ -83,7 +115,7 @@ class GoalDetailScreen extends StatelessWidget {
               itemCount: goal.subtasks.length,
               onReorder: (oldIndex, newIndex) {
                 final service = context.read<GoalService>();
-                service.reorderSubTask(goalId, oldIndex, newIndex);
+                service.reorderSubTask(widget.goalId, oldIndex, newIndex);
               },
               itemBuilder: (context, index) {
                 final subtask = goal.subtasks[index];
@@ -123,7 +155,7 @@ class GoalDetailScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _SubTaskSheet(goalId: goalId, goalService: service),
+      builder: (_) => _SubTaskSheet(goalId: widget.goalId, goalService: service),
     );
   }
 }
