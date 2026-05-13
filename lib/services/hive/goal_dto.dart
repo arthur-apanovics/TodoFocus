@@ -11,7 +11,8 @@ part 'goal_dto.g.dart';
 // 4: dueDate         (active)
 // 5: subtasks        (active)
 // 6: isFocusedToday  (active)
-// Next available: 7
+// 7: todayOrder      (active)
+// Next available: 8
 
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
@@ -35,4 +36,7 @@ class GoalDto extends HiveObject {
 
   @HiveField(6)
   bool isFocusedToday = false;
+
+  @HiveField(7)
+  int todayOrder = 0;
 }

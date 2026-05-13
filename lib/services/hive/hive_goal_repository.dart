@@ -63,6 +63,7 @@ class HiveGoalRepository extends GoalRepository {
           : GoalStatus.values.byName(dto.status),
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
+      todayOrder: dto.todayOrder,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
   }
@@ -89,6 +90,7 @@ class HiveGoalRepository extends GoalRepository {
       ..status = goal.status.name
       ..dueDate = goal.dueDate
       ..isFocusedToday = goal.isFocusedToday
+      ..todayOrder = goal.todayOrder
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;
   }

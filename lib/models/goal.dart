@@ -9,6 +9,9 @@ class Goal {
   GoalStatus status;
   final DateTime? dueDate;
   bool isFocusedToday;
+  // Position within the today queue when isFocusedToday is true. Ignored
+  // otherwise. Lower values render first in the Focus screen.
+  int todayOrder;
   final List<SubTask> subtasks;
 
   Goal({
@@ -18,6 +21,7 @@ class Goal {
     this.status = GoalStatus.active,
     this.dueDate,
     this.isFocusedToday = false,
+    this.todayOrder = 0,
     List<SubTask>? subtasks,
   }) : subtasks = subtasks ?? [];
 
@@ -128,6 +132,7 @@ class Goal {
     'status': status.name,
     'dueDate': dueDate?.toIso8601String(),
     'isFocusedToday': isFocusedToday,
+    'todayOrder': todayOrder,
     'subtasks': subtasks.map((t) => t.toJson()).toList(),
   };
 
@@ -141,6 +146,7 @@ class Goal {
           ? DateTime.parse(json['dueDate'] as String)
           : null,
       isFocusedToday: json['isFocusedToday'] as bool? ?? false,
+      todayOrder: json['todayOrder'] as int? ?? 0,
       subtasks:
           (json['subtasks'] as List<dynamic>?)
               ?.map((t) => SubTask.fromJson(t as Map<String, dynamic>))

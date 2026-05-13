@@ -88,6 +88,21 @@ void main() {
       ]);
       expect(q.todayQueue.length, 2);
     });
+
+    test('sorts results by todayOrder ascending', () {
+      final later = makeGoal(id: 'later', isFocusedToday: true, subtasks: [pendingSubTask('s1')])
+        ..todayOrder = 5;
+      final earlier = makeGoal(id: 'earlier', isFocusedToday: true, subtasks: [pendingSubTask('s2')])
+        ..todayOrder = 1;
+      final middle = makeGoal(id: 'middle', isFocusedToday: true, subtasks: [pendingSubTask('s3')])
+        ..todayOrder = 3;
+      // Seed in a deliberately wrong order to exercise the sort.
+      final q = makeQueries([later, earlier, middle]);
+      expect(
+        q.todayQueue.map((g) => g.goalId).toList(),
+        ['earlier', 'middle', 'later'],
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

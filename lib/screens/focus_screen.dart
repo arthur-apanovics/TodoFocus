@@ -19,11 +19,24 @@ class FocusScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Today')),
       body: focusedGoals.isEmpty
           ? const _EmptyFocusState()
-          : ListView.builder(
+          : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: focusedGoals.length,
+              // Drag handle is rendered explicitly on each card, so the
+              // whole tile isn't grab-on-long-press.
+              buildDefaultDragHandles: false,
+              onReorder: (oldIndex, newIndex) {
+                context
+                    .read<GoalService>()
+                    .reorderTodayQueue(focusedGoals, oldIndex, newIndex);
+              },
               itemBuilder: (context, index) {
-                return _FocusGoalCard(goal: focusedGoals[index]);
+                final goal = focusedGoals[index];
+                return _FocusGoalCard(
+                  key: ValueKey(goal.goalId),
+                  goal: goal,
+                  index: index,
+                );
               },
             ),
     );
@@ -33,8 +46,9 @@ class FocusScreen extends StatelessWidget {
 // Each goal gets a card showing current + next subtask
 class _FocusGoalCard extends StatelessWidget {
   final Goal goal;
+  final int index;
 
-  const _FocusGoalCard({required this.goal});
+  const _FocusGoalCard({super.key, required this.goal, required this.index});
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +64,16 @@ class _FocusGoalCard extends StatelessWidget {
             // Goal header row
             Row(
               children: [
+                // Drag handle — touch target for reordering the today queue.
+                // ReorderableDragStartListener works only inside a
+                // ReorderableListView with matching index.
+                ReorderableDragStartListener(
+                  index: index,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(Icons.drag_handle, color: AppColors.muted),
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     goal.title,

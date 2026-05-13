@@ -112,6 +112,19 @@ void main() {
   // Bug: this flag was missing from _toDto and was silently reset on reload.
   // -------------------------------------------------------------------------
 
+  group('todayOrder round-trip', () {
+    test('non-zero value survives a save/reload cycle', () {
+      final goal = makeGoal()..todayOrder = 42;
+      _repo.save(goal);
+      expect(_repo.findById('g1')!.todayOrder, 42);
+    });
+
+    test('default 0 survives a save/reload cycle', () {
+      _repo.save(makeGoal());
+      expect(_repo.findById('g1')!.todayOrder, 0);
+    });
+  });
+
   group('isFocusedToday round-trip', () {
     test('true survives a save/reload cycle', () {
       _repo.save(makeGoal(isFocusedToday: true));
