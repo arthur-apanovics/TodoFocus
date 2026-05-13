@@ -1,16 +1,15 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
-import 'llm/llm_client.dart';
+import 'llm/decomposition_client.dart';
 
 class GoalDecompositionService {
   final Uuid _uuid = const Uuid();
-  final LlmClient? _llm; // null = keyword-only mode
+  final DecompositionClient? _client; // null = keyword-only mode
 
-  GoalDecompositionService({LlmClient? llm}) : _llm = llm;
+  GoalDecompositionService({DecompositionClient? client}) : _client = client;
 
   // The single public method — takes raw user input, returns a structured Goal.
   // The method signature stays the same when swapping LLM providers.
@@ -56,80 +55,18 @@ class GoalDecompositionService {
     String? description,
     VoidCallback? onLlmFallback,
   ) async {
-    if (_llm != null) {
+    if (_client != null) {
       try {
-        return await _llmSubTasks(title, description);
+        final descriptions = await _client.decompose(title, description: description);
+        return descriptions
+            .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
+            .toList();
       } catch (e) {
-        debugPrint('LLM decomposition failed, using keyword fallback: $e');
+        debugPrint('Decomposition failed, using keyword fallback: $e');
         onLlmFallback?.call();
       }
     }
     return _scaffoldSubTasks(goalId, title, description);
-  }
-
-  // JSON Schema for the subtask array — passed to llama-server's response_format
-  // so the sampler enforces structure via GBNF grammar. The model cannot
-  // produce output that violates the schema; _parseJsonArray is then just a
-  // safety net for backends that ignore response_format.
-  static const _subtasksSchema = {
-    'type': 'array',
-    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
-    'minItems': 2,
-    'maxItems': 10,
-  };
-
-  Future<List<SubTask>> _llmSubTasks(String title, String? description) async {
-    const system =
-        'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
-        'Each step must be a single sentence that is very easy to action.';
-
-    final user = description?.isNotEmpty == true
-        ? 'Goal: "$title". Context: $description'
-        : 'Goal: "$title"';
-
-    final raw = await _llm!.complete(
-      system,
-      user,
-      responseSchema: _subtasksSchema,
-    );
-
-    // Throws on malformed response — _buildSubTasks catches and falls back.
-    final parsed = _parseJsonArray(raw);
-    return parsed
-        .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
-        .toList();
-  }
-
-  // Extracts a JSON string array from raw LLM output, tolerating common
-  // slop: markdown fences (```json … ``` or ``` … ```), leading/trailing
-  // whitespace, and escaped quotes. Throws FormatException if no valid array
-  // is found — caller catches and triggers the keyword fallback.
-  List<String> _parseJsonArray(String raw) {
-    // 1. Strip markdown code fences — handles ```json, ```JSON, ``` alone, etc.
-    var cleaned = raw.replaceAll(RegExp(r'```[a-zA-Z]*\n?'), '').trim();
-
-    // 2. Try direct decode first (fast path for well-behaved models).
-    try {
-      final decoded = jsonDecode(cleaned);
-      if (decoded is List) return _toStringList(decoded);
-    } catch (_) {}
-
-    // 3. Extract the first [...] block — handles models that wrap the array
-    //    in prose ("Here are your steps: [...]").
-    final match = RegExp(r'\[.*?\]', dotAll: true).firstMatch(cleaned);
-    if (match != null) {
-      final extracted = jsonDecode(match.group(0)!);
-      if (extracted is List) return _toStringList(extracted);
-    }
-
-    throw const FormatException('LLM response contained no valid JSON array');
-  }
-
-  List<String> _toStringList(List<dynamic> list) {
-    final strings = list.whereType<String>().toList();
-    if (strings.isEmpty)
-      throw const FormatException('JSON array contained no strings');
-    return strings;
   }
 
   // Private — replaced by _llmSubTasks when LLM is available.

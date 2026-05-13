@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 import '../services/settings/llm_profile.dart';
 import '../services/settings/llm_settings_service.dart';
 
-// LLM configuration screen. Currently supports one preset ("OpenAI Compatible").
-// New profile types will appear as additional options in the preset dropdown —
-// add a new LlmProfile subtype and a corresponding _ProfileForm widget.
+// LLM configuration screen. Add new profile types by:
+//   1. Adding a subtype in llm_profile.dart
+//   2. Adding its name to _presets
+//   3. Adding a case in _defaultDraftForPreset and _buildForm
 
 class LlmSettingsScreen extends StatefulWidget {
   const LlmSettingsScreen({super.key});
@@ -15,21 +16,35 @@ class LlmSettingsScreen extends StatefulWidget {
 }
 
 class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
-  // Working copy of the profile — only written to the service on Save.
+  static const _presets = ['OpenAI Compatible', 'Goblin Tools'];
+
   late bool _enabled;
-  late OpenAiCompatibleProfile _draft;
+  late LlmProfile _draft;
 
   @override
   void initState() {
     super.initState();
     final service = context.read<LlmSettingsService>();
     _enabled = service.isEnabled;
-    // Seed draft from whatever profile is stored (even if currently disabled),
-    // so fields survive toggle-off → save → toggle-on.
-    _draft = service.activeProfile is OpenAiCompatibleProfile
-        ? service.activeProfile! as OpenAiCompatibleProfile
-        : const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
+    // Seed from whatever profile is stored (even if currently disabled) so
+    // fields survive toggle-off → save → toggle-on.
+    _draft = service.activeProfile ??
+        const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
   }
+
+  String get _selectedPreset => switch (_draft) {
+    OpenAiCompatibleProfile() => 'OpenAI Compatible',
+    GoblinToolsProfile() => 'Goblin Tools',
+  };
+
+  void _onPresetChanged(String preset) {
+    setState(() => _draft = _defaultDraftForPreset(preset));
+  }
+
+  LlmProfile _defaultDraftForPreset(String preset) => switch (preset) {
+    'Goblin Tools' => const GoblinToolsProfile(),
+    _ => const OpenAiCompatibleProfile(endpointUrl: '', modelId: ''),
+  };
 
   void _save() {
     final service = context.read<LlmSettingsService>();
@@ -62,22 +77,33 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
           const Divider(height: 1),
           if (_enabled) ...[
             _PresetTile(
-              selected: _draft.displayName,
-              // Only one preset for now; more added here later.
-              options: const ['OpenAI Compatible'],
-              onChanged: (_) {}, // no-op until second preset exists
+              selected: _selectedPreset,
+              options: _presets,
+              onChanged: _onPresetChanged,
             ),
             const Divider(height: 1),
-            _OpenAiCompatibleForm(
-              profile: _draft,
-              onChanged: (updated) => setState(() => _draft = updated),
-            ),
+            _buildForm(),
           ],
         ],
       ),
     );
   }
+
+  Widget _buildForm() => switch (_draft) {
+    OpenAiCompatibleProfile p => _OpenAiCompatibleForm(
+        profile: p,
+        onChanged: (updated) => setState(() => _draft = updated),
+      ),
+    GoblinToolsProfile p => _GoblinToolsForm(
+        profile: p,
+        onChanged: (updated) => setState(() => _draft = updated),
+      ),
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Shared
+// ---------------------------------------------------------------------------
 
 class _PresetTile extends StatelessWidget {
   final String selected;
@@ -112,7 +138,7 @@ class _PresetTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI-compatible profile form
+// OpenAI-compatible form
 // ---------------------------------------------------------------------------
 
 class _OpenAiCompatibleForm extends StatefulWidget {
@@ -171,7 +197,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             controller: _urlController,
             decoration: const InputDecoration(
               labelText: 'Endpoint URL',
-              hintText: 'http://localhost:11434/v1',
+              hintText: 'http://10.0.2.2:8080/v1',
               border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.url,
@@ -249,11 +275,13 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
                 children: [
                   Text('Focused',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                           )),
                   Text('Creative',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                           )),
                 ],
               ),
@@ -262,6 +290,49 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Goblin Tools form
+// ---------------------------------------------------------------------------
+
+class _GoblinToolsForm extends StatelessWidget {
+  final GoblinToolsProfile profile;
+  final ValueChanged<GoblinToolsProfile> onChanged;
+
+  const _GoblinToolsForm({required this.profile, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Number of subtasks',
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 1, label: Text('Few')),
+              ButtonSegment(value: 2, label: Text('Some')),
+              ButtonSegment(value: 3, label: Text('Many')),
+            ],
+            selected: {profile.spiciness},
+            onSelectionChanged: (s) =>
+                onChanged(profile.copyWith(spiciness: s.first)),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Goblin Tools is a free third-party service — no API key required.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ),
     );
   }
 }

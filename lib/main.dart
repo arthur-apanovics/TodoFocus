@@ -74,7 +74,7 @@ class TodoApp extends StatelessWidget {
         ),
         ProxyProvider<LlmSettingsService, GoalDecompositionService>(
           update: (_, settings, __) =>
-              GoalDecompositionService(llm: settings.buildClient()),
+              GoalDecompositionService(client: settings.buildClient()),
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),

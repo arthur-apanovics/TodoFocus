@@ -1,9 +1,12 @@
 import 'dart:convert';
+import '../llm/decomposition_client.dart';
+import '../llm/goblin_tools_client.dart';
 import '../llm/llm_client.dart';
 import '../llm/llm_config.dart';
+import '../llm/openai_decomposition_client.dart';
 
 // Sealed class hierarchy for LLM provider profiles.
-// Each subtype knows how to serialize itself and build an LlmClient.
+// Each subtype serialises itself and builds a DecompositionClient.
 // Add new subtypes here as new provider integrations are needed.
 sealed class LlmProfile {
   const LlmProfile();
@@ -19,6 +22,7 @@ sealed class LlmProfile {
       final map = jsonDecode(encoded) as Map<String, dynamic>;
       return switch (map['type'] as String?) {
         OpenAiCompatibleProfile.typeKey => OpenAiCompatibleProfile.fromJson(map),
+        GoblinToolsProfile.typeKey => GoblinToolsProfile.fromJson(map),
         _ => null,
       };
     } catch (_) {
@@ -26,8 +30,12 @@ sealed class LlmProfile {
     }
   }
 
-  LlmClient buildClient();
+  DecompositionClient buildClient();
 }
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible (llama-server, OpenAI, Together AI, etc.)
+// ---------------------------------------------------------------------------
 
 final class OpenAiCompatibleProfile extends LlmProfile {
   static const String typeKey = 'openai_compatible';
@@ -80,12 +88,48 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   }
 
   @override
-  LlmClient buildClient() {
-    return LlmClient(LlmConfig(
+  DecompositionClient buildClient() {
+    return OpenAiDecompositionClient(LlmClient(LlmConfig(
       baseUrl: endpointUrl,
       model: modelId,
       apiKey: apiKey,
       temperature: temperature,
-    ));
+    )));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Goblin Tools — https://goblin.tools
+// Free, no API key. Spiciness controls subtask count.
+// ---------------------------------------------------------------------------
+
+final class GoblinToolsProfile extends LlmProfile {
+  static const String typeKey = 'goblin_tools';
+
+  /// 1 = few subtasks, 2 = medium, 3 = many
+  final int spiciness;
+
+  const GoblinToolsProfile({this.spiciness = 2});
+
+  @override
+  String get displayName => 'Goblin Tools';
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': typeKey,
+    'spiciness': spiciness,
+  };
+
+  factory GoblinToolsProfile.fromJson(Map<String, dynamic> json) {
+    return GoblinToolsProfile(
+      spiciness: json['spiciness'] as int? ?? 2,
+    );
+  }
+
+  GoblinToolsProfile copyWith({int? spiciness}) =>
+      GoblinToolsProfile(spiciness: spiciness ?? this.spiciness);
+
+  @override
+  DecompositionClient buildClient() =>
+      GoblinToolsDecompositionClient(spiciness: spiciness);
 }

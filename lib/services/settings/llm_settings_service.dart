@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../llm/llm_client.dart';
+import '../llm/decomposition_client.dart';
 import '../llm/llm_config.dart';
 import 'llm_profile.dart';
 
@@ -22,13 +22,9 @@ class LlmSettingsService extends ChangeNotifier {
   bool get isEnabled => _enabled;
 
   // Returns a client only when LLM is enabled and a profile is configured.
-  LlmClient? buildClient() {
+  DecompositionClient? buildClient() {
     if (!_enabled) return null;
-    final p = _profile;
-    return switch (p) {
-      OpenAiCompatibleProfile() => p.buildClient(),
-      null => null,
-    };
+    return _profile?.buildClient();
   }
 
   // Toggles LLM on/off without discarding the stored profile.
