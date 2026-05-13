@@ -20,6 +20,7 @@ class NewGoalSheet extends StatefulWidget {
 class _NewGoalSheetState extends State<NewGoalSheet> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _descriptionFocus = FocusNode();
   DateTime? _dueDate;
   bool _loading = false;
 
@@ -27,6 +28,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
+    _descriptionFocus.dispose();
     super.dispose();
   }
 
@@ -96,6 +98,9 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
           controller: _titleController,
           autofocus: true,
           enabled: !_loading,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) => _descriptionFocus.requestFocus(),
           decoration: const InputDecoration(
             labelText: 'Title',
             hintText: 'What do you want to achieve?',
@@ -105,8 +110,10 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         const SizedBox(height: 12),
         TextField(
           controller: _descriptionController,
+          focusNode: _descriptionFocus,
           maxLines: 2,
           enabled: !_loading,
+          textCapitalization: TextCapitalization.sentences,
           decoration: const InputDecoration(
             labelText: 'Description (optional)',
             hintText: 'Any extra context...',

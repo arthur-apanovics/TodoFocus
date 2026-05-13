@@ -184,6 +184,7 @@ class _GoalEditSheet extends StatefulWidget {
 class _GoalEditSheetState extends State<_GoalEditSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
+  final _notesFocus = FocusNode();
 
   @override
   void initState() {
@@ -196,6 +197,7 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
   void dispose() {
     _titleController.dispose();
     _notesController.dispose();
+    _notesFocus.dispose();
     super.dispose();
   }
 
@@ -220,6 +222,9 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
         TextField(
           controller: _titleController,
           autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) => _notesFocus.requestFocus(),
           decoration: const InputDecoration(
             labelText: 'Title',
             border: OutlineInputBorder(),
@@ -228,7 +233,9 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
         const SizedBox(height: 12),
         TextField(
           controller: _notesController,
+          focusNode: _notesFocus,
           maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
           decoration: const InputDecoration(
             labelText: 'Description',
             border: OutlineInputBorder(),
@@ -533,6 +540,7 @@ class _SubTaskSheetState extends State<_SubTaskSheet> {
           controller: _controller,
           autofocus: true,
           maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
           decoration: const InputDecoration(
             hintText: 'What needs to be done?',
             border: OutlineInputBorder(),
