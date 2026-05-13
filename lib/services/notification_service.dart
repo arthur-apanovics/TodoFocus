@@ -16,7 +16,7 @@ class NotificationService {
   final ValueNotifier<int> _tabNotifier;
   // Carries the goal to navigate to. The int seq increments on every tap so
   // repeated taps on the same goal each fire the notifier.
-  final ValueNotifier<(String goalId, int seq)?> _goalNavNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> _goalNavNotifier;
   final GoalRepository _repository;
 
   int _navSeq = 0;
@@ -29,7 +29,7 @@ class NotificationService {
 
   NotificationService({
     required ValueNotifier<int> tabNotifier,
-    required ValueNotifier<(String, int)?> goalNavNotifier,
+    required ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier,
     required GoalRepository repository,
   })  : _plugin = FlutterLocalNotificationsPlugin(),
         _tabNotifier = tabNotifier,
@@ -139,14 +139,22 @@ class NotificationService {
     if (response.actionId == markDoneActionId) {
       if (response.payload != null) {
         GoalService(_repository).completeCurrentSubTask(response.payload!);
-        _goalNavNotifier.value = (response.payload!, ++_navSeq);
+        _goalNavNotifier.value = (
+          goalId: response.payload!,
+          seq: ++_navSeq,
+          breakdown: false,
+        );
       }
       return;
     }
 
     if (response.actionId == breakdownActionId) {
       if (response.payload != null) {
-        _goalNavNotifier.value = (response.payload!, ++_navSeq);
+        _goalNavNotifier.value = (
+          goalId: response.payload!,
+          seq: ++_navSeq,
+          breakdown: true,
+        );
       }
       return;
     }

@@ -23,7 +23,8 @@ void main() async {
   final llmSettingsService = await LlmSettingsService.init();
 
   final tabNotifier = ValueNotifier<int>(0);
-  final goalNavNotifier = ValueNotifier<(String, int)?>(null);
+  final goalNavNotifier =
+      ValueNotifier<({String goalId, int seq, bool breakdown})?>(null);
 
   final notificationService = NotificationService(
     tabNotifier: tabNotifier,
@@ -99,7 +100,7 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
-  final ValueNotifier<(String, int)?> goalNavNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
   const AppShell({
     super.key,
@@ -130,9 +131,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     widget.goalNavNotifier.addListener(_onGoalNavRequested);
     WidgetsBinding.instance.addObserver(this);
     // Cold-start: notification action fired before AppShell was mounted.
-    if (widget.goalNavNotifier.value != null) {
+    final pending = widget.goalNavNotifier.value;
+    if (pending != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _navigateToGoal(widget.goalNavNotifier.value!.$1);
+        if (mounted) _navigateToGoal(pending.goalId, breakdown: pending.breakdown);
       });
     }
   }
@@ -167,14 +169,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final request = widget.goalNavNotifier.value;
     if (!mounted || request == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _navigateToGoal(request.$1);
+      if (mounted) _navigateToGoal(request.goalId, breakdown: request.breakdown);
     });
   }
 
-  void _navigateToGoal(String goalId) {
+  void _navigateToGoal(String goalId, {bool breakdown = false}) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+      MaterialPageRoute(
+        builder: (_) => GoalDetailScreen(
+          goalId: goalId,
+          triggerBreakdown: breakdown,
+        ),
+      ),
     );
   }
 
