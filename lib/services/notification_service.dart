@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/goal.dart';
 import 'goal_repository.dart';
@@ -52,6 +53,15 @@ class NotificationService {
       ),
       onDidReceiveNotificationResponse: _onResponse,
     );
+
+    // When the app is killed, onDidReceiveNotificationResponse never fires.
+    // Instead, check whether the app was cold-started by a notification tap
+    // and replay the action now that the repository is ready.
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true) {
+      final response = launchDetails!.notificationResponse;
+      if (response != null) _onResponse(response);
+    }
   }
 
   Future<void> update(List<Goal> todayQueue) async {
@@ -82,8 +92,8 @@ class NotificationService {
 
     await _plugin.show(
       _notifId,
-      current.description,
-      goal.nextSubTask != null ? '↳ ${goal.nextSubTask!.description}' : 'Completed!',
+      '❯ ${current.description}',
+      '↳ ${goal.nextSubTask != null ? goal.nextSubTask!.description : 'Completed!'}',
       NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
