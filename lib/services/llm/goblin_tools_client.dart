@@ -17,15 +17,15 @@ class GoblinToolsDecompositionClient implements DecompositionClient {
   }) : _http = httpClient ?? http.Client();
 
   @override
-  Future<List<String>> decompose(String title, {String? description}) =>
-      _post(title, spiciness);
+  Future<List<String>> decompose(String title, {String? description, String? additionalInstructions}) =>
+      _post(additionalInstructions ?? title, spiciness);
 
   // Breakdown reuses the same endpoint with spiciness=1 — the API has no
   // separate "break this subtask down further" mode, so we just request the
   // minimum granularity to get a small number of fine-grained steps.
   @override
-  Future<List<String>> breakdown(String subtaskDescription) =>
-      _post(subtaskDescription, 1);
+  Future<List<String>> breakdown(String subtaskDescription, {String? additionalInstructions}) =>
+      _post(additionalInstructions ?? subtaskDescription, 1);
 
   Future<List<String>> _post(String text, int spiciness) async {
     final response = await _http

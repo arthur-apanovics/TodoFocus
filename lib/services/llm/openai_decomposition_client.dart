@@ -42,22 +42,24 @@ class OpenAiDecompositionClient implements DecompositionClient {
   };
 
   @override
-  Future<List<String>> decompose(String title, {String? description}) async {
-    final user = description?.isNotEmpty == true
+  Future<List<String>> decompose(String title, {String? description, String? additionalInstructions}) async {
+    var user = description?.isNotEmpty == true
         ? 'Goal: "$title". Context: $description'
         : 'Goal: "$title"';
-
+    if (additionalInstructions?.isNotEmpty == true) {
+      user = '$user\n\nAdditional instructions: $additionalInstructions';
+    }
     final raw = await _llm.complete(systemPrompt, user, responseSchema: _subtasksSchema);
     return _parseJsonArray(raw);
   }
 
   @override
-  Future<List<String>> breakdown(String subtaskDescription) async {
-    final raw = await _llm.complete(
-      breakdownPrompt,
-      'Subtask: "$subtaskDescription"',
-      responseSchema: _breakdownSchema,
-    );
+  Future<List<String>> breakdown(String subtaskDescription, {String? additionalInstructions}) async {
+    var user = 'Subtask: "$subtaskDescription"';
+    if (additionalInstructions?.isNotEmpty == true) {
+      user = '$user\n\nAdditional instructions: $additionalInstructions';
+    }
+    final raw = await _llm.complete(breakdownPrompt, user, responseSchema: _breakdownSchema);
     return _parseJsonArray(raw);
   }
 

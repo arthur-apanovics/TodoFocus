@@ -306,27 +306,15 @@ class _GoalMenuButton extends StatelessWidget {
   ) async {
     final decomp = context.read<GoalDecompositionService>();
 
-    final confirmed = await showDialog<bool>(
+    // Returns the instructions string on confirm, null on cancel.
+    // Using a StatefulWidget dialog so the TextEditingController is disposed
+    // after the exit animation — not while the TextField is still in the tree.
+    final instructions = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Re-decompose subtasks?'),
-        content: const Text(
-          'All current subtasks will be replaced with new AI-generated steps.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Re-decompose'),
-          ),
-        ],
-      ),
+      builder: (_) => const _RedecomposeDialog(),
     );
 
-    if (confirmed != true) return;
+    if (instructions == null) return;
     if (!context.mounted) return;
 
     final decompState = context.read<DecompositionState>();
@@ -337,6 +325,7 @@ class _GoalMenuButton extends StatelessWidget {
       final descriptions = await decomp.redecomposeSubtasks(
         goal.title,
         description: goal.notes.isEmpty ? null : goal.notes,
+        additionalInstructions: instructions.isEmpty ? null : instructions,
       );
       if (descriptions == null) {
         messenger.showSnackBar(
@@ -520,12 +509,15 @@ class _SubTaskTileState extends State<SubTaskTile> {
     }
 
     // Split button — shown on all non-completed subtasks.
-    // Primary path uses the configured LLM/Goblin provider to break this
-    // subtask down further. Falls back to manual entry when no provider is set.
-    final splitButton = IconButton(
-      icon: const Icon(Icons.call_split, size: 20),
-      tooltip: 'Break down further',
-      onPressed: () => _handleSplit(context, service),
+    // Tap: auto-breakdown. Long press: opens an instructions sheet first.
+    // No tooltip — Tooltip's long-press recognizer wins the gesture arena
+    // over the outer GestureDetector, so we omit it here.
+    final splitButton = GestureDetector(
+      onLongPress: () => _showSplitWithInstructions(context, service),
+      child: IconButton(
+        icon: const Icon(Icons.call_split, size: 20),
+        onPressed: () => _handleSplit(context, service),
+      ),
     );
 
     if (isCurrent) {
@@ -558,7 +550,35 @@ class _SubTaskTileState extends State<SubTaskTile> {
   // so the user can't edit/swipe/drag/complete the row out from under the
   // result. On failure or when no provider is configured, falls back to the
   // manual entry sheet.
-  Future<void> _handleSplit(BuildContext context, GoalService service) async {
+  Future<void> _showSplitWithInstructions(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final decomp = context.read<GoalDecompositionService>();
+    if (!decomp.canAutoBreakdown) {
+      _showManualSplitSheet(context, service);
+      return;
+    }
+    final instructions = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const _InstructionsSheet(
+        hint: 'e.g. keep each step under 5 minutes',
+        confirmLabel: 'Break down',
+      ),
+    );
+    if (instructions != null && mounted) {
+      // ignore: use_build_context_synchronously
+      _handleSplit(this.context, service, additionalInstructions: instructions);
+    }
+  }
+
+  Future<void> _handleSplit(
+    BuildContext context,
+    GoalService service, {
+    String? additionalInstructions,
+  }) async {
     final decomp = context.read<GoalDecompositionService>();
 
     if (!decomp.canAutoBreakdown) {
@@ -571,7 +591,10 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _isBreakingDown = true);
 
-    final descriptions = await decomp.breakdownSubtask(subtask.description);
+    final descriptions = await decomp.breakdownSubtask(
+      subtask.description,
+      additionalInstructions: additionalInstructions,
+    );
 
     // If the widget was disposed mid-await (e.g. the goal got deleted),
     // bail out before touching state or the service.
@@ -855,6 +878,105 @@ class _InboxReadyState extends StatelessWidget {
           goalService.replaceAllSubTasks(goal.goalId, descriptions),
       state: decompState,
     ));
+  }
+}
+
+class _RedecomposeDialog extends StatefulWidget {
+  const _RedecomposeDialog();
+
+  @override
+  State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
+}
+
+class _RedecomposeDialogState extends State<_RedecomposeDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Re-decompose subtasks?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'All current subtasks will be replaced with new AI-generated steps.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Additional instructions (optional)',
+              hintText: 'e.g. focus on the research phase',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Re-decompose'),
+        ),
+      ],
+    );
+  }
+}
+
+class _InstructionsSheet extends StatefulWidget {
+  final String hint;
+  final String confirmLabel;
+
+  const _InstructionsSheet({required this.hint, required this.confirmLabel});
+
+  @override
+  State<_InstructionsSheet> createState() => _InstructionsSheetState();
+}
+
+class _InstructionsSheetState extends State<_InstructionsSheet> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBottomSheet(
+      title: 'Custom instructions',
+      children: [
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            hintText: widget.hint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
   }
 }
 

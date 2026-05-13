@@ -22,10 +22,15 @@ class GoalDecompositionService {
   Future<List<String>?> redecomposeSubtasks(
     String title, {
     String? description,
+    String? additionalInstructions,
   }) async {
     if (_client == null) return null;
     try {
-      final result = await _client.decompose(title, description: description);
+      final result = await _client.decompose(
+        title,
+        description: description,
+        additionalInstructions: additionalInstructions,
+      );
       if (result.isEmpty) return null;
       return result;
     } catch (e) {
@@ -37,10 +42,16 @@ class GoalDecompositionService {
   /// Breaks an existing subtask down into 1–3 smaller steps via the configured
   /// provider. Returns null if no provider is configured or the call failed —
   /// callers should fall back to a manual flow.
-  Future<List<String>?> breakdownSubtask(String description) async {
+  Future<List<String>?> breakdownSubtask(
+    String description, {
+    String? additionalInstructions,
+  }) async {
     if (_client == null) return null;
     try {
-      final result = await _client.breakdown(description);
+      final result = await _client.breakdown(
+        description,
+        additionalInstructions: additionalInstructions,
+      );
       if (result.isEmpty) return null;
       return result;
     } catch (e) {
