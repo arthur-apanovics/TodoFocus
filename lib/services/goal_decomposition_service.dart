@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import 'decomposition_state.dart';
 import 'llm/decomposition_client.dart';
 
 class GoalDecompositionService {
@@ -75,6 +76,22 @@ class GoalDecompositionService {
     );
   }
 
+  // Creates a goal shell with no subtasks. Use [decomposeInBackground] to
+  // populate subtasks asynchronously after saving the goal.
+  Goal createGoal({
+    required String title,
+    String? description,
+    DateTime? dueDate,
+  }) {
+    return Goal(
+      goalId: _uuid.v4(),
+      title: title,
+      notes: description ?? '',
+      dueDate: dueDate,
+      subtasks: [],
+    );
+  }
+
   // Captures a raw goal into the inbox without decomposing it
   Goal captureToInbox({required String title, String? description}) {
     return Goal(
@@ -84,6 +101,46 @@ class GoalDecompositionService {
       status: GoalStatus.inbox,
       subtasks: [],
     );
+  }
+
+  /// Decomposes a goal in the background and delivers descriptions via
+  /// [onResult]. While the LLM call is in flight, [state] marks the goal as
+  /// decomposing so the UI can show a loading indicator.
+  ///
+  /// When no client is configured, keyword templates are applied synchronously
+  /// — [state] is never marked and there is no loading flash.
+  /// On LLM failure the method falls back to keyword templates and calls
+  /// [onFallback] if provided.
+  Future<void> decomposeInBackground({
+    required String goalId,
+    required String title,
+    String? description,
+    required void Function(List<String> descriptions) onResult,
+    required DecompositionState state,
+    VoidCallback? onFallback,
+  }) async {
+    if (_client == null) {
+      // Synchronous keyword path — no loading indicator needed.
+      onResult(_scaffoldDescriptions(title, description));
+      return;
+    }
+
+    state.begin(goalId);
+    try {
+      List<String> descriptions;
+      try {
+        descriptions =
+            await _client.decompose(title, description: description);
+        if (descriptions.isEmpty) throw StateError('empty result');
+      } catch (e) {
+        debugPrint('LLM decomposition failed, using keyword fallback: $e');
+        onFallback?.call();
+        descriptions = _scaffoldDescriptions(title, description);
+      }
+      onResult(descriptions);
+    } finally {
+      state.end(goalId);
+    }
   }
 
   Future<List<SubTask>> _buildSubTasks(
@@ -106,18 +163,17 @@ class GoalDecompositionService {
     return _scaffoldSubTasks(goalId, title, description);
   }
 
-  // Private — replaced by _llmSubTasks when LLM is available.
-  // Kept as fallback for offline / unconfigured mode.
+  List<String> _scaffoldDescriptions(String title, String? description) {
+    final intent = _detectIntent(title, description);
+    return _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
+  }
+
   List<SubTask> _scaffoldSubTasks(
     String goalId,
     String title,
     String? description,
   ) {
-    final intent = _detectIntent(title, description);
-    final templates =
-        _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
-
-    return templates
+    return _scaffoldDescriptions(title, description)
         .map((desc) => SubTask(subtaskId: _uuid.v4(), description: desc))
         .toList();
   }

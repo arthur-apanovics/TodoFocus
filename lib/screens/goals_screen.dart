@@ -3,6 +3,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/enums.dart';
+import '../services/decomposition_state.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
@@ -68,6 +69,8 @@ class _GoalTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
+    final isDecomposing =
+        context.watch<DecompositionState>().isDecomposing(goal.goalId);
 
     return Slidable(
       key: ValueKey(goal.goalId),
@@ -87,8 +90,12 @@ class _GoalTile extends StatelessWidget {
       ),
       child: ListTile(
         title: Text(goal.title),
-        subtitle: Text(_subtitleFor(goal)),
-        leading: _StatusBadge(status: goal.status),
+        subtitle: Text(
+          isDecomposing ? 'Generating subtasks…' : _subtitleFor(goal),
+        ),
+        leading: isDecomposing
+            ? const _SpinnerLeading()
+            : _StatusBadge(status: goal.status),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -121,6 +128,19 @@ class _GoalTile extends StatelessWidget {
     if (goal.status == GoalStatus.inbox) return 'In inbox — tap to decompose';
     if (goal.subtasks.isEmpty) return 'No subtasks yet';
     return '${goal.completedSubtaskCount} of ${goal.subtasks.length} complete';
+  }
+}
+
+class _SpinnerLeading extends StatelessWidget {
+  const _SpinnerLeading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 24,
+      height: 24,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    );
   }
 }
 

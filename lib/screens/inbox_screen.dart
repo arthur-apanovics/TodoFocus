@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
+import '../services/decomposition_state.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
@@ -76,22 +77,14 @@ class _InboxTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // read() — one-off lookup, no subscription. Use read() inside event
-    // handlers and build paths that don't depend on changes to the value.
     final service = context.read<GoalService>();
+    final isDecomposing =
+        context.watch<DecompositionState>().isDecomposing(goal.goalId);
 
     return Slidable(
-      // ValueKey based on goalId tells Flutter "this widget represents goal X".
-      // When the list rebuilds with the same key, Flutter reuses the same
-      // widget element instead of disposing and re-creating it.
       key: ValueKey(goal.goalId),
-      // endActionPane = revealed when swiping right-to-left (from end toward start)
       endActionPane: ActionPane(
-        // BehindMotion = action sits behind the tile and is revealed as
-        // the tile slides over it. Feels natural for destructive actions.
         motion: const BehindMotion(),
-        // extentRatio = how much of the tile width the action pane occupies
-        // when fully open. 0.25 means a quarter of the row.
         extentRatio: 0.25,
         children: [
           SlidableAction(
@@ -104,12 +97,20 @@ class _InboxTile extends StatelessWidget {
         ],
       ),
       child: ListTile(
-        leading: Icon(Icons.inbox_outlined, color: AppColors.muted),
+        leading: isDecomposing
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(Icons.inbox_outlined, color: AppColors.muted),
         title: Text(goal.title),
-        // If the user captured a description it's worth surfacing here.
-        // Falls back to a hint that nudges the user to process the item.
         subtitle: Text(
-          goal.notes.isNotEmpty ? goal.notes : 'Tap to add subtasks',
+          isDecomposing
+              ? 'Generating subtasks…'
+              : goal.notes.isNotEmpty
+                  ? goal.notes
+                  : 'Tap to add subtasks',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),

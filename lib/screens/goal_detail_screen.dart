@@ -1,8 +1,12 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
+import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import '../services/decomposition_state.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -30,6 +34,9 @@ class GoalDetailScreen extends StatelessWidget {
       });
       return const SizedBox.shrink();
     }
+
+    final isDecomposing =
+        context.watch<DecompositionState>().isDecomposing(goalId);
 
     return Scaffold(
       appBar: AppBar(
@@ -62,34 +69,41 @@ class GoalDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          // Loading state while decomposition is in flight
+          if (isDecomposing)
+            const SliverToBoxAdapter(child: _DecomposingState())
+          // Inbox item waiting for the user to decide what to do with it
+          else if (goal.status == GoalStatus.inbox)
+            SliverToBoxAdapter(child: _InboxReadyState(goal: goal))
           // Reorderable subtask list
-          goal.subtasks.isEmpty
-              ? const SliverToBoxAdapter(child: _EmptySubtaskState())
-              : SliverReorderableList(
-                  itemCount: goal.subtasks.length,
-                  onReorder: (oldIndex, newIndex) {
-                    final service = context.read<GoalService>();
-                    service.reorderSubTask(goalId, oldIndex, newIndex);
-                  },
-                  itemBuilder: (context, index) {
-                    final subtask = goal.subtasks[index];
-                    // ReorderableListView requires every item to have a Key
-                    // ValueKey wraps a unique value — like React's key prop
-                    return SubTaskTile(
-                      key: ValueKey(subtask.subtaskId),
-                      subtask: subtask,
-                      goal: goal,
-                      index: index,
-                    );
-                  },
-                ),
+          else if (goal.subtasks.isEmpty)
+            const SliverToBoxAdapter(child: _EmptySubtaskState())
+          else
+            SliverReorderableList(
+              itemCount: goal.subtasks.length,
+              onReorder: (oldIndex, newIndex) {
+                final service = context.read<GoalService>();
+                service.reorderSubTask(goalId, oldIndex, newIndex);
+              },
+              itemBuilder: (context, index) {
+                final subtask = goal.subtasks[index];
+                return SubTaskTile(
+                  key: ValueKey(subtask.subtaskId),
+                  subtask: subtask,
+                  goal: goal,
+                  index: index,
+                );
+              },
+            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddSubTaskSheet(context),
-        tooltip: 'Add subtask',
-        child: const Icon(addSubtaskIcon),
-      ),
+      floatingActionButton: isDecomposing
+          ? null
+          : FloatingActionButton(
+              onPressed: () => _showAddSubTaskSheet(context),
+              tooltip: 'Add subtask',
+              child: const Icon(addSubtaskIcon),
+            ),
     );
   }
 
@@ -315,29 +329,25 @@ class _GoalMenuButton extends StatelessWidget {
     if (confirmed != true) return;
     if (!context.mounted) return;
 
+    final decompState = context.read<DecompositionState>();
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Re-decomposing subtasks…'),
-        duration: Duration(seconds: 30),
-      ),
-    );
 
-    final descriptions = await decomp.redecomposeSubtasks(
-      goal.title,
-      description: goal.notes.isEmpty ? null : goal.notes,
-    );
-
-    messenger.hideCurrentSnackBar();
-
-    if (descriptions == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+    decompState.begin(goal.goalId);
+    try {
+      final descriptions = await decomp.redecomposeSubtasks(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
       );
-      return;
+      if (descriptions == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+        );
+        return;
+      }
+      service.replaceAllSubTasks(goal.goalId, descriptions);
+    } finally {
+      decompState.end(goal.goalId);
     }
-
-    service.replaceAllSubTasks(goal.goalId, descriptions);
   }
 
   void _confirmDelete(BuildContext context, GoalService service) {
@@ -807,6 +817,88 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
           child: const Text('Replace with these two steps'),
         ),
       ],
+    );
+  }
+}
+
+class _InboxReadyState extends StatelessWidget {
+  final Goal goal;
+
+  const _InboxReadyState({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final decomp = context.read<GoalDecompositionService>();
+
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.inbox_outlined, size: 48, color: AppColors.muted),
+          const SizedBox(height: 12),
+          Text('In your inbox', style: Theme.of(context).textTheme.bodyLarge),
+          const SizedBox(height: 4),
+          Text(
+            decomp.canAutoBreakdown
+                ? 'Generate subtasks when you\'re ready to turn this into an active goal, or add them manually.'
+                : 'Add subtasks using the + button below to convert this into an active goal.',
+            style: TextStyle(color: AppColors.muted),
+            textAlign: TextAlign.center,
+          ),
+          if (decomp.canAutoBreakdown) ...[
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+              label: const Text('Generate subtasks'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 48),
+              ),
+              onPressed: () => _generate(context, decomp),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _generate(BuildContext context, GoalDecompositionService decomp) {
+    final decompState = context.read<DecompositionState>();
+    final goalService = context.read<GoalService>();
+    unawaited(decomp.decomposeInBackground(
+      goalId: goal.goalId,
+      title: goal.title,
+      description: goal.notes.isEmpty ? null : goal.notes,
+      onResult: (descriptions) =>
+          goalService.replaceAllSubTasks(goal.goalId, descriptions),
+      state: decompState,
+    ));
+  }
+}
+
+class _DecomposingState extends StatelessWidget {
+  const _DecomposingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            'Generating subtasks…',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'This may take a moment',
+            style: TextStyle(color: AppColors.muted),
+          ),
+        ],
+      ),
     );
   }
 }

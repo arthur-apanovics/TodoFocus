@@ -8,6 +8,7 @@ import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'services/decomposition_state.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
@@ -75,6 +76,9 @@ class TodoApp extends StatelessWidget {
         ProxyProvider<LlmSettingsService, GoalDecompositionService>(
           update: (_, settings, __) =>
               GoalDecompositionService(client: settings.buildClient()),
+        ),
+        ChangeNotifierProvider<DecompositionState>(
+          create: (_) => DecompositionState(),
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
@@ -157,6 +161,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         // LlmSettingsService notifies and ProxyProvider rebuilds the service.
         final goalService = context.read<GoalService>();
         final decompositionService = context.read<GoalDecompositionService>();
+        final decompositionState = context.read<DecompositionState>();
 
         final goalId = await showModalBottomSheet<String>(
           context: context,
@@ -165,6 +170,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           builder: (_) => NewGoalSheet(
             goalService: goalService,
             decompositionService: decompositionService,
+            decompositionState: decompositionState,
           ),
         );
         if (goalId != null && context.mounted) {
