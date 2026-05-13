@@ -27,7 +27,6 @@ void main() async {
       ValueNotifier<({String goalId, int seq, bool breakdown})?>(null);
 
   final notificationService = NotificationService(
-    tabNotifier: tabNotifier,
     goalNavNotifier: goalNavNotifier,
     repository: goalRepository,
   );

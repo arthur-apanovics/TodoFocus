@@ -14,7 +14,6 @@ class NotificationService {
   // Static references used by the action callback. Must be static because
   // awesome_notifications invokes the handler as a top-level entry point.
   static GoalRepository? _repository;
-  static ValueNotifier<int>? _tabNotifier;
   static ValueNotifier<({String goalId, int seq, bool breakdown})?>?
       _goalNavNotifier;
   static int _navSeq = 0;
@@ -25,13 +24,11 @@ class NotificationService {
   String? _shownSubtaskId;
 
   NotificationService({
-    required ValueNotifier<int> tabNotifier,
     required ValueNotifier<({String goalId, int seq, bool breakdown})?>
         goalNavNotifier,
     required GoalRepository repository,
   }) {
     _repository = repository;
-    _tabNotifier = tabNotifier;
     _goalNavNotifier = goalNavNotifier;
   }
 
@@ -108,10 +105,12 @@ class NotificationService {
         NotificationActionButton(
           key: markDoneActionKey,
           label: goal.nextSubTask != null ? 'Next step' : 'Finish goal',
+          actionType: ActionType.SilentAction,
         ),
-        const NotificationActionButton(
+        NotificationActionButton(
           key: breakdownActionKey,
           label: 'Break it down',
+          actionType: ActionType.SilentAction,
         ),
       ],
     );
@@ -153,7 +152,13 @@ class NotificationService {
       return;
     }
 
-    // Notification body tapped — switch to the Focus tab.
-    _tabNotifier?.value = 0;
+    // Notification body tapped — navigate to the goal detail screen.
+    if (goalId != null) {
+      _goalNavNotifier?.value = (
+        goalId: goalId,
+        seq: ++_navSeq,
+        breakdown: false,
+      );
+    }
   }
 }
