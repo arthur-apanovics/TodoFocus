@@ -17,7 +17,6 @@ class FocusScreen extends StatelessWidget {
     final focusedGoals = queries.todayQueue;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Today')),
       body: focusedGoals.isEmpty
           ? const _EmptyFocusState()
           : ReorderableListView.builder(

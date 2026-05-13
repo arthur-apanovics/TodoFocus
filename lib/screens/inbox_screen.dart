@@ -24,7 +24,6 @@ class InboxScreen extends StatelessWidget {
     final items = queries.inbox;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Inbox')),
       body: items.isEmpty ? const _EmptyState() : _InboxList(items: items),
     );
   }

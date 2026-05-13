@@ -4,6 +4,7 @@ import 'package:todo_app/screens/focus_screen.dart';
 import 'package:todo_app/screens/goal_detail_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/inbox_screen.dart';
+import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
@@ -99,6 +100,8 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late int _currentIndex;
 
+  static const _tabTitles = ['Today', 'Goals', 'Inbox'];
+
   static const List<Widget> _screens = [
     FocusScreen(),
     GoalsScreen(),
@@ -174,6 +177,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Text(_tabTitles[_currentIndex]),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ],
+      ),
       body: _screens[_currentIndex],
       floatingActionButton: _buildFab(context),
       bottomNavigationBar: NavigationBar(

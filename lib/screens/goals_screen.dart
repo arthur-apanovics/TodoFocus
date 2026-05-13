@@ -18,7 +18,6 @@ class GoalsScreen extends StatelessWidget {
     final goals = queries.goals;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Goals')),
       body: goals.isEmpty ? const _EmptyState() : _GoalList(goals: goals),
     );
   }
