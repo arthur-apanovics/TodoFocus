@@ -8,6 +8,8 @@ abstract class GoalRepository extends ChangeNotifier {
 
   void delete(String goalId);
 
+  void clear();
+
   Goal? findById(String goalId);
 
   List<Goal> get all;
@@ -41,6 +43,12 @@ class InMemoryGoalRepository extends GoalRepository {
   @override
   void delete(String goalId) {
     _goals.removeWhere((g) => g.goalId == goalId);
+    notifyListeners();
+  }
+
+  @override
+  void clear() {
+    _goals.clear();
     notifyListeners();
   }
 }

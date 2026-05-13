@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/goal_repository.dart';
 
 // Settings are organised into named sections. To add a new setting:
 //   1. Add a ListTile (or custom widget) inside the relevant _SettingsSection.
@@ -32,6 +34,12 @@ class SettingsScreen extends StatelessWidget {
                 title: 'Theme',
                 subtitle: 'Accent colour and dark mode',
               ),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Data',
+            children: [
+              _ClearDatabaseTile(),
             ],
           ),
         ],
@@ -108,6 +116,106 @@ class _ComingSoonBadge extends StatelessWidget {
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data section
+// ---------------------------------------------------------------------------
+
+class _ClearDatabaseTile extends StatelessWidget {
+  const _ClearDatabaseTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(Icons.delete,
+          color: Theme.of(context).colorScheme.error),
+      title: Text(
+        'Clear all data',
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      ),
+      subtitle: const Text('Permanently deletes all goals and subtasks'),
+      onTap: () => _showConfirmDialog(context),
+    );
+  }
+
+  Future<void> _showConfirmDialog(BuildContext context) async {
+    final repo = context.read<GoalRepository>();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ClearConfirmDialog(repo: repo),
+    );
+  }
+}
+
+class _ClearConfirmDialog extends StatefulWidget {
+  final GoalRepository repo;
+
+  const _ClearConfirmDialog({required this.repo});
+
+  @override
+  State<_ClearConfirmDialog> createState() => _ClearConfirmDialogState();
+}
+
+class _ClearConfirmDialogState extends State<_ClearConfirmDialog> {
+  final _controller = TextEditingController();
+  bool _confirmed = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Clear all data?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This will permanently delete every goal and subtask. '
+            'Type "delete" to confirm.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.none,
+            decoration: const InputDecoration(
+              hintText: 'delete',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) =>
+                setState(() => _confirmed = v.trim().toLowerCase() == 'delete'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+            disabledBackgroundColor:
+                Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.4),
+          ),
+          onPressed: _confirmed
+              ? () {
+                  widget.repo.clear();
+                  Navigator.pop(context);
+                }
+              : null,
+          child: const Text('Delete everything'),
+        ),
+      ],
     );
   }
 }
