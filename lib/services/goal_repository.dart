@@ -13,6 +13,10 @@ abstract class GoalRepository extends ChangeNotifier {
   Goal? findById(String goalId);
 
   List<Goal> get all;
+
+  List<Map<String, dynamic>> exportToJson();
+
+  Future<({int imported, int skipped})> importFromJson(List<dynamic> data);
 }
 
 class InMemoryGoalRepository extends GoalRepository {
@@ -50,5 +54,26 @@ class InMemoryGoalRepository extends GoalRepository {
   Future<void> clear() async {
     _goals.clear();
     notifyListeners();
+  }
+
+  @override
+  List<Map<String, dynamic>> exportToJson() =>
+      _goals.map((g) => g.toJson()).toList();
+
+  @override
+  Future<({int imported, int skipped})> importFromJson(List<dynamic> data) async {
+    int imported = 0;
+    int skipped = 0;
+    _goals.clear();
+    for (final item in data) {
+      try {
+        _goals.add(Goal.fromJson(item as Map<String, dynamic>));
+        imported++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    notifyListeners();
+    return (imported: imported, skipped: skipped);
   }
 }

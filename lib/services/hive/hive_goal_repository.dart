@@ -55,6 +55,28 @@ class HiveGoalRepository extends GoalRepository {
     notifyListeners();
   }
 
+  @override
+  List<Map<String, dynamic>> exportToJson() =>
+      _box.values.map((dto) => _toDomain(dto).toJson()).toList();
+
+  @override
+  Future<({int imported, int skipped})> importFromJson(List<dynamic> data) async {
+    int imported = 0;
+    int skipped = 0;
+    await _box.clear();
+    for (final item in data) {
+      try {
+        final goal = Goal.fromJson(item as Map<String, dynamic>);
+        await _box.put(goal.goalId, _toDto(goal));
+        imported++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    notifyListeners();
+    return (imported: imported, skipped: skipped);
+  }
+
   // --- Mapping: DTO → Domain ---
 
   Goal _toDomain(GoalDto dto) {
