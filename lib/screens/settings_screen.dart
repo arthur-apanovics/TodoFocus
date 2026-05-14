@@ -412,8 +412,8 @@ class _MorningPromptToggleTile extends StatelessWidget {
       ),
       value: service.morningPromptEnabled,
       onChanged: (value) async {
-        await service.setMorningPromptEnabled(value);
         final notif = context.read<NotificationService>();
+        await service.setMorningPromptEnabled(value);
         if (value) {
           final t = service.morningPromptTime;
           await notif.scheduleMorningPrompt(t.hour, t.minute);
@@ -440,6 +440,7 @@ class _MorningPromptTimeTile extends StatelessWidget {
       title: const Text('Prompt time'),
       subtitle: Text(t.format(context)),
       onTap: () async {
+        final notif = context.read<NotificationService>();
         final picked = await showTimePicker(
           context: context,
           initialTime: t,
@@ -447,10 +448,7 @@ class _MorningPromptTimeTile extends StatelessWidget {
         );
         if (picked != null) {
           await service.setMorningPromptTime(picked);
-          await context.read<NotificationService>().scheduleMorningPrompt(
-                picked.hour,
-                picked.minute,
-              );
+          await notif.scheduleMorningPrompt(picked.hour, picked.minute);
         }
       },
     );
