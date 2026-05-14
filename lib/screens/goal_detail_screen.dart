@@ -621,12 +621,15 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Pending but not current — locked until earlier subtasks complete.
+    // Pending but not current — queued until earlier subtasks complete.
+    // `AppIcons.queued` reads as "waiting your turn" (circle-outline glyph
+    // rhymes with the hollow-circle of `complete`), unlike the older lock
+    // which read as "permission denied".
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         splitButton,
-        Icon(Icons.lock_outline, size: 18, color: AppColors.muted),
+        Icon(AppIcons.queued, size: 20, color: AppColors.muted),
         const SizedBox(width: 8),
       ],
     );

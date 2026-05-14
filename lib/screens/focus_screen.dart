@@ -43,7 +43,14 @@ class FocusScreen extends StatelessWidget {
   }
 }
 
-// Each goal gets a card showing current + next subtask
+// Each goal gets a card showing current + next subtask.
+//
+// Visual hierarchy: the *current subtask* is the hero — the user is meant to
+// glance at the card and read the one thing they need to do right now. The
+// goal title is demoted to an eyebrow (uppercase, tracked, muted) — it's
+// just the category the current subtask belongs to. The "Current step" and
+// "Up next" subtext labels were removed: size, opacity, and the accent-
+// colored circle communicate which subtask is which without needing words.
 class _FocusGoalCard extends StatelessWidget {
   final Goal goal;
   final int index;
@@ -69,7 +76,7 @@ class _FocusGoalCard extends StatelessWidget {
           child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Goal header row
+            // Eyebrow row — drag handle + goal title (as category) + progress badge
             Row(
               children: [
                 // Drag handle — touch target for reordering the today queue.
@@ -84,9 +91,14 @@ class _FocusGoalCard extends StatelessWidget {
                 ),
                 Expanded(
                   child: Text(
-                    goal.title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                    goal.title.toUpperCase(),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 16 / 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.muted,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
@@ -94,7 +106,7 @@ class _FocusGoalCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
-                    vertical: 4,
+                    vertical: 3,
                   ),
                   decoration: BoxDecoration(
                     color: isAllDone
@@ -105,8 +117,8 @@ class _FocusGoalCard extends StatelessWidget {
                   child: Text(
                     '${goal.completedSubtaskCount}/${goal.subtasks.length}',
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
                       color: isAllDone ? AppColors.success : AppColors.accent,
                     ),
                   ),
@@ -114,24 +126,25 @@ class _FocusGoalCard extends StatelessWidget {
               ],
             ),
 
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
 
             // Progress bar
             LinearProgressIndicator(
               value: goal.progressPercent,
+              minHeight: 3,
               borderRadius: BorderRadius.circular(4),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
 
             // Collapsed state — all done
             if (isAllDone) _AllDoneRow(goal: goal),
 
-            // Active state — show current + peek
+            // Active state — current is the hero, next is a quiet peek
             if (!isAllDone) ...[
               _CurrentSubTaskRow(goal: goal),
               if (goal.nextSubTask != null) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 14),
                 _NextSubTaskPeek(subtask: goal.nextSubTask!),
               ],
             ],
@@ -143,7 +156,8 @@ class _FocusGoalCard extends StatelessWidget {
   }
 }
 
-// Current subtask — prominent, with complete button
+// Current subtask — the hero. 20px / medium weight, accent-colored circle.
+// No "Current step" label — the size jump and the accent circle do the work.
 class _CurrentSubTaskRow extends StatelessWidget {
   final Goal goal;
 
@@ -155,12 +169,8 @@ class _CurrentSubTaskRow extends StatelessWidget {
     final current = goal.currentSubTask!;
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Complete button — hollow circle, matching the Goal Detail screen.
-        // Filled green check is reserved for the all-done celebration state
-        // (see _AllDoneRow), so the shape distinction stays clear:
-        // hollow = "tap me", filled = "settled state".
         IconButton(
           icon: Icon(AppIcons.complete, color: AppColors.accent, size: 28),
           tooltip: 'Mark complete',
@@ -168,15 +178,19 @@ class _CurrentSubTaskRow extends StatelessWidget {
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(),
         ),
+        const SizedBox(width: 14),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                current.description,
-                style: Theme.of(context).textTheme.bodyLarge,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Text(
+              current.description,
+              style: const TextStyle(
+                fontSize: 20,
+                height: 26 / 20,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.2,
               ),
-            ],
+            ),
           ),
         ),
       ],
@@ -184,7 +198,9 @@ class _CurrentSubTaskRow extends StatelessWidget {
   }
 }
 
-// Next subtask — dimmed peek
+// Next subtask — dimmed peek. No "Up next" label; the 0.45 opacity says it.
+// Uses the same hollow-circle glyph as the active CTA so the queued / current
+// / completed shapes all rhyme — opacity, not a different icon, marks state.
 class _NextSubTaskPeek extends StatelessWidget {
   final SubTask subtask;
 
@@ -195,23 +211,17 @@ class _NextSubTaskPeek extends StatelessWidget {
     return Opacity(
       opacity: 0.45,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Same glyph as AppIcons.complete — both represent a pending
-          // subtask, just passive here (peek) rather than active (CTA).
-          // Routing through AppIcons keeps the visual grammar consistent
-          // if you swap the pending-shape later.
-          const Icon(AppIcons.nextInQueue, size: 18),
-          const SizedBox(width: 12),
+          const Icon(AppIcons.complete, size: 24),
+          const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  subtask.description,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                subtask.description,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
           ),
         ],
@@ -220,7 +230,8 @@ class _NextSubTaskPeek extends StatelessWidget {
   }
 }
 
-// All done state — collapsed summary
+// All done state — matches the hero size of _CurrentSubTaskRow so the card
+// keeps the same visual rhythm when it flips from active to complete.
 class _AllDoneRow extends StatelessWidget {
   final Goal goal;
 
@@ -231,13 +242,16 @@ class _AllDoneRow extends StatelessWidget {
     return Row(
       children: [
         Icon(Icons.check_circle, color: AppColors.success, size: 28),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         Expanded(
           child: Text(
             'All ${goal.subtasks.length} steps complete',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            style: TextStyle(
+              fontSize: 20,
+              height: 26 / 20,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.2,
               color: AppColors.success,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ),

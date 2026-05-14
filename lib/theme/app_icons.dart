@@ -32,4 +32,16 @@ class AppIcons {
 
   /// Marks an item that is queued up
   static const IconData nextInQueue = Icons.subdirectory_arrow_right_outlined;
+
+  // ---------------------------------------------------------------------
+  // State icons — passive indicators, no onPressed
+  // ---------------------------------------------------------------------
+
+  /// "Queued — waiting in line until earlier steps complete." Three dots
+  /// inside a circle outline. Reads as "pending your turn" and visually
+  /// rhymes with `complete` (a circle outline), so the row's three states
+  /// — queued / current / completed — read as a progression of the same
+  /// shape. Replaces the older `Icons.lock_outline` which read as
+  /// "permission denied" rather than "next in line".
+  static const IconData queued = Icons.pending;
 }
