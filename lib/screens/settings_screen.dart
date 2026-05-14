@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/backup_service.dart';
 import '../services/goal_repository.dart';
 import '../services/settings/llm_settings_service.dart';
 import 'llm_settings_screen.dart';
@@ -37,6 +38,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'Data',
             children: [
+              _ExportTile(),
+              _ImportTile(),
               _ClearDatabaseTile(),
             ],
           ),
@@ -153,6 +156,94 @@ class _LlmConfigTile extends StatelessWidget {
 // Data section
 // ---------------------------------------------------------------------------
 
+class _ExportTile extends StatelessWidget {
+  const _ExportTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.upload_outlined),
+      title: const Text('Export backup'),
+      subtitle: const Text('Save all goals and settings to a file'),
+      onTap: () => _export(context),
+    );
+  }
+
+  Future<void> _export(BuildContext context) async {
+    final backup = context.read<BackupService>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final saved = await backup.export();
+      if (saved) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Backup saved')),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+}
+
+class _ImportTile extends StatelessWidget {
+  const _ImportTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.download_outlined),
+      title: const Text('Import backup'),
+      subtitle: const Text('Restore goals and settings from a file'),
+      onTap: () => _import(context),
+    );
+  }
+
+  Future<void> _import(BuildContext context) async {
+    final backup = context.read<BackupService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Restore from backup?'),
+        content: const Text(
+          'This will replace all current goals and restore your LLM settings. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final result = await backup.import();
+      if (result == null) return;
+      final msg = result.skipped == 0
+          ? 'Restored ${result.imported} goals'
+          : 'Restored ${result.imported} goals (${result.skipped} skipped)';
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
+    } on FormatException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Import failed — file could not be read')),
+      );
+    }
+  }
+}
+
 class _ClearDatabaseTile extends StatelessWidget {
   const _ClearDatabaseTile();
 
@@ -237,9 +328,9 @@ class _ClearConfirmDialogState extends State<_ClearConfirmDialog> {
                 Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.4),
           ),
           onPressed: _confirmed
-              ? () {
-                  widget.repo.clear();
-                  Navigator.pop(context);
+              ? () async {
+                  await widget.repo.clear();
+                  if (mounted) Navigator.pop(context);
                 }
               : null,
           child: const Text('Delete everything'),

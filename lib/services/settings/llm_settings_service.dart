@@ -83,6 +83,54 @@ class LlmSettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Map<String, dynamic> exportToJson() => {
+        'llmEnabled': _enabled,
+        'activeProfileType': switch (activeProfile) {
+          OpenAiCompatibleProfile() => OpenAiCompatibleProfile.typeKey,
+          GoblinToolsProfile() => GoblinToolsProfile.typeKey,
+          null => null,
+        },
+        'openaiProfile': _openAiProfile.toJson(),
+        'goblinProfile': _goblinProfile.toJson(),
+      };
+
+  // Restores settings from a backup snapshot. Each field is applied
+  // independently; invalid or missing values fall back to the current value.
+  Future<void> importFromJson(Map<String, dynamic> json) async {
+    final enabled = json['llmEnabled'];
+    final activeType = json['activeProfileType'] as String?;
+
+    OpenAiCompatibleProfile? openAi;
+    try {
+      final raw = json['openaiProfile'];
+      if (raw is Map<String, dynamic>) {
+        openAi = OpenAiCompatibleProfile.fromJson(raw);
+      }
+    } catch (_) {}
+
+    GoblinToolsProfile? goblin;
+    try {
+      final raw = json['goblinProfile'];
+      if (raw is Map<String, dynamic>) {
+        goblin = GoblinToolsProfile.fromJson(raw);
+      }
+    } catch (_) {}
+
+    _openAiProfile = openAi ?? _openAiProfile;
+    _goblinProfile = goblin ?? _goblinProfile;
+    _activeType = activeType;
+    _enabled = enabled is bool ? enabled : _enabled;
+    await _box.put(_openAiKey, _openAiProfile.encode());
+    await _box.put(_goblinKey, _goblinProfile.encode());
+    if (activeType != null) {
+      await _box.put(_activeTypeKey, activeType);
+    } else {
+      await _box.delete(_activeTypeKey);
+    }
+    await _box.put(_enabledKey, _enabled.toString());
+    notifyListeners();
+  }
+
   static Future<LlmSettingsService> init() async {
     final box = await Hive.openBox<String>(_boxName);
 

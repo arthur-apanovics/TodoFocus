@@ -8,6 +8,7 @@ import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'services/backup_service.dart';
 import 'services/decomposition_state.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
@@ -84,6 +85,10 @@ class TodoApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<DecompositionState>(
           create: (_) => DecompositionState(),
+        ),
+        ProxyProvider2<GoalRepository, LlmSettingsService, BackupService>(
+          update: (_, goals, settings, _) =>
+              BackupService(goals: goals, settings: settings),
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),

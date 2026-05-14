@@ -50,10 +50,31 @@ class HiveGoalRepository extends GoalRepository {
   }
 
   @override
-  void clear() {
-    // _box.clear() is async — in-memory data isn't emptied until the Future
-    // resolves, so notifyListeners() must fire after it completes, not before.
-    _box.clear().then((_) => notifyListeners());
+  Future<void> clear() async {
+    await _box.clear();
+    notifyListeners();
+  }
+
+  @override
+  List<Map<String, dynamic>> exportToJson() =>
+      _box.values.map((dto) => _toDomain(dto).toJson()).toList();
+
+  @override
+  Future<({int imported, int skipped})> importFromJson(List<dynamic> data) async {
+    int imported = 0;
+    int skipped = 0;
+    await _box.clear();
+    for (final item in data) {
+      try {
+        final goal = Goal.fromJson(item as Map<String, dynamic>);
+        await _box.put(goal.goalId, _toDto(goal));
+        imported++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    notifyListeners();
+    return (imported: imported, skipped: skipped);
   }
 
   // --- Mapping: DTO → Domain ---
