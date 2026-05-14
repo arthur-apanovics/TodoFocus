@@ -1,6 +1,5 @@
 import 'package:collection/collection.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:todo_app/services/sample_data.dart';
 import '../../models/enums.dart';
 import '../../models/goal.dart';
 import '../../models/sub_task.dart';
@@ -15,15 +14,7 @@ class HiveGoalRepository extends GoalRepository {
   // repository is used — see main.dart initialisation below
   late final Box<GoalDto> _box;
 
-  HiveGoalRepository(this._box, {bool seed = true}) {
-    if (seed && _box.isEmpty) {
-      // Key by goalId to match save()/delete() — otherwise addAll uses
-      // auto-incrementing integer keys and later saves create duplicates.
-      _box.putAll({
-        for (final goal in SampleData.goals) goal.goalId: _toDto(goal),
-      });
-    }
-  }
+  HiveGoalRepository(this._box, {bool seed = true});
 
   // --- GoalRepository implementation ---
 
@@ -60,7 +51,9 @@ class HiveGoalRepository extends GoalRepository {
       _box.values.map((dto) => _toDomain(dto).toJson()).toList();
 
   @override
-  Future<({int imported, int skipped})> importFromJson(List<dynamic> data) async {
+  Future<({int imported, int skipped})> importFromJson(
+    List<dynamic> data,
+  ) async {
     int imported = 0;
     int skipped = 0;
     await _box.clear();
