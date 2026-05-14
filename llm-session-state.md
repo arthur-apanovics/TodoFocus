@@ -1,5 +1,5 @@
 # Todo App — LLM Session State
-**Last updated:** 2026-05-13  
+**Last updated:** 2026-05-15  
 **Framework:** Flutter (Dart)  
 **Purpose:** Preserve project context, decisions, and progress across LLM sessions. Read this before touching any code.
 
@@ -20,7 +20,7 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 ### Complete
 - **Goal management** — create, edit, delete goals; title + notes fields; optional due date
 - **Inbox capture** — add a goal without decomposing it; lives on its own tab until processed
-- **Inbox promotion** — adding the first subtask to an inbox goal automatically promotes it to `active`
+- **Inbox promotion** — adding the first subtask to an inbox goal automatically promotes it to `active`; inbox items do NOT auto-decompose — user triggers decomposition manually from the detail screen
 - **Goal decomposition** — manual subtask creation, edit, delete, reorder (drag handles)
 - **Sequential subtask queue** — subtasks must be completed in order; `currentSubTask` is always the first `pending` one — derived, never stored; invalid multi-active state is unrepresentable by design
 - **Undo completion** — `uncompleteSubTask()` marks a completed subtask pending and re-inserts it just before the current one
@@ -35,10 +35,16 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - **CI / release** — GitHub Actions builds arm64 APK on `workflow_dispatch` or `v*` tag push; tagged runs create a GitHub Release with generated notes
 - **Persistent Android notification** — ongoing notification showing `❯ <currentSubTask>` as title, `↳ <nextSubTask>` as body, `<goalTitle>` as subText; action button "Next step" / "Finish goal" completes the subtask; tapping the body opens the Focus tab; suppressed if goal/subtask unchanged; re-posted on app resume via `WidgetsBindingObserver`; replays cold-start action via `getNotificationAppLaunchDetails()`
 - **Tests** — 79 passing tests across 4 layers (see Testing section)
+- **App icons** — generated from `logos/app-icon-1024.png` via `flutter_launcher_icons` for all Android mipmap densities and iOS AppIcon slots
+- **LLM decomposition** — pluggable provider system; goals decomposed into subtasks by LLM or keyword fallback; see LLM section below
+- **LLM settings UI** — `LlmSettingsScreen` with per-type config for OpenAI-compatible and Goblin Tools; each preset stored under its own Hive key so switching presets never overwrites the other's config
+- **Async goal creation with loading indicator** — goals created immediately, subtasks populated in the background via `decomposeInBackground`; `DecompositionState` tracks in-flight goal IDs; detail screen shows spinner in place of subtask list; list tiles show spinner in place of status icon while decomposing
+- **Re-decompose subtasks** — three-dot menu on `GoalDetailScreen`; replaces all subtasks; optional additional instructions field in confirm dialog; uses `DecompositionState` for loading UI
+- **Subtask breakdown** — split button on every non-completed subtask tile; tap = auto-breakdown via LLM; long press = opens `_InstructionsSheet` for custom steering instructions first; falls back to manual split sheet when no LLM configured
+- **Custom steering instructions** — both re-decompose and subtask breakdown accept optional free-text instructions; appended to LLM user message for OpenAI-compatible; used as the submission text for Goblin Tools (replaces the original value)
 
 ### Post-MVP / Planned
 - **Daily reset** — Focus list resets each day; carry-over rules TBD; this is the trigger for extracting `todayOrder`/`isFocusedToday` into a separate `TodaySession` object
-- **LLM decomposition** — `GoalDecompositionService._scaffoldSubTasks()` is the exact seam; replace body with Ollama / llama.cpp call; signature stays the same
 - **Micro-rewards** — visual/audio feedback on subtask completion
 - **Neglect priority** — tasks untouched >24h boosted (`lastSeenDate` already tracked on `SubTask`)
 - **Deadline priority** — goals with nearest `dueDate` weighted higher
@@ -47,6 +53,40 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - **Mobile widget** — single-tap idea capture from home screen
 - **Voice capture** — hands-free input
 - **Focus mode** — integrated Pomodoro timer per subtask
+
+---
+
+## LLM Integration
+
+### Provider Architecture
+`DecompositionClient` is an abstract interface with two methods:
+- `decompose(title, {description, additionalInstructions})` → `List<String>` subtask descriptions
+- `breakdown(subtaskDescription, {additionalInstructions})` → `List<String>` smaller steps
+
+Implementations:
+- `OpenAiDecompositionClient` — wraps `LlmClient` (HTTP); appends `additionalInstructions` to the user message
+- `GoblinToolsDecompositionClient` — hits `goblin.tools/api/todo/`; `additionalInstructions` replaces the original text entirely (since Goblin has no system-prompt steering)
+
+`GoalDecompositionService` is provider-agnostic: it receives an optional `DecompositionClient?` and falls back to keyword templates when `null`.
+
+### Keyword Fallback
+`_detectIntent(title, description)` scans for ~20 action-verb categories (learn, build, travel, etc.) and picks a matching template list from `_templatesByIntent`. Returns `'fallback'` if nothing matches.
+
+### Settings Persistence
+`LlmSettingsService` (Hive `Box<String>`, key `app_settings`):
+- Two separate storage slots: `openai_profile` and `goblin_profile` — switching the active preset never overwrites the other
+- `active_profile_type` stores which preset is currently active
+- `llm_enabled` boolean
+- One-time migration from legacy single `active_profile` key
+- `--dart-define` env vars (`LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TEMPERATURE`) override stored OpenAI settings at startup
+
+### `DecompositionState`
+A top-level `ChangeNotifier` (not tied to `ProxyProvider` recreation) that tracks which goal IDs have an in-flight decomposition. Also tracks fallback events so the detail screen can show a snackbar.
+
+Key methods: `begin(goalId)`, `end(goalId)`, `isDecomposing(goalId)`, `fail(goalId, {errorMessage})`, `hasFallback(goalId)`, `fallbackError(goalId)`, `clearFallback(goalId)`.
+
+### `decomposeInBackground`
+Fire-and-forget async method on `GoalDecompositionService`. Marks state, calls LLM, falls back to keywords on error, delivers results via `onResult` callback, clears state in `finally`. No loading flash when no client is configured (synchronous keyword path).
 
 ---
 
@@ -61,8 +101,11 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 
 ### State Management — Provider
 - `ChangeNotifierProvider<GoalRepository>` — source of truth; calls `notifyListeners()` on every mutation
+- `ChangeNotifierProvider<LlmSettingsService>` — LLM config and enable/disable state
+- `ChangeNotifierProvider<DecompositionState>` — tracks in-flight decompositions app-wide; intentionally NOT a `ProxyProvider` so it survives LLM settings changes without resetting in-flight state
 - `ProxyProvider<GoalRepository, GoalService>` — service depends on repo
 - `ProxyProvider<GoalRepository, GoalQueries>` — queries depend on repo
+- `ProxyProvider<LlmSettingsService, GoalDecompositionService>` — rebuilds client when settings change
 - `Provider<NotificationService>` — notification service exposed so `AppShell` can re-post on resume
 - `context.watch<T>()` — reactive reads inside `build()` (subscribes to rebuilds)
 - `context.read<T>()` — one-off reads inside event handlers (no subscription)
@@ -82,8 +125,9 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - `AppShell` implements `WidgetsBindingObserver`; `didChangeAppLifecycleState(resumed)` re-posts notification
 - `_shownGoalId` / `_shownSubtaskId` cache suppresses spurious re-posts when nothing has changed
 - Channel ID: `focus_task_v2` (importance locked at channel creation; versioned ID forces recreation)
-- `showsUserInterface: false` on the action button (was `true` during debugging; reverted to user preference)
+- `showsUserInterface: false` on the action button
 - Cold-start: `getNotificationAppLaunchDetails()` replays the last action on first init
+- `GoalDetailScreen` accepts `triggerBreakdown: bool` — when `true`, auto-triggers subtask breakdown on first frame (wired to "Break it down" notification action)
 
 ---
 
@@ -99,28 +143,46 @@ lib/
 │   └── sub_task.dart                   — subtask domain model
 ├── screens/
 │   ├── focus_screen.dart               — Today tab: focused goals, current+next subtask, drag-to-reorder, tap→detail
-│   ├── goals_screen.dart               — Goals tab: active+completed goals, star toggle, delete
-│   ├── inbox_screen.dart               — Inbox tab: undecomposed goals, tap to open detail
-│   ├── goal_detail_screen.dart         — subtask CRUD, reorder, complete, undo
+│   ├── goals_screen.dart               — Goals tab: active+completed goals, star toggle, delete; spinner on decomposing tiles
+│   ├── inbox_screen.dart               — Inbox tab: undecomposed goals, tap to open detail; spinner on decomposing tiles
+│   ├── goal_detail_screen.dart         — StatefulWidget; subtask CRUD, reorder, complete, undo; loading/inbox/empty states;
+│   │                                     re-decompose menu; split button (tap=auto, long-press=instructions sheet);
+│   │                                     triggerBreakdown param for notification action; fallback snackbar via DecompositionState
+│   ├── llm_settings_screen.dart        — LLM config UI: preset picker, OpenAI form (url/model/key/temp/timeout/prompts),
+│   │                                     Goblin Tools form (spiciness); save is async
 │   └── widgets/
 │       ├── app_bottom_sheet.dart       — shared sheet chrome (handle, padding, keyboard avoid)
-│       └── new_goal_sheet.dart         — new goal form; Create pops with goalId, Inbox pops with null
+│       └── new_goal_sheet.dart         — new goal form; Create pops with goalId + fires decomposeInBackground;
+│                                         Inbox saves immediately with no decomposition
 ├── services/
-│   ├── goal_decomposition_service.dart — _scaffoldSubTasks() seam for future LLM
+│   ├── decomposition_state.dart        — ChangeNotifier; tracks in-flight goal IDs + fallback events
+│   ├── goal_decomposition_service.dart — orchestrates LLM/keyword decomposition; createGoal, captureToInbox,
+│   │                                     decomposeInBackground, redecomposeSubtasks, breakdownSubtask
 │   ├── goal_queries.dart               — read projections: todayQueue (sorted), goals, inbox
 │   ├── goal_repository.dart            — abstract GoalRepository + InMemoryGoalRepository
-│   ├── goal_service.dart               — all mutations incl. toggleFocusToday, reorderTodayQueue
+│   ├── goal_service.dart               — all mutations incl. toggleFocusToday, reorderTodayQueue, replaceAllSubTasks
 │   ├── notification_service.dart       — persistent Android notification; update(), init(), _onResponse()
 │   ├── sample_data.dart                — seed data — DELETE BEFORE SHIPPING
-│   └── hive/
-│       ├── goal_dto.dart               — Hive DTO (typeId: 0), field index registry in comments
-│       ├── goal_dto.g.dart             — generated — DO NOT EDIT (hand-edit for field 7 todayOrder was needed)
-│       ├── hive_goal_repository.dart   — concrete Hive impl; seeds from SampleData if box empty
-│       ├── sub_task_dto.dart           — Hive DTO (typeId: 1), field index registry in comments
-│       └── sub_task_dto.g.dart         — generated — DO NOT EDIT
+│   ├── hive/
+│   │   ├── goal_dto.dart               — Hive DTO (typeId: 0), field index registry in comments
+│   │   ├── goal_dto.g.dart             — generated — DO NOT EDIT (hand-edit for field 7 todayOrder was needed)
+│   │   ├── hive_goal_repository.dart   — concrete Hive impl; seeds from SampleData if box empty
+│   │   ├── sub_task_dto.dart           — Hive DTO (typeId: 1), field index registry in comments
+│   │   └── sub_task_dto.g.dart         — generated — DO NOT EDIT
+│   ├── llm/
+│   │   ├── decomposition_client.dart   — abstract interface: decompose(), breakdown() — both accept additionalInstructions
+│   │   ├── openai_decomposition_client.dart — OpenAI-compatible impl; additionalInstructions appended to user message
+│   │   ├── goblin_tools_client.dart    — Goblin Tools impl; additionalInstructions replaces the original text
+│   │   ├── llm_client.dart             — HTTP client wrapping the OpenAI chat completions endpoint
+│   │   └── llm_config.dart             — reads --dart-define env vars (LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TEMPERATURE)
+│   └── settings/
+│       ├── llm_profile.dart            — sealed class: OpenAiCompatibleProfile | GoblinToolsProfile; JSON encode/decode
+│       └── llm_settings_service.dart   — Hive-backed; separate keys per profile type; activeType; isEnabled; debugMode
 └── theme/
     ├── app_colors.dart                 — centralised colour palette (see Theme section)
     └── app_icons.dart                  — centralised icon constants (semantic names)
+
+logos/                                  — source assets; app-icon-1024.png is the flutter_launcher_icons source
 
 test/
 ├── models/
@@ -178,6 +240,7 @@ Key `Goal` mutation methods:
 - `completeCurrentSubTask()` — marks first pending done, recalculates
 - `uncompleteSubTask(String subtaskId)` — marks pending, removes from list, re-inserts before current (or appends if all others done), recalculates
 - `reorderSubTask(int old, int new)` — can't move completed; clamps to first pending index
+- `replaceAllSubTasks(List<SubTask>)` — clears and replaces atomically, recalculates (used by LLM result delivery)
 - `_recalculateStatus()` — sets `completed` if all subtasks done; else `active`
 
 > **Important:** The `Goal` constructor does NOT call `_recalculateStatus()`. Status is set exactly as passed. `_recalculateStatus()` only fires on explicit mutations.
@@ -239,8 +302,8 @@ All colours centralised here. Changing `accent` propagates to the Material seed 
 
 | Name | Value | Used for |
 |---|---|---|
-| `faded` | `Colors.grey.shade400` | Completed subtask drag handle |
-| `muted` | `Colors.grey.shade600` | Secondary icons, hints, subtitles |
+| `faded` | `Colors.grey.shade400` | Completed subtask drag handle (now transparent — kept in palette for future use) |
+| `muted` | `Colors.grey.shade600` | Secondary icons, hints, subtitles, completed subtask text |
 | `strong` | `Colors.grey.shade800` | Primary action icon (current subtask complete button) |
 | `sheetHandle` | `Colors.grey.shade300` | Bottom sheet drag handle |
 | `accent` | `Colors.indigo` | Focus today star, current subtask label, progress, badges |
@@ -257,6 +320,14 @@ All colours centralised here. Changing `accent` propagates to the Material seed 
 | `uncomplete` | `Icons.restore` | "Undo completion" |
 | `delete` | `Icons.delete_outline` | Destructive delete on all swipe actions |
 | `nextInQueue` | (dimmed peek icon) | Next subtask visual in Focus card |
+
+### Subtask tile visual rules
+- **Opacity:** `1.0` always; `0.6` while `_isBreakingDown`
+- **Leading drag handle:** `Colors.transparent` for completed and breaking-down rows (preserves layout width, hides icon); `ReorderableDragStartListener` for all others
+- **Current subtask title:** bold + `AppColors.strong`
+- **Completed subtask title:** strikethrough + `AppColors.muted`
+- **Subtitle:** shown only for "Breaking down…" and "Completed"; null for current and queued
+- **Split button tooltip removed** — `Tooltip`'s long-press recognizer wins the gesture arena over an outer `GestureDetector`; tooltip was removed so long-press correctly opens the instructions sheet
 
 ---
 
@@ -300,13 +371,21 @@ dependencies:
   uuid: ^4.0.0                        # UUID generation
   provider: ^6.1.0                    # DI / state management
   hive_flutter: ^1.1.0                # local persistence
-  flutter_local_notifications: ^17.0  # persistent Android notification
+  http: ^1.2.0                        # LLM HTTP calls
+  awesome_notifications: ^0.11.0      # persistent Android notification
+  file_picker: ^8.0.0                 # (reserved)
 
 dev_dependencies:
-  flutter_test: sdk: flutter          # test framework
   hive_generator: ^2.0.1             # TypeAdapter code generation
   build_runner: ^2.4.0               # runs code generation
+  flutter_launcher_icons: ^0.14.0    # generates all platform icon sizes from logos/app-icon-1024.png
 ```
+
+To regenerate icons after changing the source image:
+```bash
+flutter pub run flutter_launcher_icons
+```
+Note: source image has an alpha channel — set `remove_alpha_ios: true` in pubspec `flutter_launcher_icons` block before App Store submission.
 
 ### Android requirements for notifications
 - `android/app/build.gradle.kts`: `isCoreLibraryDesugaringEnabled = true` + `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`
@@ -343,6 +422,11 @@ Requires `permissions: contents: write` on the job.
 | Star `IconButton` for focus toggle | Previous swipe-right caused goal duplication because `Dismissible` confirmed dismissal before Provider rebuild could update the list. |
 | `todayOrder` on `Goal`, not a separate entity | "Today queue" state is just two fields (`isFocusedToday`, `todayOrder`); extraction to `TodaySession` deferred until daily-reset logic is built, which is the natural trigger. |
 | Notification channel `focus_task_v2` | Android locks channel importance at creation; versioned ID forces recreation with new importance settings. |
+| `DecompositionState` as standalone `ChangeNotifierProvider` | Not a `ProxyProvider` — must survive LLM settings changes without losing in-flight tracking. A `ProxyProvider` would recreate it whenever `LlmSettingsService` notifies. |
+| Separate Hive keys per LLM profile type | Switching active preset used to overwrite the other type's config. Per-key storage (`openai_profile`, `goblin_profile`) means each type is independent; one-time migration from legacy `active_profile` key. |
+| `TextEditingController` in dialog as `StatefulWidget` | Disposing a controller owned by a `showDialog` caller while the dialog's exit animation is still running triggers `_dependents.isEmpty` assertion. Owning it in a `StatefulWidget` dialog ensures disposal happens after the widget is fully unmounted. |
+| No tooltip on split button | `Tooltip` registers a `LongPressGestureRecognizer` that wins over an outer `GestureDetector`. Removing the tooltip lets the `GestureDetector.onLongPress` fire correctly to open the instructions sheet. |
+| Inbox items don't auto-decompose | User intent: inbox is a true backlog. Auto-decomposing on capture would promote items to active without the user consciously deciding to act on them. |
 
 ---
 
@@ -361,3 +445,5 @@ Requires `permissions: contents: write` on the job.
 - **Notification suppress cache** — `NotificationService` stores `_shownGoalId` / `_shownSubtaskId`; `update()` is a no-op if both match. This prevents sound/vibration on every app resume when state hasn't changed.
 - **`ReorderableListView` index convention** — `newIndex` from `onReorder` is one past the drop target when moving an item downward. `GoalService.reorderTodayQueue` normalises this with `if (newIndex > oldIndex) newIndex -= 1`.
 - **`Card.clipBehavior: Clip.hardEdge`** — required on `_FocusGoalCard` so the `InkWell` ripple is clipped to the card's rounded corners.
+- **LLM `additionalInstructions` null vs empty string** — callers pass `null` when no instructions are provided (not an empty string). Both `OpenAiDecompositionClient` and `GoblinToolsDecompositionClient` check `isNotEmpty` before applying. Passing `null` produces identical output to having no instructions field at all.
+- **`GoalDetailScreen` is a `StatefulWidget`** — converted from `StatelessWidget` to support `DecompositionState` listener for fallback snackbars and the `triggerBreakdown` post-frame callback. `context.watch<DecompositionState>()` still lives in `build()` for the loading UI.
