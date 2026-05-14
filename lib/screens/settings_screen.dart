@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/backup_service.dart';
+import '../services/daily_reset_service.dart';
 import '../services/goal_repository.dart';
+import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import 'llm_settings_screen.dart';
 
@@ -23,6 +25,16 @@ class SettingsScreen extends StatelessWidget {
             title: 'AI Assistant',
             children: [
               _LlmConfigTile(),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Daily Reset',
+            children: [
+              _DailyResetToggleTile(),
+              _DailyResetTimeTile(),
+              _MorningPromptToggleTile(),
+              _MorningPromptTimeTile(),
+              _UrgencyDaysTile(),
             ],
           ),
           _SettingsSection(
@@ -337,6 +349,171 @@ class _ClearConfirmDialogState extends State<_ClearConfirmDialog> {
           child: const Text('Delete everything'),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Daily Reset section
+// ---------------------------------------------------------------------------
+
+class _DailyResetToggleTile extends StatelessWidget {
+  const _DailyResetToggleTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<DailyResetService>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.restart_alt_outlined),
+      title: const Text('Enable daily reset'),
+      subtitle: const Text('Clears focus assignments at a set time each day'),
+      value: service.resetEnabled,
+      onChanged: service.setResetEnabled,
+    );
+  }
+}
+
+class _DailyResetTimeTile extends StatelessWidget {
+  const _DailyResetTimeTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<DailyResetService>();
+    if (!service.resetEnabled) return const SizedBox.shrink();
+    final t = service.resetTime;
+    return ListTile(
+      leading: const Icon(Icons.access_time_outlined),
+      title: const Text('Reset time'),
+      subtitle: Text(t.format(context)),
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: t,
+          helpText: 'Choose when focus assignments reset',
+        );
+        if (picked != null) await service.setResetTime(picked);
+      },
+    );
+  }
+}
+
+class _MorningPromptToggleTile extends StatelessWidget {
+  const _MorningPromptToggleTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<DailyResetService>();
+    if (!service.resetEnabled) return const SizedBox.shrink();
+    return SwitchListTile(
+      secondary: const Icon(Icons.notifications_outlined),
+      title: const Text('Morning prompt'),
+      subtitle: const Text(
+        'Daily notification reminding you to assign tasks for the day',
+      ),
+      value: service.morningPromptEnabled,
+      onChanged: (value) async {
+        final notif = context.read<NotificationService>();
+        await service.setMorningPromptEnabled(value);
+        if (value) {
+          final t = service.morningPromptTime;
+          await notif.scheduleMorningPrompt(t.hour, t.minute);
+        } else {
+          await notif.cancelMorningPrompt();
+        }
+      },
+    );
+  }
+}
+
+class _MorningPromptTimeTile extends StatelessWidget {
+  const _MorningPromptTimeTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<DailyResetService>();
+    if (!service.resetEnabled || !service.morningPromptEnabled) {
+      return const SizedBox.shrink();
+    }
+    final t = service.morningPromptTime;
+    return ListTile(
+      leading: const Icon(Icons.wb_sunny_outlined),
+      title: const Text('Prompt time'),
+      subtitle: Text(t.format(context)),
+      onTap: () async {
+        final notif = context.read<NotificationService>();
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: t,
+          helpText: 'Choose when to receive the morning prompt',
+        );
+        if (picked != null) {
+          await service.setMorningPromptTime(picked);
+          await notif.scheduleMorningPrompt(picked.hour, picked.minute);
+        }
+      },
+    );
+  }
+}
+
+class _UrgencyDaysTile extends StatelessWidget {
+  const _UrgencyDaysTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<DailyResetService>();
+    return ListTile(
+      leading: const Icon(Icons.flag_outlined),
+      title: const Text('Urgency window'),
+      subtitle: Text(
+        'Goals due within ${service.urgencyDays} day${service.urgencyDays == 1 ? '' : 's'} are prioritised',
+      ),
+      onTap: () => _showUrgencyDialog(context, service),
+    );
+  }
+
+  void _showUrgencyDialog(BuildContext context, DailyResetService service) {
+    var days = service.urgencyDays;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: const Text('Urgency window'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$days day${days == 1 ? '' : 's'}',
+                style: Theme.of(ctx).textTheme.headlineSmall,
+              ),
+              Slider(
+                value: days.toDouble(),
+                min: 1,
+                max: 14,
+                divisions: 13,
+                label: '$days',
+                onChanged: (v) => setState(() => days = v.round()),
+              ),
+              Text(
+                'Goals with a deadline within this many days will be sorted to the top.',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                service.setUrgencyDays(days);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

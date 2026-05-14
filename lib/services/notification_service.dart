@@ -8,8 +8,11 @@ class NotificationService {
   static const String markDoneActionKey = 'mark_done';
   static const String breakdownActionKey = 'breakdown';
   static const int _notifId = 1;
+  static const int _morningPromptId = 2;
   static const String _channelKey = 'focus_task';
   static const String _channelName = 'Focus Task';
+  static const String _morningChannelKey = 'morning_prompt';
+  static const String _morningChannelName = 'Morning Prompt';
 
   // Static references used by the action callback. Must be static because
   // awesome_notifications invokes the handler as a top-level entry point.
@@ -41,6 +44,13 @@ class NotificationService {
           channelName: _channelName,
           channelDescription: 'Shows your current active subtask',
           importance: NotificationImportance.High,
+          defaultPrivacy: NotificationPrivacy.Public,
+        ),
+        NotificationChannel(
+          channelKey: _morningChannelKey,
+          channelName: _morningChannelName,
+          channelDescription: 'Daily reminder to assign tasks for the day',
+          importance: NotificationImportance.Default,
           defaultPrivacy: NotificationPrivacy.Public,
         ),
       ],
@@ -116,6 +126,52 @@ class NotificationService {
         ),
       ],
     );
+  }
+
+  /// Shows a persistent "Assign tasks" notification after a daily reset.
+  Future<void> showAssignTasksPrompt() async {
+    _shownGoalId = null;
+    _shownSubtaskId = null;
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: _notifId,
+        channelKey: _channelKey,
+        title: 'Plan your day',
+        body: 'Assign tasks to focus on today',
+        notificationLayout: NotificationLayout.Default,
+        autoDismissible: true,
+        locked: false,
+        showWhen: false,
+      ),
+    );
+  }
+
+  /// Schedules (or re-schedules) the daily morning prompt notification.
+  Future<void> scheduleMorningPrompt(int hour, int minute) async {
+    await AwesomeNotifications().cancel(_morningPromptId);
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: _morningPromptId,
+        channelKey: _morningChannelKey,
+        title: 'Good morning!',
+        body: 'Assign tasks to focus on today',
+        notificationLayout: NotificationLayout.Default,
+      ),
+      schedule: NotificationCalendar(
+        hour: hour,
+        minute: minute,
+        second: 0,
+        millisecond: 0,
+        repeats: true,
+        allowWhileIdle: true,
+        preciseAlarm: false,
+      ),
+    );
+  }
+
+  /// Cancels the morning prompt if it was scheduled.
+  Future<void> cancelMorningPrompt() async {
+    await AwesomeNotifications().cancel(_morningPromptId);
   }
 
   Future<void> dismiss() async {

@@ -9,3 +9,5 @@ enum SubTaskState {
   completed
 }
 
+enum GoalSortOrder { dateAdded, urgency, smart }
+
