@@ -329,8 +329,9 @@ class _ClearConfirmDialogState extends State<_ClearConfirmDialog> {
           ),
           onPressed: _confirmed
               ? () async {
+                  final nav = Navigator.of(context);
                   await widget.repo.clear();
-                  if (mounted) Navigator.pop(context);
+                  if (mounted) nav.pop();
                 }
               : null,
           child: const Text('Delete everything'),
