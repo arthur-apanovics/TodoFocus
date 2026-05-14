@@ -8,7 +8,7 @@ abstract class GoalRepository extends ChangeNotifier {
 
   void delete(String goalId);
 
-  void clear();
+  Future<void> clear();
 
   Goal? findById(String goalId);
 
@@ -47,7 +47,7 @@ class InMemoryGoalRepository extends GoalRepository {
   }
 
   @override
-  void clear() {
+  Future<void> clear() async {
     _goals.clear();
     notifyListeners();
   }

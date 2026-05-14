@@ -50,10 +50,9 @@ class HiveGoalRepository extends GoalRepository {
   }
 
   @override
-  void clear() {
-    // _box.clear() is async — in-memory data isn't emptied until the Future
-    // resolves, so notifyListeners() must fire after it completes, not before.
-    _box.clear().then((_) => notifyListeners());
+  Future<void> clear() async {
+    await _box.clear();
+    notifyListeners();
   }
 
   // --- Mapping: DTO → Domain ---

@@ -83,6 +83,30 @@ class LlmSettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Atomically restores all settings from a backup. Each field is applied only
+  // if it is present and valid; missing/invalid values fall back to whatever
+  // is already stored.
+  Future<void> restoreFromBackup({
+    required bool enabled,
+    required String? activeType,
+    required OpenAiCompatibleProfile openAiProfile,
+    required GoblinToolsProfile goblinProfile,
+  }) async {
+    _openAiProfile = openAiProfile;
+    _goblinProfile = goblinProfile;
+    _activeType = activeType;
+    _enabled = enabled;
+    await _box.put(_openAiKey, openAiProfile.encode());
+    await _box.put(_goblinKey, goblinProfile.encode());
+    if (activeType != null) {
+      await _box.put(_activeTypeKey, activeType);
+    } else {
+      await _box.delete(_activeTypeKey);
+    }
+    await _box.put(_enabledKey, enabled.toString());
+    notifyListeners();
+  }
+
   static Future<LlmSettingsService> init() async {
     final box = await Hive.openBox<String>(_boxName);
 
