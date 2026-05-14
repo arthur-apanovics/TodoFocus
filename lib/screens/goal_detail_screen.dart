@@ -32,13 +32,38 @@ class GoalDetailScreen extends StatefulWidget {
 }
 
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
+  late final DecompositionState _decompositionState;
+
   @override
   void initState() {
     super.initState();
+    _decompositionState = context.read<DecompositionState>();
+    _decompositionState.addListener(_onDecompositionChanged);
     if (widget.triggerBreakdown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _autoBreakdown();
       });
+    }
+  }
+
+  @override
+  void dispose() {
+    _decompositionState.removeListener(_onDecompositionChanged);
+    super.dispose();
+  }
+
+  void _onDecompositionChanged() {
+    if (!mounted) return;
+    if (_decompositionState.hasFallback(widget.goalId)) {
+      final error = _decompositionState.fallbackError(widget.goalId);
+      _decompositionState.clearFallback(widget.goalId);
+      final debugMode = context.read<LlmSettingsService>().debugMode;
+      final message = debugMode && error != null
+          ? error
+          : 'AI unavailable — template subtasks used instead';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -81,41 +106,6 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         goalService: service,
       ),
     );
-  }
-
-  @override
-  State<GoalDetailScreen> createState() => _GoalDetailScreenState();
-}
-
-class _GoalDetailScreenState extends State<GoalDetailScreen> {
-  late final DecompositionState _decompositionState;
-
-  @override
-  void initState() {
-    super.initState();
-    _decompositionState = context.read<DecompositionState>();
-    _decompositionState.addListener(_onDecompositionChanged);
-  }
-
-  @override
-  void dispose() {
-    _decompositionState.removeListener(_onDecompositionChanged);
-    super.dispose();
-  }
-
-  void _onDecompositionChanged() {
-    if (!mounted) return;
-    if (_decompositionState.hasFallback(widget.goalId)) {
-      final error = _decompositionState.fallbackError(widget.goalId);
-      _decompositionState.clearFallback(widget.goalId);
-      final debugMode = context.read<LlmSettingsService>().debugMode;
-      final message = debugMode && error != null
-          ? error
-          : 'AI unavailable — template subtasks used instead';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
   }
 
   @override
