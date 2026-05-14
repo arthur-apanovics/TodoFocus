@@ -86,15 +86,15 @@ class NotificationService {
     _shownGoalId = goal.goalId;
     _shownSubtaskId = current.subtaskId;
 
+    final next = goal.nextSubTask;
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: _notifId,
         channelKey: _channelKey,
-        title: '❯ ${current.description}',
-        body: goal.nextSubTask != null
-            ? '↳ ${goal.nextSubTask!.description}'
-            : '↳ Completed!',
-        summary: goal.title,
+        title: goal.title,
+        body: next != null
+            ? '❯ ${current.description}\n↳ ${next.description}'
+            : '❯ ${current.description}',
         payload: {'goalId': goal.goalId},
         notificationLayout: NotificationLayout.Default,
         autoDismissible: false,
@@ -104,13 +104,15 @@ class NotificationService {
       actionButtons: [
         NotificationActionButton(
           key: markDoneActionKey,
-          label: goal.nextSubTask != null ? 'Next step' : 'Finish goal',
+          label: next != null ? 'Next step' : 'Finish goal',
           actionType: ActionType.SilentAction,
+          autoDismissible: false,
         ),
         NotificationActionButton(
           key: breakdownActionKey,
           label: 'Break it down',
           actionType: ActionType.SilentAction,
+          autoDismissible: false,
         ),
       ],
     );
