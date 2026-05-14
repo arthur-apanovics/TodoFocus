@@ -8,7 +8,9 @@ import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'models/enums.dart';
 import 'services/backup_service.dart';
+import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
@@ -22,6 +24,7 @@ void main() async {
 
   final goalRepository = await HiveGoalRepository.init();
   final llmSettingsService = await LlmSettingsService.init();
+  final dailyResetService = await DailyResetService.init(goalRepository);
 
   final tabNotifier = ValueNotifier<int>(0);
   final goalNavNotifier =
@@ -33,6 +36,12 @@ void main() async {
   );
   await notificationService.init();
 
+  // Schedule morning prompt if configured.
+  if (dailyResetService.morningPromptEnabled) {
+    final t = dailyResetService.morningPromptTime;
+    await notificationService.scheduleMorningPrompt(t.hour, t.minute);
+  }
+
   goalRepository.addListener(() {
     notificationService.update(GoalQueries(goalRepository).todayQueue);
   });
@@ -43,6 +52,7 @@ void main() async {
   runApp(TodoApp(
     goalRepository: goalRepository,
     llmSettingsService: llmSettingsService,
+    dailyResetService: dailyResetService,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
     goalNavNotifier: goalNavNotifier,
@@ -52,6 +62,7 @@ void main() async {
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
   final LlmSettingsService llmSettingsService;
+  final DailyResetService dailyResetService;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
@@ -60,6 +71,7 @@ class TodoApp extends StatelessWidget {
     super.key,
     required this.goalRepository,
     required this.llmSettingsService,
+    required this.dailyResetService,
     required this.notificationService,
     required this.tabNotifier,
     required this.goalNavNotifier,
@@ -85,6 +97,9 @@ class TodoApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<DecompositionState>(
           create: (_) => DecompositionState(),
+        ),
+        ChangeNotifierProvider<DailyResetService>.value(
+          value: dailyResetService,
         ),
         ProxyProvider2<GoalRepository, LlmSettingsService, BackupService>(
           update: (_, goals, settings, _) =>
@@ -157,12 +172,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Re-post the notification in case it was cleared while backgrounded.
-      // ongoing: true blocks swipe-to-dismiss but not long-press clear or
-      // system memory pressure, so we always re-assert it on resume.
-      final repo = context.read<GoalRepository>();
-      context.read<NotificationService>()
-          .update(GoalQueries(repo).todayQueue);
+      _checkResetAndUpdateNotification();
+    }
+  }
+
+  Future<void> _checkResetAndUpdateNotification() async {
+    final repo = context.read<GoalRepository>();
+    final notif = context.read<NotificationService>();
+    final resetService = context.read<DailyResetService>();
+
+    final wasReset = await resetService.checkAndReset();
+    final queue = GoalQueries(repo).todayQueue;
+
+    if (wasReset && queue.isEmpty) {
+      await notif.showAssignTasksPrompt();
+    } else {
+      await notif.update(queue);
     }
   }
 
@@ -237,6 +262,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(_tabTitles[_currentIndex]),
         actions: [
+          if (_currentIndex == 1) _SortButton(),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
@@ -270,6 +296,117 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sort button + sheet (Goals tab only)
+// ---------------------------------------------------------------------------
+
+class _SortButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final order = context.watch<DailyResetService>().sortOrder;
+    return IconButton(
+      icon: const Icon(Icons.sort),
+      tooltip: 'Sort goals',
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => _SortSheet(
+          current: order,
+          onSelected: context.read<DailyResetService>().setSortOrder,
+        ),
+      ),
+    );
+  }
+}
+
+class _SortSheet extends StatelessWidget {
+  final GoalSortOrder current;
+  final void Function(GoalSortOrder) onSelected;
+
+  const _SortSheet({required this.current, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+            child: Text(
+              'Sort goals',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          _SortTile(
+            label: 'Date added',
+            subtitle: 'Oldest first',
+            icon: Icons.calendar_today_outlined,
+            selected: current == GoalSortOrder.dateAdded,
+            onTap: () {
+              onSelected(GoalSortOrder.dateAdded);
+              Navigator.pop(context);
+            },
+          ),
+          _SortTile(
+            label: 'Urgency',
+            subtitle: 'Near deadlines → previously assigned → rest',
+            icon: Icons.priority_high,
+            selected: current == GoalSortOrder.urgency,
+            onTap: () {
+              onSelected(GoalSortOrder.urgency);
+              Navigator.pop(context);
+            },
+          ),
+          _SortTile(
+            label: 'Smart',
+            subtitle: 'Same as urgency — recommended default',
+            icon: Icons.auto_awesome_outlined,
+            selected: current == GoalSortOrder.smart,
+            onTap: () {
+              onSelected(GoalSortOrder.smart);
+              Navigator.pop(context);
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortTile extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SortTile({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon,
+          color: selected ? Theme.of(context).colorScheme.primary : null),
+      title: Text(label,
+          style: selected
+              ? TextStyle(color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600)
+              : null),
+      subtitle: Text(subtitle),
+      trailing: selected ? const Icon(Icons.check) : null,
+      onTap: onTap,
     );
   }
 }

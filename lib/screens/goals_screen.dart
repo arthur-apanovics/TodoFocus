@@ -3,6 +3,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/enums.dart';
+import '../services/daily_reset_service.dart';
 import '../services/decomposition_state.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
@@ -16,7 +17,8 @@ class GoalsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final queries = context.watch<GoalQueries>();
-    final goals = queries.goals;
+    final resetService = context.watch<DailyResetService>();
+    final goals = resetService.sortGoals(queries.goals, resetService.sortOrder);
 
     return Scaffold(
       body: goals.isEmpty ? const _EmptyState() : _GoalList(goals: goals),
