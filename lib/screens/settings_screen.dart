@@ -173,7 +173,12 @@ class _ExportTile extends StatelessWidget {
     final backup = context.read<BackupService>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await backup.export();
+      final saved = await backup.export();
+      if (saved) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Backup saved')),
+        );
+      }
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Export failed: $e')),

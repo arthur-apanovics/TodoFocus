@@ -1,9 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import 'goal_repository.dart';
 import 'settings/llm_settings_service.dart';
@@ -22,24 +20,25 @@ class BackupService {
   })  : _goals = goals,
         _settings = settings;
 
-  Future<void> export() async {
+  // Opens the system save-file picker so the user chooses the destination.
+  // Returns true if the file was saved, false if the user cancelled.
+  Future<bool> export() async {
     final now = DateTime.now();
-    final payload = jsonEncode({
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode({
       'version': _version,
       'exportedAt': now.toIso8601String(),
       'goals': _goals.exportToJson(),
       'settings': _settings.exportToJson(),
-    });
+    })));
 
-    final dir = await getTemporaryDirectory();
-    final tag = _dateTag(now);
-    final file = File('${dir.path}/todofocus_$tag.json');
-    await file.writeAsString(payload);
-
-    await Share.shareXFiles(
-      [XFile(file.path, mimeType: 'application/json')],
-      subject: 'TodoFocus backup $tag',
+    final path = await FilePicker.platform.saveFile(
+      fileName: 'todofocus_${_dateTag(now)}.json',
+      bytes: bytes,
+      type: FileType.custom,
+      allowedExtensions: ['json'],
     );
+
+    return path != null;
   }
 
   // Returns null if the user cancelled. Throws FormatException for invalid JSON.
