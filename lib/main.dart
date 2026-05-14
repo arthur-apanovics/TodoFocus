@@ -23,9 +23,11 @@ void main() async {
   final llmSettingsService = await LlmSettingsService.init();
 
   final tabNotifier = ValueNotifier<int>(0);
+  final goalNavNotifier =
+      ValueNotifier<({String goalId, int seq, bool breakdown})?>(null);
 
   final notificationService = NotificationService(
-    tabNotifier: tabNotifier,
+    goalNavNotifier: goalNavNotifier,
     repository: goalRepository,
   );
   await notificationService.init();
@@ -42,6 +44,7 @@ void main() async {
     llmSettingsService: llmSettingsService,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
+    goalNavNotifier: goalNavNotifier,
   ));
 }
 
@@ -50,6 +53,7 @@ class TodoApp extends StatelessWidget {
   final LlmSettingsService llmSettingsService;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
   const TodoApp({
     super.key,
@@ -57,6 +61,7 @@ class TodoApp extends StatelessWidget {
     required this.llmSettingsService,
     required this.notificationService,
     required this.tabNotifier,
+    required this.goalNavNotifier,
   });
 
   @override
@@ -74,7 +79,7 @@ class TodoApp extends StatelessWidget {
           update: (_, repository, _) => GoalQueries(repository),
         ),
         ProxyProvider<LlmSettingsService, GoalDecompositionService>(
-          update: (_, settings, __) =>
+          update: (_, settings, _) =>
               GoalDecompositionService(client: settings.buildClient()),
         ),
         ChangeNotifierProvider<DecompositionState>(
@@ -89,7 +94,7 @@ class TodoApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: AppShell(tabNotifier: tabNotifier),
+        home: AppShell(tabNotifier: tabNotifier, goalNavNotifier: goalNavNotifier),
       ),
     );
   }
@@ -97,8 +102,13 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
-  const AppShell({super.key, required this.tabNotifier});
+  const AppShell({
+    super.key,
+    required this.tabNotifier,
+    required this.goalNavNotifier,
+  });
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -120,13 +130,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.initState();
     _currentIndex = widget.tabNotifier.value;
     widget.tabNotifier.addListener(_onExternalTabChange);
+    widget.goalNavNotifier.addListener(_onGoalNavRequested);
     WidgetsBinding.instance.addObserver(this);
+    // Cold-start: notification action fired before AppShell was mounted.
+    final pending = widget.goalNavNotifier.value;
+    if (pending != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _navigateToGoal(pending.goalId, breakdown: pending.breakdown);
+      });
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
+    widget.goalNavNotifier.removeListener(_onGoalNavRequested);
     super.dispose();
   }
 
@@ -148,40 +167,61 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  void _onGoalNavRequested() {
+    final request = widget.goalNavNotifier.value;
+    if (!mounted || request == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _navigateToGoal(request.goalId, breakdown: request.breakdown);
+    });
+  }
+
+  void _navigateToGoal(String goalId, {bool breakdown = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GoalDetailScreen(
+          goalId: goalId,
+          triggerBreakdown: breakdown,
+        ),
+      ),
+    );
+  }
+
   void _onDestinationSelected(int index) {
     setState(() => _currentIndex = index);
     widget.tabNotifier.value = index;
   }
 
+  // Opens the new-goal bottom sheet and navigates to the detail screen on
+  // success. Called from the FAB and the notification action.
+  Future<void> _openNewGoalSheet() async {
+    // Read inside the method so we always get current instances — reading at
+    // build time would capture stale refs when ProxyProvider rebuilds.
+    final goalService = context.read<GoalService>();
+    final decompositionService = context.read<GoalDecompositionService>();
+    final decompositionState = context.read<DecompositionState>();
+
+    final goalId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => NewGoalSheet(
+        goalService: goalService,
+        decompositionService: decompositionService,
+        decompositionState: decompositionState,
+      ),
+    );
+    if (goalId != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+      );
+    }
+  }
+
   FloatingActionButton _buildFab(BuildContext context) {
     return FloatingActionButton(
-      onPressed: () async {
-        // Read inside onPressed so we always get the current instances —
-        // reading at build time would capture stale references when
-        // LlmSettingsService notifies and ProxyProvider rebuilds the service.
-        final goalService = context.read<GoalService>();
-        final decompositionService = context.read<GoalDecompositionService>();
-        final decompositionState = context.read<DecompositionState>();
-
-        final goalId = await showModalBottomSheet<String>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
-          builder: (_) => NewGoalSheet(
-            goalService: goalService,
-            decompositionService: decompositionService,
-            decompositionState: decompositionState,
-          ),
-        );
-        if (goalId != null && context.mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => GoalDetailScreen(goalId: goalId),
-            ),
-          );
-        }
-      },
+      onPressed: _openNewGoalSheet,
       child: const Icon(Icons.add),
     );
   }

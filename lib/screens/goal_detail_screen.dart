@@ -19,8 +19,69 @@ const addSubtaskIcon = Icons.playlist_add;
 
 class GoalDetailScreen extends StatefulWidget {
   final String goalId;
+  final bool triggerBreakdown;
 
-  const GoalDetailScreen({super.key, required this.goalId});
+  const GoalDetailScreen({
+    super.key,
+    required this.goalId,
+    this.triggerBreakdown = false,
+  });
+
+  @override
+  State<GoalDetailScreen> createState() => _GoalDetailScreenState();
+}
+
+class _GoalDetailScreenState extends State<GoalDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.triggerBreakdown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _autoBreakdown();
+      });
+    }
+  }
+
+  // Triggered by the "Break it down" notification action. Attempts LLM breakdown
+  // of the current subtask immediately; falls back to the manual split sheet.
+  Future<void> _autoBreakdown() async {
+    final repo = context.read<GoalRepository>();
+    final goal = repo.findById(widget.goalId);
+    if (goal == null) return;
+    final subtask = goal.currentSubTask;
+    if (subtask == null) return;
+
+    final decomp = context.read<GoalDecompositionService>();
+    final service = context.read<GoalService>();
+
+    if (!decomp.canAutoBreakdown) {
+      _showManualSplit(subtask, service);
+      return;
+    }
+
+    final descriptions = await decomp.breakdownSubtask(subtask.description);
+    if (!mounted) return;
+
+    if (descriptions == null) {
+      _showManualSplit(subtask, service);
+      return;
+    }
+
+    service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
+  }
+
+  void _showManualSplit(SubTask subtask, GoalService service) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _SubTaskSplitSheet(
+        goalId: widget.goalId,
+        subtask: subtask,
+        goalService: service,
+      ),
+    );
+  }
 
   @override
   State<GoalDetailScreen> createState() => _GoalDetailScreenState();
