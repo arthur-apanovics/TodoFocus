@@ -79,7 +79,7 @@ class TodoApp extends StatelessWidget {
           update: (_, repository, _) => GoalQueries(repository),
         ),
         ProxyProvider<LlmSettingsService, GoalDecompositionService>(
-          update: (_, settings, __) =>
+          update: (_, settings, _) =>
               GoalDecompositionService(client: settings.buildClient()),
         ),
         ChangeNotifierProvider<DecompositionState>(
@@ -211,7 +211,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         decompositionState: decompositionState,
       ),
     );
-    if (goalId != null && context.mounted) {
+    if (goalId != null && mounted) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
