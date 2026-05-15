@@ -427,7 +427,21 @@ class _GoalTile extends StatelessWidget {
           : isDecomposing
           ? const _SpinnerLeading()
           : _StatusBadge(status: goal.status),
-      title: Text(goal.title),
+      title: goal.dueDate != null
+          ? Row(
+              children: [
+                Expanded(child: Text(goal.title)),
+                const SizedBox(width: 8),
+                Text(
+                  _formatDueDate(goal.dueDate!),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ],
+            )
+          : Text(goal.title),
       subtitle: Text(
         isDecomposing ? 'Generating subtasks…' : _subtitleFor(goal),
       ),
@@ -453,6 +467,23 @@ class _GoalTile extends StatelessWidget {
               ],
             ),
     );
+  }
+
+  String _formatDueDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(date.year, date.month, date.day);
+    final diff = d.difference(today).inDays;
+    if (diff == 0) return 'due today';
+    if (diff == 1) return 'due tomorrow';
+    if (diff == -1) return 'due yesterday';
+    if (diff < 0) return '${diff.abs()}d overdue';
+    if (diff <= 7) return 'due in ${diff}d';
+    // Same year — show "Jan 12", different year — show "Jan 12 2026"
+    final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    final label = '${months[date.month - 1]} ${date.day}';
+    return date.year == now.year ? label : '$label ${date.year}';
   }
 
   String _subtitleFor(Goal goal) {
