@@ -12,7 +12,8 @@ part 'goal_dto.g.dart';
 // 5: subtasks        (active)
 // 6: isFocusedToday  (active)
 // 7: todayOrder      (active)
-// Next available: 8
+// 8: difficulty      (active)
+// Next available: 9
 
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
@@ -39,4 +40,7 @@ class GoalDto extends HiveObject {
 
   @HiveField(7)
   int todayOrder = 0;
+
+  @HiveField(8)
+  String? difficulty;
 }

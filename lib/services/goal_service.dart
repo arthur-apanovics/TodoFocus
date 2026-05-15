@@ -42,12 +42,18 @@ class GoalService {
     }
   }
 
-  void updateGoal(String goalId, {String? title, String? notes}) {
+  void updateGoal(
+    String goalId, {
+    String? title,
+    String? notes,
+    GoalDifficulty? difficulty,
+  }) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
 
     if (title != null) goal.title = title;
     if (notes != null) goal.notes = notes;
+    if (difficulty != null) goal.difficulty = difficulty;
     _repository.save(goal);
   }
 

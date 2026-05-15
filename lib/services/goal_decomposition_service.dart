@@ -23,6 +23,7 @@ class GoalDecompositionService {
     String title, {
     String? description,
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   }) async {
     if (_client == null) return null;
     try {
@@ -30,6 +31,7 @@ class GoalDecompositionService {
         title,
         description: description,
         additionalInstructions: additionalInstructions,
+        difficulty: difficulty,
       );
       if (result.isEmpty) return null;
       return result;
@@ -68,6 +70,7 @@ class GoalDecompositionService {
     required String title,
     String? description,
     DateTime? dueDate,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
     VoidCallback? onLlmFallback,
   }) async {
     final goalId = _uuid.v4();
@@ -75,6 +78,7 @@ class GoalDecompositionService {
       goalId,
       title,
       description,
+      difficulty,
       onLlmFallback,
     );
 
@@ -83,6 +87,7 @@ class GoalDecompositionService {
       title: title,
       notes: description ?? '',
       dueDate: dueDate,
+      difficulty: difficulty,
       subtasks: subtasks,
     );
   }
@@ -93,23 +98,30 @@ class GoalDecompositionService {
     required String title,
     String? description,
     DateTime? dueDate,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
   }) {
     return Goal(
       goalId: _uuid.v4(),
       title: title,
       notes: description ?? '',
       dueDate: dueDate,
+      difficulty: difficulty,
       subtasks: [],
     );
   }
 
   // Captures a raw goal into the inbox without decomposing it
-  Goal captureToInbox({required String title, String? description}) {
+  Goal captureToInbox({
+    required String title,
+    String? description,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
+  }) {
     return Goal(
       goalId: _uuid.v4(),
       title: title,
       notes: description ?? '',
       status: GoalStatus.inbox,
+      difficulty: difficulty,
       subtasks: [],
     );
   }
@@ -129,6 +141,7 @@ class GoalDecompositionService {
     required void Function(List<String> descriptions) onResult,
     required DecompositionState state,
     VoidCallback? onFallback,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
   }) async {
     if (_client == null) {
       // Synchronous keyword path — no loading indicator needed.
@@ -140,8 +153,11 @@ class GoalDecompositionService {
     try {
       List<String> descriptions;
       try {
-        descriptions =
-            await _client.decompose(title, description: description);
+        descriptions = await _client.decompose(
+          title,
+          description: description,
+          difficulty: difficulty,
+        );
         if (descriptions.isEmpty) throw StateError('empty result');
       } catch (e) {
         debugPrint('LLM decomposition failed, using keyword fallback: $e');
@@ -159,11 +175,16 @@ class GoalDecompositionService {
     String goalId,
     String title,
     String? description,
+    GoalDifficulty difficulty,
     VoidCallback? onLlmFallback,
   ) async {
     if (_client != null) {
       try {
-        final descriptions = await _client.decompose(title, description: description);
+        final descriptions = await _client.decompose(
+          title,
+          description: description,
+          difficulty: difficulty,
+        );
         return descriptions
             .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
             .toList();

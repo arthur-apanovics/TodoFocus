@@ -113,6 +113,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         goal.title,
         description: goal.notes.isEmpty ? null : goal.notes,
         additionalInstructions: instructions.isEmpty ? null : instructions,
+        difficulty: goal.difficulty,
       );
       if (!mounted) return;
       if (descriptions == null) {
@@ -286,6 +287,9 @@ class _GoalMetadataCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            // Difficulty selector
+            _DifficultyRow(goal: goal),
             const SizedBox(height: 4),
             // Due date + goal operations
             _GoalActionsRow(goal: goal, onRedecompose: onRedecompose),
@@ -375,6 +379,48 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
   }
 }
 
+
+// --- Difficulty row ---
+
+class _DifficultyRow extends StatelessWidget {
+  final Goal goal;
+
+  const _DifficultyRow({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.read<GoalService>();
+    return Row(
+      children: [
+        Icon(
+          Icons.tune_outlined,
+          size: 16,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SegmentedButton<GoalDifficulty>(
+            segments: GoalDifficulty.values
+                .map(
+                  (d) => ButtonSegment(
+                    value: d,
+                    label: Text(d.displayName),
+                  ),
+                )
+                .toList(),
+            selected: {goal.difficulty},
+            onSelectionChanged: (s) =>
+                service.updateGoal(goal.goalId, difficulty: s.first),
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 // --- Goal actions row (due date + operations) ---
 //
@@ -1029,6 +1075,7 @@ class _InboxReadyState extends StatelessWidget {
       onResult: (descriptions) =>
           goalService.replaceAllSubTasks(goal.goalId, descriptions),
       state: decompState,
+      difficulty: goal.difficulty,
     ));
   }
 }

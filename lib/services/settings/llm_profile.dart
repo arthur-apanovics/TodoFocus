@@ -55,6 +55,14 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   final String systemPrompt;
   final String breakdownPrompt;
 
+  // Subtask count bounds per difficulty level — configurable in LLM settings.
+  final int easyMin;
+  final int easyMax;
+  final int hardMin;
+  final int hardMax;
+  final int impossibleMin;
+  final int impossibleMax;
+
   const OpenAiCompatibleProfile({
     required this.endpointUrl,
     required this.modelId,
@@ -63,6 +71,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     this.timeout = defaultTimeout,
     this.systemPrompt = defaultSystemPrompt,
     this.breakdownPrompt = defaultBreakdownPrompt,
+    this.easyMin = 3,
+    this.easyMax = 6,
+    this.hardMin = 10,
+    this.hardMax = 20,
+    this.impossibleMin = 30,
+    this.impossibleMax = 50,
   });
 
   @override
@@ -79,6 +93,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     if (systemPrompt != defaultSystemPrompt) 'systemPrompt': systemPrompt,
     if (breakdownPrompt != defaultBreakdownPrompt)
       'breakdownPrompt': breakdownPrompt,
+    'easyMin': easyMin,
+    'easyMax': easyMax,
+    'hardMin': hardMin,
+    'hardMax': hardMax,
+    'impossibleMin': impossibleMin,
+    'impossibleMax': impossibleMax,
   };
 
   factory OpenAiCompatibleProfile.fromJson(Map<String, dynamic> json) {
@@ -93,6 +113,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
       breakdownPrompt:
           json['breakdownPrompt'] as String? ?? defaultBreakdownPrompt,
+      easyMin: json['easyMin'] as int? ?? 3,
+      easyMax: json['easyMax'] as int? ?? 6,
+      hardMin: json['hardMin'] as int? ?? 10,
+      hardMax: json['hardMax'] as int? ?? 20,
+      impossibleMin: json['impossibleMin'] as int? ?? 30,
+      impossibleMax: json['impossibleMax'] as int? ?? 50,
     );
   }
 
@@ -104,6 +130,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     Duration? timeout,
     String? systemPrompt,
     String? breakdownPrompt,
+    int? easyMin,
+    int? easyMax,
+    int? hardMin,
+    int? hardMax,
+    int? impossibleMin,
+    int? impossibleMax,
   }) {
     return OpenAiCompatibleProfile(
       endpointUrl: endpointUrl ?? this.endpointUrl,
@@ -113,6 +145,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       timeout: timeout ?? this.timeout,
       systemPrompt: systemPrompt ?? this.systemPrompt,
       breakdownPrompt: breakdownPrompt ?? this.breakdownPrompt,
+      easyMin: easyMin ?? this.easyMin,
+      easyMax: easyMax ?? this.easyMax,
+      hardMin: hardMin ?? this.hardMin,
+      hardMax: hardMax ?? this.hardMax,
+      impossibleMin: impossibleMin ?? this.impossibleMin,
+      impossibleMax: impossibleMax ?? this.impossibleMax,
     );
   }
 
@@ -128,6 +166,12 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       )),
       systemPrompt: systemPrompt,
       breakdownPrompt: breakdownPrompt,
+      easyMin: easyMin,
+      easyMax: easyMax,
+      hardMin: hardMin,
+      hardMax: hardMax,
+      impossibleMin: impossibleMin,
+      impossibleMax: impossibleMax,
     );
   }
 }

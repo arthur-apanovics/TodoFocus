@@ -7,6 +7,7 @@ class Goal {
   String title;
   String notes;
   GoalStatus status;
+  GoalDifficulty difficulty;
   DateTime? dueDate;
   bool isFocusedToday;
   // Position within the today queue when isFocusedToday is true. Ignored
@@ -19,6 +20,7 @@ class Goal {
     required this.title,
     this.notes = '',
     this.status = GoalStatus.active,
+    this.difficulty = GoalDifficulty.easy,
     this.dueDate,
     this.isFocusedToday = false,
     this.todayOrder = 0,
@@ -149,6 +151,7 @@ class Goal {
     'title': title,
     'notes': notes,
     'status': status.name,
+    'difficulty': difficulty.name,
     'dueDate': dueDate?.toIso8601String(),
     'isFocusedToday': isFocusedToday,
     'todayOrder': todayOrder,
@@ -161,6 +164,8 @@ class Goal {
       title: json['title'] as String,
       notes: json['notes'] as String? ?? '',
       status: GoalStatus.values.byName(json['status'] as String),
+      difficulty: GoalDifficulty.values.asNameMap()[json['difficulty'] as String? ?? ''] ??
+          GoalDifficulty.easy,
       dueDate: json['dueDate'] != null
           ? DateTime.parse(json['dueDate'] as String)
           : null,

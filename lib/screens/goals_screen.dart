@@ -122,6 +122,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         goal.title,
         description: goal.notes.isEmpty ? null : goal.notes,
         additionalInstructions: instructions,
+        difficulty: goal.difficulty,
       );
       if (descriptions != null) {
         goalService.replaceAllSubTasks(goal.goalId, descriptions);
