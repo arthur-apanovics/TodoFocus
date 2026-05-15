@@ -51,6 +51,14 @@ class GoalService {
     _repository.save(goal);
   }
 
+  /// Sets or clears the due date. Pass null to remove it.
+  void setDueDate(String goalId, DateTime? dueDate) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.dueDate = dueDate;
+    _repository.save(goal);
+  }
+
   void toggleFocusToday(Goal goal) {
     goal.isFocusedToday = !goal.isFocusedToday;
     if (goal.isFocusedToday) {

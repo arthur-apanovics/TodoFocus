@@ -37,11 +37,9 @@ class AppIcons {
   // State icons — passive indicators, no onPressed
   // ---------------------------------------------------------------------
 
-  /// "Queued — waiting in line until earlier steps complete." Three dots
-  /// inside a circle outline. Reads as "pending your turn" and visually
-  /// rhymes with `complete` (a circle outline), so the row's three states
-  /// — queued / current / completed — read as a progression of the same
-  /// shape. Replaces the older `Icons.lock_outline` which read as
-  /// "permission denied" rather than "next in line".
-  static const IconData queued = Icons.pending;
+  /// "Queued — scheduled for later." A clock outline reads as "this has
+  /// a time in its future" rather than "permission denied" (lock) or
+  /// "pending your turn" (three-dot pending), making it clear the subtask
+  /// is waiting for earlier steps to complete.
+  static const IconData queued = Icons.pending_actions;
 }

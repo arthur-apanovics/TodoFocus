@@ -7,7 +7,7 @@ class Goal {
   String title;
   String notes;
   GoalStatus status;
-  final DateTime? dueDate;
+  DateTime? dueDate;
   bool isFocusedToday;
   // Position within the today queue when isFocusedToday is true. Ignored
   // otherwise. Lower values render first in the Focus screen.

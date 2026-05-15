@@ -95,6 +95,38 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
   }
 
+  Future<void> _redecomposeGoal(Goal goal) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final instructions = await showDialog<String>(
+      context: context,
+      builder: (_) => const _RedecomposeDialog(),
+    );
+    if (instructions == null || !mounted) return;
+
+    final decompState = context.read<DecompositionState>();
+    final service = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    decompState.begin(goal.goalId);
+    try {
+      final descriptions = await decomp.redecomposeSubtasks(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
+        additionalInstructions: instructions.isEmpty ? null : instructions,
+      );
+      if (!mounted) return;
+      if (descriptions == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+        );
+        return;
+      }
+      service.replaceAllSubTasks(goal.goalId, descriptions);
+    } finally {
+      decompState.end(goal.goalId);
+    }
+  }
+
   void _showManualSplit(SubTask subtask, GoalService service) {
     showModalBottomSheet(
       context: context,
@@ -127,29 +159,28 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: GestureDetector(
-          onTap: () => _showEditGoalSheet(context, goal),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(goal.title, overflow: TextOverflow.ellipsis),
-              ),
-              const SizedBox(width: 6),
-              const Icon(Icons.edit_outlined, size: 16),
-            ],
+        title: Text(goal.title, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit goal',
+            onPressed: () => _showEditGoalSheet(context, goal),
           ),
-        ),
-        actions: [_GoalMenuButton(goal: goal)],
+        ],
       ),
       body: CustomScrollView(
         slivers: [
-          // Metadata card
-          SliverToBoxAdapter(child: _GoalMetadataCard(goal: goal)),
+          // Metadata card (includes actions row)
+          SliverToBoxAdapter(
+            child: _GoalMetadataCard(
+              goal: goal,
+              onRedecompose: () => _redecomposeGoal(goal),
+            ),
+          ),
           // Section header
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: Text(
                 'Subtasks',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -219,15 +250,19 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
 class _GoalMetadataCard extends StatelessWidget {
   final Goal goal;
+  final VoidCallback onRedecompose;
 
-  const _GoalMetadataCard({required this.goal});
+  const _GoalMetadataCard({
+    required this.goal,
+    required this.onRedecompose,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -251,19 +286,9 @@ class _GoalMetadataCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (goal.dueDate != null) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today_outlined, size: 14),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Due ${goal.dueDate!.day}/${goal.dueDate!.month}/${goal.dueDate!.year}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ],
+            const SizedBox(height: 4),
+            // Due date + goal operations
+            _GoalActionsRow(goal: goal, onRedecompose: onRedecompose),
           ],
         ),
       ),
@@ -350,107 +375,144 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
   }
 }
 
-class _GoalMenuButton extends StatelessWidget {
-  final Goal goal;
 
-  const _GoalMenuButton({required this.goal});
+// --- Goal actions row (due date + operations) ---
+//
+// All goal-level operations live here. To add a new action, insert an
+// IconButton (or other widget) into the Row's children — the Spacer keeps
+// the due-date chip left-anchored and the buttons right-anchored.
+
+class _GoalActionsRow extends StatelessWidget {
+  final Goal goal;
+  final VoidCallback onRedecompose;
+
+  const _GoalActionsRow({
+    required this.goal,
+    required this.onRedecompose,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final llmEnabled =
+        context.watch<LlmSettingsService>().buildClient() != null;
     final service = context.read<GoalService>();
-    final canRedecompose =
-        context.read<GoalDecompositionService>().canAutoBreakdown;
+    final isActive = goal.status == GoalStatus.active;
 
-    return PopupMenuButton<String>(
-      onSelected: (value) {
-        switch (value) {
-          case 'redecompose':
-            _confirmRedecompose(context, service);
-          case 'delete':
-            _confirmDelete(context, service);
-        }
-      },
-      itemBuilder: (_) => [
-        if (canRedecompose)
-          const PopupMenuItem(
-            value: 'redecompose',
-            child: Text('Re-decompose subtasks'),
+    return Row(
+      children: [
+        _DueDateChip(goal: goal),
+        const Spacer(),
+        // ── Add new goal operations here ────────────────────────────
+        if (llmEnabled && isActive)
+          IconButton(
+            icon: const Icon(Icons.auto_awesome_outlined),
+            tooltip: 'Re-decompose subtasks',
+            onPressed: onRedecompose,
           ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Text(
-            'Delete goal',
-            style: TextStyle(color: AppColors.destructive),
+        if (isActive)
+          IconButton(
+            icon: const Icon(Icons.archive_outlined),
+            tooltip: 'Archive goal',
+            onPressed: () => _confirmArchive(context, service),
           ),
-        ),
+        // ────────────────────────────────────────────────────────────
       ],
     );
   }
 
-  Future<void> _confirmRedecompose(
-    BuildContext context,
-    GoalService service,
-  ) async {
-    final decomp = context.read<GoalDecompositionService>();
-
-    // Returns the instructions string on confirm, null on cancel.
-    // Using a StatefulWidget dialog so the TextEditingController is disposed
-    // after the exit animation — not while the TextField is still in the tree.
-    final instructions = await showDialog<String>(
-      context: context,
-      builder: (_) => const _RedecomposeDialog(),
-    );
-
-    if (instructions == null) return;
-    if (!context.mounted) return;
-
-    final decompState = context.read<DecompositionState>();
-    final messenger = ScaffoldMessenger.of(context);
-
-    decompState.begin(goal.goalId);
-    try {
-      final descriptions = await decomp.redecomposeSubtasks(
-        goal.title,
-        description: goal.notes.isEmpty ? null : goal.notes,
-        additionalInstructions: instructions.isEmpty ? null : instructions,
-      );
-      if (descriptions == null) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
-        );
-        return;
-      }
-      service.replaceAllSubTasks(goal.goalId, descriptions);
-    } finally {
-      decompState.end(goal.goalId);
-    }
-  }
-
-  void _confirmDelete(BuildContext context, GoalService service) {
-    showDialog(
+  Future<void> _confirmArchive(
+      BuildContext context, GoalService service) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete goal?'),
-        content: const Text('This will delete the goal and all its subtasks.'),
+        title: const Text('Archive goal?'),
+        content: const Text(
+            'The goal will be moved to your completed archive.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.destructive,
-            ),
-            onPressed: () {
-              Navigator.pop(context); // close dialog
-              service.removeGoal(goal.goalId);
-              // GoalDetailScreen.build null-guard pops the detail screen
-              // when it rebuilds and finds goal == null.
-            },
-            child: const Text('Delete'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Archive'),
           ),
         ],
       ),
+    );
+    if (confirmed == true && context.mounted) {
+      service.archiveGoal(goal.goalId);
+      // The null-guard in GoalDetailScreen.build pops the screen automatically.
+    }
+  }
+}
+
+// --- Due date chip ---
+
+class _DueDateChip extends StatelessWidget {
+  final Goal goal;
+
+  const _DueDateChip({required this.goal});
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _format(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(d.year, d.month, d.day);
+    final diff = date.difference(today).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Tomorrow';
+    if (diff == -1) return 'Yesterday';
+    if (diff < 0) return '${diff.abs()}d overdue';
+    if (diff <= 7) return 'In ${diff}d';
+    final label = '${_months[d.month - 1]} ${d.day}';
+    return d.year == now.year ? label : '$label ${d.year}';
+  }
+
+  Future<void> _pickDate(BuildContext context) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: goal.dueDate != null && !goal.dueDate!.isBefore(today)
+          ? goal.dueDate!
+          : today,
+      firstDate: today,
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked != null && context.mounted) {
+      context.read<GoalService>().setDueDate(goal.goalId, picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final date = goal.dueDate;
+    if (date == null) {
+      return ActionChip(
+        avatar: Icon(
+          Icons.calendar_today_outlined,
+          size: 14,
+          color: AppColors.muted,
+        ),
+        label: Text('Add date', style: TextStyle(color: AppColors.muted)),
+        side: BorderSide.none,
+        backgroundColor: Colors.transparent,
+        onPressed: () => _pickDate(context),
+      );
+    }
+    return InputChip(
+      avatar: const Icon(Icons.calendar_today_outlined, size: 14),
+      label: Text(_format(date)),
+      onPressed: () => _pickDate(context),
+      onDeleted: () =>
+          context.read<GoalService>().setDueDate(goal.goalId, null),
+      deleteIcon: const Icon(Icons.close, size: 14),
+      deleteButtonTooltipMessage: 'Remove date',
     );
   }
 }
