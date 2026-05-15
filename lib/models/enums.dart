@@ -1,7 +1,8 @@
 enum GoalStatus {
   inbox,
   active,
-  completed
+  completed,
+  archived,
 }
 
 enum SubTaskState {

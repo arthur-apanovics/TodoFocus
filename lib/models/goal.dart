@@ -135,6 +135,7 @@ class Goal {
   }
 
   void _recalculateStatus() {
+    if (status == GoalStatus.archived) return;
     final allDone =
         subtasks.isNotEmpty &&
         subtasks.every((t) => t.state == SubTaskState.completed);
