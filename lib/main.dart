@@ -134,21 +134,21 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
-  late int _currentIndex;
+class _AppShellState extends State<AppShell>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  late final TabController _tabController;
 
   static const _tabTitles = ['Today', 'Goals', 'Inbox'];
-
-  static const List<Widget> _screens = [
-    FocusScreen(),
-    GoalsScreen(),
-    InboxScreen(),
-  ];
 
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.tabNotifier.value;
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.tabNotifier.value,
+    );
+    _tabController.addListener(_onTabControllerChanged);
     widget.tabNotifier.addListener(_onExternalTabChange);
     widget.goalNavNotifier.addListener(_onGoalNavRequested);
     WidgetsBinding.instance.addObserver(this);
@@ -163,10 +163,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabControllerChanged);
+    _tabController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
     widget.goalNavNotifier.removeListener(_onGoalNavRequested);
     super.dispose();
+  }
+
+  // Fires on every animation frame during a swipe and once when settled.
+  // Only sync the notifier when the animation has fully settled to avoid
+  // triggering side-effects (e.g. notification updates) mid-swipe.
+  void _onTabControllerChanged() {
+    if (!_tabController.indexIsChanging &&
+        widget.tabNotifier.value != _tabController.index) {
+      widget.tabNotifier.value = _tabController.index;
+    }
   }
 
   @override
@@ -192,8 +204,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _onExternalTabChange() {
-    if (mounted && widget.tabNotifier.value != _currentIndex) {
-      setState(() => _currentIndex = widget.tabNotifier.value);
+    if (mounted && widget.tabNotifier.value != _tabController.index) {
+      _tabController.animateTo(widget.tabNotifier.value);
     }
   }
 
@@ -218,7 +230,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _onDestinationSelected(int index) {
-    setState(() => _currentIndex = index);
+    _tabController.animateTo(index);
     widget.tabNotifier.value = index;
   }
 
@@ -258,43 +270,49 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_tabTitles[_currentIndex]),
-        actions: [
-          if (_currentIndex == 1) _SortButton(),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: Text(_tabTitles[_tabController.index]),
+          actions: [
+            if (_tabController.index == 1) _SortButton(),
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
             ),
-          ),
-        ],
-      ),
-      body: _screens[_currentIndex],
-      floatingActionButton: _buildFab(context),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: _onDestinationSelected,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.bolt_outlined),
-            selectedIcon: Icon(Icons.bolt),
-            label: 'Focus',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.flag_outlined),
-            selectedIcon: Icon(Icons.flag),
-            label: 'Goals',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.inbox_outlined),
-            selectedIcon: Icon(Icons.inbox),
-            label: 'Inbox',
-          ),
-        ],
+          ],
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: const [FocusScreen(), GoalsScreen(), InboxScreen()],
+        ),
+        floatingActionButton: _buildFab(context),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabController.index,
+          onDestinationSelected: _onDestinationSelected,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.bolt_outlined),
+              selectedIcon: Icon(Icons.bolt),
+              label: 'Focus',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.flag_outlined),
+              selectedIcon: Icon(Icons.flag),
+              label: 'Goals',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.inbox_outlined),
+              selectedIcon: Icon(Icons.inbox),
+              label: 'Inbox',
+            ),
+          ],
+        ),
       ),
     );
   }
