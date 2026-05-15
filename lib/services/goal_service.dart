@@ -1,4 +1,5 @@
 import 'package:uuid/uuid.dart';
+import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import 'goal_repository.dart';
@@ -14,6 +15,32 @@ class GoalService {
   void addGoal(Goal goal) => _repository.save(goal);
 
   void removeGoal(String goalId) => _repository.delete(goalId);
+
+  void archiveGoal(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.status = GoalStatus.archived;
+    goal.isFocusedToday = false;
+    goal.todayOrder = 0;
+    _repository.save(goal);
+  }
+
+  void restoreGoal(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    final allDone = goal.subtasks.isNotEmpty &&
+        goal.subtasks.every((t) => t.state == SubTaskState.completed);
+    goal.status = allDone ? GoalStatus.completed : GoalStatus.active;
+    _repository.save(goal);
+  }
+
+  void clearArchive() {
+    for (final goal in _repository.all
+        .where((g) => g.status == GoalStatus.archived)
+        .toList()) {
+      _repository.delete(goal.goalId);
+    }
+  }
 
   void updateGoal(String goalId, {String? title, String? notes}) {
     final goal = _repository.findById(goalId);

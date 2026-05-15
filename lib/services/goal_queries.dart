@@ -11,7 +11,13 @@ class GoalQueries {
   List<Goal> get all => _repository.all;
 
   List<Goal> get goals =>
-      _repository.all.where((g) => g.status != GoalStatus.inbox).toList();
+      _repository.all.where((g) => g.status == GoalStatus.active).toList();
+
+  List<Goal> get completedGoals =>
+      _repository.all.where((g) => g.status == GoalStatus.completed).toList();
+
+  List<Goal> get archivedGoals =>
+      _repository.all.where((g) => g.status == GoalStatus.archived).toList();
 
   List<Goal> get inbox =>
       _repository.all.where((g) => g.status == GoalStatus.inbox).toList();

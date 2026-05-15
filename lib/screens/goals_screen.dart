@@ -8,39 +8,86 @@ import '../services/decomposition_state.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_icons.dart';
 import 'goal_detail_screen.dart';
 
-class GoalsScreen extends StatelessWidget {
+enum _GoalFilter { active, completed }
+
+class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key});
+
+  @override
+  State<GoalsScreen> createState() => _GoalsScreenState();
+}
+
+class _GoalsScreenState extends State<GoalsScreen> {
+  _GoalFilter _filter = _GoalFilter.active;
 
   @override
   Widget build(BuildContext context) {
     final queries = context.watch<GoalQueries>();
     final resetService = context.watch<DailyResetService>();
-    final goals = resetService.sortGoals(queries.goals, resetService.sortOrder);
+
+    final goals = _filter == _GoalFilter.active
+        ? resetService.sortGoals(queries.goals, resetService.sortOrder)
+        : queries.completedGoals;
 
     return Scaffold(
-      body: goals.isEmpty ? const _EmptyState() : _GoalList(goals: goals),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: SegmentedButton<_GoalFilter>(
+              segments: const [
+                ButtonSegment(
+                  value: _GoalFilter.active,
+                  label: Text('Active'),
+                  icon: Icon(Icons.flag_outlined),
+                ),
+                ButtonSegment(
+                  value: _GoalFilter.completed,
+                  label: Text('Completed'),
+                  icon: Icon(Icons.check_circle_outline),
+                ),
+              ],
+              selected: {_filter},
+              onSelectionChanged: (s) => setState(() => _filter = s.first),
+              showSelectedIcon: false,
+            ),
+          ),
+          Expanded(
+            child: goals.isEmpty
+                ? _EmptyState(filter: _filter)
+                : _GoalList(goals: goals),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final _GoalFilter filter;
+
+  const _EmptyState({required this.filter});
 
   @override
   Widget build(BuildContext context) {
+    final isCompleted = filter == _GoalFilter.completed;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.flag_outlined, size: 48),
+          Icon(
+            isCompleted ? Icons.check_circle_outline : Icons.flag_outlined,
+            size: 48,
+          ),
           const SizedBox(height: 12),
-          const Text('No goals yet'),
+          Text(isCompleted ? 'No completed goals yet' : 'No goals yet'),
           const SizedBox(height: 4),
           Text(
-            'Tap + to add your first goal',
+            isCompleted
+                ? 'Complete all subtasks on a goal to see it here'
+                : 'Tap + to add your first goal',
             style: TextStyle(color: AppColors.muted),
           ),
         ],
@@ -76,17 +123,16 @@ class _GoalTile extends StatelessWidget {
 
     return Slidable(
       key: ValueKey(goal.goalId),
-      // Swipe left reveals the delete action; no auto-dismiss.
       endActionPane: ActionPane(
         motion: const BehindMotion(),
-        extentRatio: 0.25,
+        extentRatio: 0.28,
         children: [
           SlidableAction(
-            onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: AppColors.destructive,
-            foregroundColor: AppColors.onDestructive,
-            icon: AppIcons.delete,
-            label: 'Delete',
+            onPressed: (_) => service.archiveGoal(goal.goalId),
+            backgroundColor: AppColors.muted,
+            foregroundColor: Colors.white,
+            icon: Icons.archive_outlined,
+            label: 'Archive',
           ),
         ],
       ),
@@ -101,18 +147,19 @@ class _GoalTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              icon: Icon(
-                goal.isFocusedToday ? Icons.star : Icons.star_border,
-                color: goal.isFocusedToday
-                    ? AppColors.accent
-                    : AppColors.muted,
+            if (goal.status == GoalStatus.active)
+              IconButton(
+                icon: Icon(
+                  goal.isFocusedToday ? Icons.star : Icons.star_border,
+                  color: goal.isFocusedToday
+                      ? AppColors.accent
+                      : AppColors.muted,
+                ),
+                tooltip: goal.isFocusedToday
+                    ? 'Remove from Today'
+                    : 'Add to Today',
+                onPressed: () => service.toggleFocusToday(goal),
               ),
-              tooltip: goal.isFocusedToday
-                  ? 'Remove from Today'
-                  : 'Add to Today',
-              onPressed: () => service.toggleFocusToday(goal),
-            ),
             const Icon(Icons.chevron_right),
           ],
         ),
@@ -160,11 +207,13 @@ class _StatusBadge extends StatelessWidget {
     GoalStatus.inbox => Icons.inbox_outlined,
     GoalStatus.active => Icons.flag_outlined,
     GoalStatus.completed => Icons.check_circle_outline,
+    GoalStatus.archived => Icons.archive_outlined,
   };
 
   Color _colorFor(GoalStatus status) => switch (status) {
     GoalStatus.inbox => AppColors.muted,
     GoalStatus.active => AppColors.accent,
     GoalStatus.completed => AppColors.success,
+    GoalStatus.archived => AppColors.muted,
   };
 }

@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/backup_service.dart';
 import '../services/daily_reset_service.dart';
-import '../services/goal_repository.dart';
 import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
+import 'data_settings_screen.dart';
 import 'llm_settings_screen.dart';
 
 // Settings are organised into named sections. To add a new setting:
@@ -50,9 +49,7 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'Data',
             children: [
-              _ExportTile(),
-              _ImportTile(),
-              _ClearDatabaseTile(),
+              _DataTile(),
             ],
           ),
         ],
@@ -168,190 +165,25 @@ class _LlmConfigTile extends StatelessWidget {
 // Data section
 // ---------------------------------------------------------------------------
 
-class _ExportTile extends StatelessWidget {
-  const _ExportTile();
+class _DataTile extends StatelessWidget {
+  const _DataTile();
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: const Icon(Icons.upload_outlined),
-      title: const Text('Export backup'),
-      subtitle: const Text('Save all goals and settings to a file'),
-      onTap: () => _export(context),
-    );
-  }
-
-  Future<void> _export(BuildContext context) async {
-    final backup = context.read<BackupService>();
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final saved = await backup.export();
-      if (saved) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Backup saved')),
-        );
-      }
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Export failed: $e')),
-      );
-    }
-  }
-}
-
-class _ImportTile extends StatelessWidget {
-  const _ImportTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.download_outlined),
-      title: const Text('Import backup'),
-      subtitle: const Text('Restore goals and settings from a file'),
-      onTap: () => _import(context),
-    );
-  }
-
-  Future<void> _import(BuildContext context) async {
-    final backup = context.read<BackupService>();
-    final messenger = ScaffoldMessenger.of(context);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Restore from backup?'),
-        content: const Text(
-          'This will replace all current goals and restore your LLM settings. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Restore'),
-          ),
-        ],
+      leading: const Icon(Icons.storage_outlined),
+      title: const Text('Data'),
+      subtitle: const Text('Backup, restore, archive and clear'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const DataSettingsScreen()),
       ),
     );
-
-    if (confirmed != true) return;
-
-    try {
-      final result = await backup.import();
-      if (result == null) return;
-      final msg = result.skipped == 0
-          ? 'Restored ${result.imported} goals'
-          : 'Restored ${result.imported} goals (${result.skipped} skipped)';
-      messenger.showSnackBar(SnackBar(content: Text(msg)));
-    } on FormatException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Import failed — file could not be read')),
-      );
-    }
   }
 }
 
-class _ClearDatabaseTile extends StatelessWidget {
-  const _ClearDatabaseTile();
 
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(Icons.delete,
-          color: Theme.of(context).colorScheme.error),
-      title: Text(
-        'Clear all data',
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
-      subtitle: const Text('Permanently deletes all goals and subtasks'),
-      onTap: () => _showConfirmDialog(context),
-    );
-  }
-
-  Future<void> _showConfirmDialog(BuildContext context) async {
-    final repo = context.read<GoalRepository>();
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _ClearConfirmDialog(repo: repo),
-    );
-  }
-}
-
-class _ClearConfirmDialog extends StatefulWidget {
-  final GoalRepository repo;
-
-  const _ClearConfirmDialog({required this.repo});
-
-  @override
-  State<_ClearConfirmDialog> createState() => _ClearConfirmDialogState();
-}
-
-class _ClearConfirmDialogState extends State<_ClearConfirmDialog> {
-  final _controller = TextEditingController();
-  bool _confirmed = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Clear all data?'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'This will permanently delete every goal and subtask. '
-            'Type "delete" to confirm.',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.none,
-            decoration: const InputDecoration(
-              hintText: 'delete',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (v) =>
-                setState(() => _confirmed = v.trim().toLowerCase() == 'delete'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-            foregroundColor: Theme.of(context).colorScheme.onError,
-            disabledBackgroundColor:
-                Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.4),
-          ),
-          onPressed: _confirmed
-              ? () async {
-                  final nav = Navigator.of(context);
-                  await widget.repo.clear();
-                  if (mounted) nav.pop();
-                }
-              : null,
-          child: const Text('Delete everything'),
-        ),
-      ],
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Daily Reset section
