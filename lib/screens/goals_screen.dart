@@ -8,7 +8,6 @@ import '../services/decomposition_state.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_icons.dart';
 import 'goal_detail_screen.dart';
 
 enum _GoalFilter { active, completed }
