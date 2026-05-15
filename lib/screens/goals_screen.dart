@@ -11,19 +11,34 @@ import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import 'goal_detail_screen.dart';
 
-enum _GoalFilter { active, completed }
-
 class GoalsScreen extends StatefulWidget {
-  const GoalsScreen({super.key});
+  final ValueNotifier<bool> showCompletedNotifier;
+
+  const GoalsScreen({super.key, required this.showCompletedNotifier});
 
   @override
   State<GoalsScreen> createState() => _GoalsScreenState();
 }
 
 class _GoalsScreenState extends State<GoalsScreen> {
-  _GoalFilter _filter = _GoalFilter.active;
   bool _selectMode = false;
   final Set<String> _selectedIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.showCompletedNotifier.addListener(_onFilterChanged);
+  }
+
+  void _onFilterChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.showCompletedNotifier.removeListener(_onFilterChanged);
+    super.dispose();
+  }
 
   void _enterSelectMode(String goalId) {
     setState(() {
@@ -121,9 +136,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final queries = context.watch<GoalQueries>();
     final resetService = context.watch<DailyResetService>();
 
-    final goals = _filter == _GoalFilter.active
-        ? resetService.sortGoals(queries.goals, resetService.sortOrder)
-        : queries.completedGoals;
+    final showCompleted = widget.showCompletedNotifier.value;
+    final goals = showCompleted
+        ? queries.completedGoals
+        : resetService.sortGoals(queries.goals, resetService.sortOrder);
 
     final activeSelectedCount = goals
         .where(
@@ -138,41 +154,23 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return Scaffold(
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: _selectMode
-                ? _SelectionBar(
-                    selectedCount: _selectedIds.length,
-                    activeSelectedCount: activeSelectedCount,
-                    llmEnabled: llmEnabled,
-                    onArchive: _selectedIds.isEmpty ? null : _archiveSelected,
-                    onRedecompose: activeSelectedCount == 0
-                        ? null
-                        : () => _redecomposeSelected(goals),
-                    onCancel: _exitSelectMode,
-                  )
-                : SegmentedButton<_GoalFilter>(
-                    segments: const [
-                      ButtonSegment(
-                        value: _GoalFilter.active,
-                        label: Text('Active'),
-                        icon: Icon(Icons.flag_outlined),
-                      ),
-                      ButtonSegment(
-                        value: _GoalFilter.completed,
-                        label: Text('Completed'),
-                        icon: Icon(Icons.check_circle_outline),
-                      ),
-                    ],
-                    selected: {_filter},
-                    onSelectionChanged: (s) =>
-                        setState(() => _filter = s.first),
-                    showSelectedIcon: false,
-                  ),
-          ),
+          if (_selectMode)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: _SelectionBar(
+                selectedCount: _selectedIds.length,
+                activeSelectedCount: activeSelectedCount,
+                llmEnabled: llmEnabled,
+                onArchive: _selectedIds.isEmpty ? null : _archiveSelected,
+                onRedecompose: activeSelectedCount == 0
+                    ? null
+                    : () => _redecomposeSelected(goals),
+                onCancel: _exitSelectMode,
+              ),
+            ),
           Expanded(
             child: goals.isEmpty
-                ? _EmptyState(filter: _filter)
+                ? _EmptyState(showCompleted: showCompleted)
                 : _GoalList(
                     goals: goals,
                     selectMode: _selectMode,
@@ -326,13 +324,13 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
 // ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
-  final _GoalFilter filter;
+  final bool showCompleted;
 
-  const _EmptyState({required this.filter});
+  const _EmptyState({required this.showCompleted});
 
   @override
   Widget build(BuildContext context) {
-    final isCompleted = filter == _GoalFilter.completed;
+    final isCompleted = showCompleted;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

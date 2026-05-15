@@ -137,6 +137,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  late final ValueNotifier<bool> _goalsShowCompleted;
 
   static const _tabTitles = ['Today', 'Goals', 'Inbox'];
 
@@ -148,6 +149,7 @@ class _AppShellState extends State<AppShell>
       vsync: this,
       initialIndex: widget.tabNotifier.value,
     );
+    _goalsShowCompleted = ValueNotifier(false);
     _tabController.addListener(_onTabControllerChanged);
     widget.tabNotifier.addListener(_onExternalTabChange);
     widget.goalNavNotifier.addListener(_onGoalNavRequested);
@@ -165,6 +167,7 @@ class _AppShellState extends State<AppShell>
   void dispose() {
     _tabController.removeListener(_onTabControllerChanged);
     _tabController.dispose();
+    _goalsShowCompleted.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
     widget.goalNavNotifier.removeListener(_onGoalNavRequested);
@@ -271,12 +274,18 @@ class _AppShellState extends State<AppShell>
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _tabController,
+      animation: Listenable.merge([_tabController, _goalsShowCompleted]),
       builder: (context, _) => Scaffold(
         appBar: AppBar(
           title: Text(_tabTitles[_tabController.index]),
           actions: [
-            if (_tabController.index == 1) _SortButton(),
+            if (_tabController.index == 1) ...[
+              _GoalsFilterButton(
+                showCompleted: _goalsShowCompleted.value,
+                onChanged: (v) => _goalsShowCompleted.value = v,
+              ),
+              _SortButton(),
+            ],
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'Settings',
@@ -289,7 +298,11 @@ class _AppShellState extends State<AppShell>
         ),
         body: TabBarView(
           controller: _tabController,
-          children: const [FocusScreen(), GoalsScreen(), InboxScreen()],
+          children: [
+            const FocusScreen(),
+            GoalsScreen(showCompletedNotifier: _goalsShowCompleted),
+            const InboxScreen(),
+          ],
         ),
         floatingActionButton: _buildFab(context),
         bottomNavigationBar: NavigationBar(
@@ -319,8 +332,39 @@ class _AppShellState extends State<AppShell>
 }
 
 // ---------------------------------------------------------------------------
-// Sort button + sheet (Goals tab only)
+// Goals tab — filter toggle (Active / Done) + sort button + sort sheet
 // ---------------------------------------------------------------------------
+
+class _GoalsFilterButton extends StatelessWidget {
+  final bool showCompleted;
+  final ValueChanged<bool> onChanged;
+
+  const _GoalsFilterButton({
+    required this.showCompleted,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SegmentedButton<bool>(
+        style: SegmentedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          textStyle: Theme.of(context).textTheme.labelSmall,
+        ),
+        segments: const [
+          ButtonSegment(value: false, label: Text('Active')),
+          ButtonSegment(value: true, label: Text('Done')),
+        ],
+        selected: {showCompleted},
+        onSelectionChanged: (s) => onChanged(s.first),
+        showSelectedIcon: false,
+      ),
+    );
+  }
+}
 
 class _SortButton extends StatelessWidget {
   @override
