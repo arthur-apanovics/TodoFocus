@@ -63,6 +63,23 @@ class LlmClient {
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return (json['choices'] as List).first['message']['content'] as String;
+    final choices = json['choices'] as List?;
+    if (choices == null || choices.isEmpty) {
+      final preview = response.body.length > 500
+          ? '${response.body.substring(0, 500)}…'
+          : response.body;
+      throw Exception('LLM returned no choices.\n\nRaw response:\n$preview');
+    }
+    final content = (choices.first as Map<String, dynamic>)['message']
+        ?['content'];
+    if (content == null) {
+      final preview = response.body.length > 500
+          ? '${response.body.substring(0, 500)}…'
+          : response.body;
+      throw Exception(
+          'LLM returned null content (model may not support JSON schema).'
+          '\n\nRaw response:\n$preview');
+    }
+    return content as String;
   }
 }

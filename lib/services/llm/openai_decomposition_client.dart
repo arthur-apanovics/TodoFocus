@@ -75,11 +75,16 @@ class OpenAiDecompositionClient implements DecompositionClient {
 
     final match = RegExp(r'\[.*?\]', dotAll: true).firstMatch(cleaned);
     if (match != null) {
-      final extracted = jsonDecode(match.group(0)!);
-      if (extracted is List) return _toStringList(extracted);
+      try {
+        final extracted = jsonDecode(match.group(0)!);
+        if (extracted is List) return _toStringList(extracted);
+      } catch (_) {}
     }
 
-    throw const FormatException('LLM response contained no valid JSON array');
+    final preview = raw.length > 500 ? '${raw.substring(0, 500)}…' : raw;
+    throw FormatException(
+        'LLM response contained no valid JSON array.'
+        '\n\nRaw response:\n$preview');
   }
 
   List<String> _toStringList(List<dynamic> list) {
