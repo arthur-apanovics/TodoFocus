@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/goal.dart';
 import '../models/enums.dart';
 import '../services/daily_reset_service.dart';
 import '../services/decomposition_state.dart';
+import '../services/goal_decomposition_service.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
+import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import 'goal_detail_screen.dart';
 
@@ -21,6 +22,99 @@ class GoalsScreen extends StatefulWidget {
 
 class _GoalsScreenState extends State<GoalsScreen> {
   _GoalFilter _filter = _GoalFilter.active;
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _enterSelectMode(String goalId) {
+    setState(() {
+      _selectMode = true;
+      _selectedIds.add(goalId);
+    });
+  }
+
+  void _toggleSelection(String goalId) {
+    setState(() {
+      if (_selectedIds.contains(goalId)) {
+        _selectedIds.remove(goalId);
+        if (_selectedIds.isEmpty) _selectMode = false;
+      } else {
+        _selectedIds.add(goalId);
+      }
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _archiveSelected() async {
+    final service = context.read<GoalService>();
+    final ids = Set<String>.from(_selectedIds);
+    _exitSelectMode();
+    for (final id in ids) {
+      service.archiveGoal(id);
+    }
+  }
+
+  Future<void> _redecomposeSelected(List<Goal> visibleGoals) async {
+    if (context.read<LlmSettingsService>().buildClient() == null) return;
+    final activeGoals = visibleGoals
+        .where(
+          (g) =>
+              _selectedIds.contains(g.goalId) && g.status == GoalStatus.active,
+        )
+        .toList();
+    if (activeGoals.isEmpty) return;
+
+    final instructions = await showDialog<String>(
+      context: context,
+      builder: (_) => _RedecomposeDialog(count: activeGoals.length),
+    );
+    if (instructions == null || !mounted) return;
+
+    final decompositionService = context.read<GoalDecompositionService>();
+    final decompositionState = context.read<DecompositionState>();
+    final goalService = context.read<GoalService>();
+    final trimmed = instructions.trim().isEmpty ? null : instructions.trim();
+    _exitSelectMode();
+
+    for (final goal in activeGoals) {
+      _redecomposeInBackground(
+        goal: goal,
+        instructions: trimmed,
+        decompositionService: decompositionService,
+        decompositionState: decompositionState,
+        goalService: goalService,
+      );
+    }
+  }
+
+  // Fire-and-forget: marks the goal as decomposing, fetches new subtasks, then
+  // writes them back. Intentionally not awaited at the call site.
+  Future<void> _redecomposeInBackground({
+    required Goal goal,
+    required String? instructions,
+    required GoalDecompositionService decompositionService,
+    required DecompositionState decompositionState,
+    required GoalService goalService,
+  }) async {
+    decompositionState.begin(goal.goalId);
+    try {
+      final descriptions = await decompositionService.redecomposeSubtasks(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
+        additionalInstructions: instructions,
+      );
+      if (descriptions != null) {
+        goalService.replaceAllSubTasks(goal.goalId, descriptions);
+      }
+    } finally {
+      decompositionState.end(goal.goalId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,39 +125,205 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ? resetService.sortGoals(queries.goals, resetService.sortOrder)
         : queries.completedGoals;
 
+    final activeSelectedCount = goals
+        .where(
+          (g) =>
+              _selectedIds.contains(g.goalId) && g.status == GoalStatus.active,
+        )
+        .length;
+    // Watch LlmSettingsService directly — it's a ChangeNotifier, so watch()
+    // is guaranteed to rebuild this widget when the toggle or profile changes.
+    final llmEnabled = context.watch<LlmSettingsService>().buildClient() != null;
+
     return Scaffold(
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: SegmentedButton<_GoalFilter>(
-              segments: const [
-                ButtonSegment(
-                  value: _GoalFilter.active,
-                  label: Text('Active'),
-                  icon: Icon(Icons.flag_outlined),
-                ),
-                ButtonSegment(
-                  value: _GoalFilter.completed,
-                  label: Text('Completed'),
-                  icon: Icon(Icons.check_circle_outline),
-                ),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (s) => setState(() => _filter = s.first),
-              showSelectedIcon: false,
-            ),
+            child: _selectMode
+                ? _SelectionBar(
+                    selectedCount: _selectedIds.length,
+                    activeSelectedCount: activeSelectedCount,
+                    llmEnabled: llmEnabled,
+                    onArchive: _selectedIds.isEmpty ? null : _archiveSelected,
+                    onRedecompose: activeSelectedCount == 0
+                        ? null
+                        : () => _redecomposeSelected(goals),
+                    onCancel: _exitSelectMode,
+                  )
+                : SegmentedButton<_GoalFilter>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _GoalFilter.active,
+                        label: Text('Active'),
+                        icon: Icon(Icons.flag_outlined),
+                      ),
+                      ButtonSegment(
+                        value: _GoalFilter.completed,
+                        label: Text('Completed'),
+                        icon: Icon(Icons.check_circle_outline),
+                      ),
+                    ],
+                    selected: {_filter},
+                    onSelectionChanged: (s) =>
+                        setState(() => _filter = s.first),
+                    showSelectedIcon: false,
+                  ),
           ),
           Expanded(
             child: goals.isEmpty
                 ? _EmptyState(filter: _filter)
-                : _GoalList(goals: goals),
+                : _GoalList(
+                    goals: goals,
+                    selectMode: _selectMode,
+                    selectedIds: _selectedIds,
+                    onLongPress: _enterSelectMode,
+                    onToggleSelect: _toggleSelection,
+                  ),
           ),
         ],
       ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Selection action bar
+// ---------------------------------------------------------------------------
+
+class _SelectionBar extends StatelessWidget {
+  final int selectedCount;
+  final int activeSelectedCount;
+  final bool llmEnabled;
+  final VoidCallback? onArchive;
+  final VoidCallback? onRedecompose;
+  final VoidCallback onCancel;
+
+  const _SelectionBar({
+    required this.selectedCount,
+    required this.activeSelectedCount,
+    required this.llmEnabled,
+    required this.onArchive,
+    required this.onRedecompose,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Cancel selection',
+            onPressed: onCancel,
+          ),
+          Expanded(
+            child: Text(
+              selectedCount == 0 ? 'Select goals' : '$selectedCount selected',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          if (llmEnabled && activeSelectedCount > 0)
+            IconButton(
+              icon: const Icon(Icons.auto_awesome_outlined),
+              tooltip: 'Re-decompose',
+              onPressed: onRedecompose,
+            ),
+          if (onArchive != null)
+            IconButton(
+              icon: Icon(Icons.archive_outlined),
+              tooltip: 'Archive selected',
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Archive goals'),
+                    content: Text(
+                      'Archive $selectedCount ${selectedCount == 1 ? 'goal' : 'goals'}?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Archive'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) onArchive!();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Re-decompose instructions dialog
+// ---------------------------------------------------------------------------
+
+class _RedecomposeDialog extends StatefulWidget {
+  final int count;
+
+  const _RedecomposeDialog({required this.count});
+
+  @override
+  State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
+}
+
+class _RedecomposeDialogState extends State<_RedecomposeDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = widget.count == 1 ? '1 goal' : '${widget.count} goals';
+    return AlertDialog(
+      title: Text('Re-decompose $label'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 3,
+        decoration: const InputDecoration(
+          hintText: 'Additional instructions (optional)',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => Navigator.pop(context, _controller.text),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Regenerate'),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// List + tile
+// ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
   final _GoalFilter filter;
@@ -98,78 +358,100 @@ class _EmptyState extends StatelessWidget {
 
 class _GoalList extends StatelessWidget {
   final List<Goal> goals;
+  final bool selectMode;
+  final Set<String> selectedIds;
+  final void Function(String) onLongPress;
+  final void Function(String) onToggleSelect;
 
-  const _GoalList({required this.goals});
+  const _GoalList({
+    required this.goals,
+    required this.selectMode,
+    required this.selectedIds,
+    required this.onLongPress,
+    required this.onToggleSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
       itemCount: goals.length,
-      itemBuilder: (context, index) => _GoalTile(goal: goals[index]),
+      itemBuilder: (context, index) {
+        final goal = goals[index];
+        return _GoalTile(
+          goal: goal,
+          selectMode: selectMode,
+          isSelected: selectedIds.contains(goal.goalId),
+          onLongPress: () => onLongPress(goal.goalId),
+          onToggleSelect: () => onToggleSelect(goal.goalId),
+        );
+      },
     );
   }
 }
 
 class _GoalTile extends StatelessWidget {
   final Goal goal;
+  final bool selectMode;
+  final bool isSelected;
+  final VoidCallback onLongPress;
+  final VoidCallback onToggleSelect;
 
-  const _GoalTile({required this.goal});
+  const _GoalTile({
+    required this.goal,
+    required this.selectMode,
+    required this.isSelected,
+    required this.onLongPress,
+    required this.onToggleSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
-    final isDecomposing =
-        context.watch<DecompositionState>().isDecomposing(goal.goalId);
+    final isDecomposing = context.watch<DecompositionState>().isDecomposing(
+      goal.goalId,
+    );
 
-    return Slidable(
+    return ListTile(
       key: ValueKey(goal.goalId),
-      endActionPane: ActionPane(
-        motion: const BehindMotion(),
-        extentRatio: 0.28,
-        children: [
-          SlidableAction(
-            onPressed: (_) => service.archiveGoal(goal.goalId),
-            backgroundColor: AppColors.muted,
-            foregroundColor: Colors.white,
-            icon: Icons.archive_outlined,
-            label: 'Archive',
-          ),
-        ],
-      ),
-      child: ListTile(
-        title: Text(goal.title),
-        subtitle: Text(
-          isDecomposing ? 'Generating subtasks…' : _subtitleFor(goal),
-        ),
-        leading: isDecomposing
-            ? const _SpinnerLeading()
-            : _StatusBadge(status: goal.status),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (goal.status == GoalStatus.active)
-              IconButton(
-                icon: Icon(
-                  goal.isFocusedToday ? Icons.star : Icons.star_border,
-                  color: goal.isFocusedToday
-                      ? AppColors.accent
-                      : AppColors.muted,
-                ),
-                tooltip: goal.isFocusedToday
-                    ? 'Remove from Today'
-                    : 'Add to Today',
-                onPressed: () => service.toggleFocusToday(goal),
+      onTap: selectMode
+          ? onToggleSelect
+          : () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => GoalDetailScreen(goalId: goal.goalId),
               ),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
-          ),
-        ),
+            ),
+      onLongPress: selectMode ? null : onLongPress,
+      leading: selectMode
+          ? Checkbox(value: isSelected, onChanged: (_) => onToggleSelect())
+          : isDecomposing
+          ? const _SpinnerLeading()
+          : _StatusBadge(status: goal.status),
+      title: Text(goal.title),
+      subtitle: Text(
+        isDecomposing ? 'Generating subtasks…' : _subtitleFor(goal),
       ),
+      trailing: selectMode
+          ? null
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (goal.status == GoalStatus.active)
+                  IconButton(
+                    icon: Icon(
+                      goal.isFocusedToday ? Icons.star : Icons.star_border,
+                      color: goal.isFocusedToday
+                          ? AppColors.accent
+                          : AppColors.muted,
+                    ),
+                    tooltip: goal.isFocusedToday
+                        ? 'Remove from Today'
+                        : 'Add to Today',
+                    onPressed: () => service.toggleFocusToday(goal),
+                  ),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
     );
   }
 
