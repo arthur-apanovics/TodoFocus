@@ -77,6 +77,14 @@ class Goal {
     _recalculateStatus();
   }
 
+  // Removes all pending subtasks and appends newSubtasks after any completed
+  // ones, preserving the completed steps in place.
+  void replacePendingSubTasks(List<SubTask> newSubtasks) {
+    subtasks.removeWhere((t) => t.state == SubTaskState.pending);
+    subtasks.addAll(newSubtasks);
+    _recalculateStatus();
+  }
+
   // Replaces a single subtask in-place with one or more replacements,
   // preserving list order. Used for splitting a subtask into smaller steps.
   void replaceSubTask(String subtaskId, List<SubTask> replacements) {

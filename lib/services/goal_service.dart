@@ -127,6 +127,20 @@ class GoalService {
     _repository.save(goal);
   }
 
+  // Replaces only the pending subtasks, preserving any already-completed steps.
+  // Used by the re-decompose flow when the user opts to keep completed steps.
+  void replacePendingSubTasks(String goalId, List<String> descriptions) {
+    if (descriptions.isEmpty) return;
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.replacePendingSubTasks(
+      descriptions
+          .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
+          .toList(),
+    );
+    _repository.save(goal);
+  }
+
   // Replaces a single subtask with one or more smaller steps. Used both by
   // the manual split flow (user types replacements) and the LLM-driven
   // breakdown flow (provider returns 1–3 replacement descriptions).

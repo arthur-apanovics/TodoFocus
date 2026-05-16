@@ -10,13 +10,16 @@ abstract interface class DecompositionClient {
     String? description,
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    List<String>? completedSteps,
   });
 
   /// Breaks an existing subtask down further into 1–3 smaller steps.
   /// Used when a subtask itself feels overwhelming to start.
+  /// [difficulty] controls granularity; providers that don't support it ignore it.
   /// Throws on network error or unrecoverable response — callers handle fallback.
   Future<List<String>> breakdown(
     String subtaskDescription, {
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   });
 }
