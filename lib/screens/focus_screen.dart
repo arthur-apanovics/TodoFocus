@@ -22,9 +22,6 @@ class FocusScreen extends StatelessWidget {
           : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: focusedGoals.length,
-              // Drag handle is rendered explicitly on each card, so the
-              // whole tile isn't grab-on-long-press.
-              buildDefaultDragHandles: false,
               onReorder: (oldIndex, newIndex) {
                 context
                     .read<GoalService>()
@@ -35,7 +32,6 @@ class FocusScreen extends StatelessWidget {
                 return _FocusGoalCard(
                   key: ValueKey(goal.goalId),
                   goal: goal,
-                  index: index,
                 );
               },
             ),
@@ -53,9 +49,8 @@ class FocusScreen extends StatelessWidget {
 // colored circle communicate which subtask is which without needing words.
 class _FocusGoalCard extends StatelessWidget {
   final Goal goal;
-  final int index;
 
-  const _FocusGoalCard({super.key, required this.goal, required this.index});
+  const _FocusGoalCard({super.key, required this.goal});
 
   @override
   Widget build(BuildContext context) {
@@ -76,19 +71,9 @@ class _FocusGoalCard extends StatelessWidget {
           child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Eyebrow row — drag handle + goal title (as category) + progress badge
+            // Eyebrow row — goal title (as category) + progress badge
             Row(
               children: [
-                // Drag handle — touch target for reordering the today queue.
-                // ReorderableDragStartListener works only inside a
-                // ReorderableListView with matching index.
-                ReorderableDragStartListener(
-                  index: index,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(Icons.drag_handle, color: AppColors.muted),
-                  ),
-                ),
                 Expanded(
                   child: Text(
                     goal.title.toUpperCase(),
