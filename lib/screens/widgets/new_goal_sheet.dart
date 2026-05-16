@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import '../../models/enums.dart';
 import '../../services/decomposition_state.dart';
+import '../../services/draft_service.dart';
 import '../../services/goal_service.dart';
 import '../../services/goal_decomposition_service.dart';
 import 'app_bottom_sheet.dart';
@@ -11,12 +12,14 @@ class NewGoalSheet extends StatefulWidget {
   final GoalService goalService;
   final GoalDecompositionService decompositionService;
   final DecompositionState decompositionState;
+  final DraftService draftService;
 
   const NewGoalSheet({
     super.key,
     required this.goalService,
     required this.decompositionService,
     required this.decompositionState,
+    required this.draftService,
   });
 
   @override
@@ -24,14 +27,37 @@ class NewGoalSheet extends StatefulWidget {
 }
 
 class _NewGoalSheetState extends State<NewGoalSheet> {
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  late final TextEditingController _titleController;
+  late final TextEditingController _descriptionController;
   final _descriptionFocus = FocusNode();
   DateTime? _dueDate;
   GoalDifficulty _difficulty = GoalDifficulty.easy;
 
+  // Prevents dispose() from saving after a successful submission.
+  bool _submitted = false;
+
+  DraftService get _draft => widget.draftService;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: _draft.newGoalTitle);
+    _descriptionController =
+        TextEditingController(text: _draft.newGoalDescription);
+    _dueDate = _draft.newGoalDueDate;
+    _difficulty = _draft.newGoalDifficulty;
+  }
+
   @override
   void dispose() {
+    if (!_submitted) {
+      _draft.saveNewGoal(
+        title: _titleController.text,
+        description: _descriptionController.text,
+        dueDate: _dueDate,
+        difficulty: _difficulty,
+      );
+    }
     _titleController.dispose();
     _descriptionController.dispose();
     _descriptionFocus.dispose();
@@ -42,8 +68,10 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
-    final description = _descriptionController.text.trim();
+    _submitted = true;
+    _draft.clearNewGoal();
 
+    final description = _descriptionController.text.trim();
     final goal = widget.decompositionService.createGoal(
       title: title,
       description: description.isEmpty ? null : description,
@@ -71,8 +99,10 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
-    final description = _descriptionController.text.trim();
+    _submitted = true;
+    _draft.clearNewGoal();
 
+    final description = _descriptionController.text.trim();
     final goal = widget.decompositionService.captureToInbox(
       title: title,
       description: description.isEmpty ? null : description,
@@ -96,10 +126,25 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     }
   }
 
+  void _clearFields() {
+    _draft.clearNewGoal();
+    _titleController.text = '';
+    _descriptionController.text = '';
+    setState(() {
+      _dueDate = null;
+      _difficulty = GoalDifficulty.easy;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppBottomSheet(
       title: 'New Goal',
+      trailing: IconButton(
+        icon: const Icon(Icons.clear_all),
+        tooltip: 'Clear all fields',
+        onPressed: _clearFields,
+      ),
       children: [
         TextField(
           controller: _titleController,

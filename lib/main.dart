@@ -12,6 +12,7 @@ import 'models/enums.dart';
 import 'services/backup_service.dart';
 import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
+import 'services/draft_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
@@ -98,6 +99,7 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<DecompositionState>(
           create: (_) => DecompositionState(),
         ),
+        Provider<DraftService>(create: (_) => DraftService()),
         ChangeNotifierProvider<DailyResetService>.value(
           value: dailyResetService,
         ),
@@ -245,6 +247,7 @@ class _AppShellState extends State<AppShell>
     final goalService = context.read<GoalService>();
     final decompositionService = context.read<GoalDecompositionService>();
     final decompositionState = context.read<DecompositionState>();
+    final draftService = context.read<DraftService>();
 
     final goalId = await showModalBottomSheet<String>(
       context: context,
@@ -254,6 +257,7 @@ class _AppShellState extends State<AppShell>
         goalService: goalService,
         decompositionService: decompositionService,
         decompositionState: decompositionState,
+        draftService: draftService,
       ),
     );
     if (goalId != null && mounted) {

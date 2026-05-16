@@ -4,6 +4,7 @@ import '../models/goal.dart';
 import '../models/enums.dart';
 import '../services/daily_reset_service.dart';
 import '../services/decomposition_state.dart';
+import '../services/draft_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
@@ -84,11 +85,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
         .toList();
     if (activeGoals.isEmpty) return;
 
+    final draft = context.read<DraftService>();
     final instructions = await showDialog<String>(
       context: context,
-      builder: (_) => _RedecomposeDialog(count: activeGoals.length),
+      builder: (_) => _RedecomposeDialog(
+        count: activeGoals.length,
+        draftService: draft,
+      ),
     );
     if (instructions == null || !mounted) return;
+    draft.clearBulkRedecomposeInstructions();
 
     final decompositionService = context.read<GoalDecompositionService>();
     final decompositionState = context.read<DecompositionState>();
@@ -269,8 +275,9 @@ class _SelectionBar extends StatelessWidget {
 
 class _RedecomposeDialog extends StatefulWidget {
   final int count;
+  final DraftService draftService;
 
-  const _RedecomposeDialog({required this.count});
+  const _RedecomposeDialog({required this.count, required this.draftService});
 
   @override
   State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
@@ -282,11 +289,15 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController();
+    _controller = TextEditingController(
+      text: widget.draftService.bulkRedecomposeInstructions,
+    );
   }
 
   @override
   void dispose() {
+    // Always persist what the user typed — caller clears after confirmed.
+    widget.draftService.saveBulkRedecomposeInstructions(_controller.text);
     _controller.dispose();
     super.dispose();
   }
