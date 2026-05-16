@@ -7,6 +7,7 @@ import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
+import '../services/draft_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -97,11 +98,16 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
   Future<void> _redecomposeGoal(Goal goal) async {
     final decomp = context.read<GoalDecompositionService>();
+    final draft = context.read<DraftService>();
     final instructions = await showDialog<String>(
       context: context,
-      builder: (_) => const _RedecomposeDialog(),
+      builder: (_) => _RedecomposeDialog(
+        goalId: goal.goalId,
+        draftService: draft,
+      ),
     );
     if (instructions == null || !mounted) return;
+    draft.clearRedecomposeInstructions(goal.goalId);
 
     final decompState = context.read<DecompositionState>();
     final service = context.read<GoalService>();
@@ -757,16 +763,21 @@ class _SubTaskTileState extends State<SubTaskTile> {
       _showManualSplitSheet(context, service);
       return;
     }
+    final draft = context.read<DraftService>();
+    final subtaskId = subtask.subtaskId;
     final instructions = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const _InstructionsSheet(
+      builder: (_) => _InstructionsSheet(
         hint: 'e.g. keep each step under 5 minutes',
         confirmLabel: 'Break down',
+        initialText: draft.breakdownInstructions(subtaskId),
+        onDraft: (text) => draft.saveBreakdownInstructions(subtaskId, text),
       ),
     );
     if (instructions != null && mounted) {
+      draft.clearBreakdownInstructions(subtaskId);
       // ignore: use_build_context_synchronously
       _handleSplit(this.context, service, additionalInstructions: instructions);
     }
@@ -1081,17 +1092,33 @@ class _InboxReadyState extends StatelessWidget {
 }
 
 class _RedecomposeDialog extends StatefulWidget {
-  const _RedecomposeDialog();
+  final String goalId;
+  final DraftService draftService;
+
+  const _RedecomposeDialog({required this.goalId, required this.draftService});
 
   @override
   State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
 }
 
 class _RedecomposeDialogState extends State<_RedecomposeDialog> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.draftService.redecomposeInstructions(widget.goalId),
+    );
+  }
 
   @override
   void dispose() {
+    // Always persist what the user typed — caller clears after confirmed.
+    widget.draftService.saveRedecomposeInstructions(
+      widget.goalId,
+      _controller.text,
+    );
     _controller.dispose();
     super.dispose();
   }
@@ -1137,18 +1164,33 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
 class _InstructionsSheet extends StatefulWidget {
   final String hint;
   final String confirmLabel;
+  final String initialText;
+  final ValueChanged<String>? onDraft;
 
-  const _InstructionsSheet({required this.hint, required this.confirmLabel});
+  const _InstructionsSheet({
+    required this.hint,
+    required this.confirmLabel,
+    this.initialText = '',
+    this.onDraft,
+  });
 
   @override
   State<_InstructionsSheet> createState() => _InstructionsSheetState();
 }
 
 class _InstructionsSheetState extends State<_InstructionsSheet> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
 
   @override
   void dispose() {
+    // Always persist what the user typed — caller clears after confirmed.
+    widget.onDraft?.call(_controller.text);
     _controller.dispose();
     super.dispose();
   }
