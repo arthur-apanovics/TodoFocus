@@ -260,6 +260,54 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // replacePendingSubTasks
+  // -------------------------------------------------------------------------
+
+  group('replacePendingSubTasks', () {
+    test('keeps completed subtasks and appends new pending ones', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+        makeSubTask('b'),
+        makeSubTask('c'),
+      ]);
+      g.replacePendingSubTasks([
+        SubTask(subtaskId: 'x', description: 'New step'),
+      ]);
+      // 'a' preserved, 'b' and 'c' removed, 'x' appended
+      expect(g.subtasks.length, 2);
+      expect(g.subtasks[0].subtaskId, 'a');
+      expect(g.subtasks[1].subtaskId, 'x');
+    });
+
+    test('replaces all subtasks when none are completed', () {
+      final g = makeGoal(subtasks: [makeSubTask('a'), makeSubTask('b')]);
+      g.replacePendingSubTasks([SubTask(subtaskId: 'x', description: 'New')]);
+      expect(g.subtasks.length, 1);
+      expect(g.subtasks.first.subtaskId, 'x');
+    });
+
+    test('goal remains active when new subtasks are added', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+      ]);
+      g.replacePendingSubTasks([SubTask(subtaskId: 'x', description: 'New')]);
+      expect(g.status, GoalStatus.active);
+    });
+
+    test('preserves all completed subtasks when there are no pending ones', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+        makeSubTask('b', state: SubTaskState.completed),
+      ]);
+      g.replacePendingSubTasks([SubTask(subtaskId: 'x', description: 'New')]);
+      expect(g.subtasks.length, 3);
+      expect(g.subtasks[0].subtaskId, 'a');
+      expect(g.subtasks[1].subtaskId, 'b');
+      expect(g.subtasks[2].subtaskId, 'x');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // difficulty serialisation
   // -------------------------------------------------------------------------
 

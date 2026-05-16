@@ -99,27 +99,38 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   Future<void> _redecomposeGoal(Goal goal) async {
     final decomp = context.read<GoalDecompositionService>();
     final draft = context.read<DraftService>();
-    final instructions = await showDialog<String>(
+
+    final completedSteps = goal.subtasks
+        .where((t) => t.state == SubTaskState.completed)
+        .map((t) => t.description)
+        .toList();
+
+    final result = await showDialog<({String instructions, bool regenerateAll})>(
       context: context,
       builder: (_) => _RedecomposeDialog(
         goalId: goal.goalId,
         draftService: draft,
+        completedCount: completedSteps.length,
       ),
     );
-    if (instructions == null || !mounted) return;
+    if (result == null || !mounted) return;
     draft.clearRedecomposeInstructions(goal.goalId);
 
     final decompState = context.read<DecompositionState>();
     final service = context.read<GoalService>();
     final messenger = ScaffoldMessenger.of(context);
 
+    final preserveCompleted = !result.regenerateAll && completedSteps.isNotEmpty;
+
     decompState.begin(goal.goalId);
     try {
       final descriptions = await decomp.redecomposeSubtasks(
         goal.title,
         description: goal.notes.isEmpty ? null : goal.notes,
-        additionalInstructions: instructions.isEmpty ? null : instructions,
+        additionalInstructions:
+            result.instructions.isEmpty ? null : result.instructions,
         difficulty: goal.difficulty,
+        completedSteps: preserveCompleted ? completedSteps : null,
       );
       if (!mounted) return;
       if (descriptions == null) {
@@ -128,7 +139,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         );
         return;
       }
-      service.replaceAllSubTasks(goal.goalId, descriptions);
+      if (preserveCompleted) {
+        service.replacePendingSubTasks(goal.goalId, descriptions);
+      } else {
+        service.replaceAllSubTasks(goal.goalId, descriptions);
+      }
     } finally {
       decompState.end(goal.goalId);
     }
@@ -756,7 +771,8 @@ class _SubTaskTileState extends State<SubTaskTile> {
     }
     final draft = context.read<DraftService>();
     final subtaskId = subtask.subtaskId;
-    final instructions = await showModalBottomSheet<String>(
+    final result =
+        await showModalBottomSheet<({String instructions, GoalDifficulty difficulty})>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -767,10 +783,15 @@ class _SubTaskTileState extends State<SubTaskTile> {
         onDraft: (text) => draft.saveBreakdownInstructions(subtaskId, text),
       ),
     );
-    if (instructions != null && mounted) {
+    if (result != null && mounted) {
       draft.clearBreakdownInstructions(subtaskId);
       // ignore: use_build_context_synchronously
-      _handleSplit(this.context, service, additionalInstructions: instructions);
+      _handleSplit(
+        this.context,
+        service,
+        additionalInstructions: result.instructions.isEmpty ? null : result.instructions,
+        difficulty: result.difficulty,
+      );
     }
   }
 
@@ -778,6 +799,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     BuildContext context,
     GoalService service, {
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   }) async {
     final decomp = context.read<GoalDecompositionService>();
 
@@ -794,6 +816,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final descriptions = await decomp.breakdownSubtask(
       subtask.description,
       additionalInstructions: additionalInstructions,
+      difficulty: difficulty,
     );
 
     // If the widget was disposed mid-await (e.g. the goal got deleted),
@@ -1085,8 +1108,13 @@ class _InboxReadyState extends StatelessWidget {
 class _RedecomposeDialog extends StatefulWidget {
   final String goalId;
   final DraftService draftService;
+  final int completedCount;
 
-  const _RedecomposeDialog({required this.goalId, required this.draftService});
+  const _RedecomposeDialog({
+    required this.goalId,
+    required this.draftService,
+    required this.completedCount,
+  });
 
   @override
   State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
@@ -1094,6 +1122,8 @@ class _RedecomposeDialog extends StatefulWidget {
 
 class _RedecomposeDialogState extends State<_RedecomposeDialog> {
   late final TextEditingController _controller;
+  // Default: preserve completed steps (regenerate only pending).
+  bool _regenerateAll = false;
 
   @override
   void initState() {
@@ -1116,16 +1146,31 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final hasCompleted = widget.completedCount > 0;
+    final stepWord = widget.completedCount == 1 ? 'step' : 'steps';
+    final bodyText = hasCompleted && !_regenerateAll
+        ? 'Completed steps will be preserved. Only unfinished steps will be regenerated.'
+        : 'All current subtasks will be replaced with new AI-generated steps.';
+
     return AlertDialog(
       title: const Text('Re-decompose subtasks?'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'All current subtasks will be replaced with new AI-generated steps.',
-          ),
-          const SizedBox(height: 16),
+          Text(bodyText),
+          if (hasCompleted) ...[
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'Replace all (including ${widget.completedCount} completed $stepWord)',
+              ),
+              value: _regenerateAll,
+              onChanged: (v) => setState(() => _regenerateAll = v ?? false),
+            ),
+          ],
+          const SizedBox(height: 8),
           TextField(
             controller: _controller,
             maxLines: 2,
@@ -1144,7 +1189,13 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            (
+              instructions: _controller.text.trim(),
+              regenerateAll: _regenerateAll,
+            ),
+          ),
           child: const Text('Re-decompose'),
         ),
       ],
@@ -1171,6 +1222,7 @@ class _InstructionsSheet extends StatefulWidget {
 
 class _InstructionsSheetState extends State<_InstructionsSheet> {
   late final TextEditingController _controller;
+  GoalDifficulty _difficulty = GoalDifficulty.easy;
 
   @override
   void initState() {
@@ -1201,9 +1253,39 @@ class _InstructionsSheetState extends State<_InstructionsSheet> {
             border: const OutlineInputBorder(),
           ),
         ),
+        const SizedBox(height: 16),
+        Text(
+          'Breakdown granularity',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        const SizedBox(height: 8),
+        SegmentedButton<GoalDifficulty>(
+          segments: const [
+            ButtonSegment(
+              value: GoalDifficulty.easy,
+              label: Text('Few steps'),
+            ),
+            ButtonSegment(
+              value: GoalDifficulty.hard,
+              label: Text('More steps'),
+            ),
+            ButtonSegment(
+              value: GoalDifficulty.impossible,
+              label: Text('Many steps'),
+            ),
+          ],
+          selected: {_difficulty},
+          onSelectionChanged: (s) => setState(() => _difficulty = s.first),
+        ),
         const SizedBox(height: 12),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            (
+              instructions: _controller.text.trim(),
+              difficulty: _difficulty,
+            ),
+          ),
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           child: Text(widget.confirmLabel),
         ),

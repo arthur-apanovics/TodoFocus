@@ -23,14 +23,20 @@ class GoblinToolsDecompositionClient implements DecompositionClient {
     String? description,
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    List<String>? completedSteps, // ignored — Goblin Tools has no steering support
   }) =>
       _post(additionalInstructions ?? title, spiciness);
 
   // Breakdown reuses the same endpoint with spiciness=1 — the API has no
   // separate "break this subtask down further" mode, so we just request the
   // minimum granularity to get a small number of fine-grained steps.
+  // [difficulty] is ignored for the same reason.
   @override
-  Future<List<String>> breakdown(String subtaskDescription, {String? additionalInstructions}) =>
+  Future<List<String>> breakdown(
+    String subtaskDescription, {
+    String? additionalInstructions,
+    GoalDifficulty? difficulty, // ignored
+  }) =>
       _post(additionalInstructions ?? subtaskDescription, 1);
 
   Future<List<String>> _post(String text, int spiciness) async {

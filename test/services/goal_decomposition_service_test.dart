@@ -24,6 +24,7 @@ class _FakeDecompositionClient implements DecompositionClient {
     String? description,
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    List<String>? completedSteps,
   }) async {
     if (shouldThrow) throw Exception('LLM error');
     capturedDifficulty = difficulty;
@@ -34,6 +35,7 @@ class _FakeDecompositionClient implements DecompositionClient {
   Future<List<String>> breakdown(
     String subtaskDescription, {
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   }) async => ['sub-step 1'];
 }
 

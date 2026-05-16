@@ -70,6 +70,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
     String? description,
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    List<String>? completedSteps,
   }) async {
     final (min, max) = _rangesFor(difficulty);
     final effectiveSystem =
@@ -77,6 +78,15 @@ class OpenAiDecompositionClient implements DecompositionClient {
     var user = description?.isNotEmpty == true
         ? 'Goal: "$title". Context: $description'
         : 'Goal: "$title"';
+    if (completedSteps?.isNotEmpty == true) {
+      final numbered = completedSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      user =
+          '$user\n\nSteps already completed (do not repeat these, generate only the remaining steps):\n$numbered';
+    }
     if (additionalInstructions?.isNotEmpty == true) {
       user = '$user\n\nAdditional instructions: $additionalInstructions';
     }
@@ -92,15 +102,25 @@ class OpenAiDecompositionClient implements DecompositionClient {
   Future<List<String>> breakdown(
     String subtaskDescription, {
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   }) async {
     var user = 'Subtask: "$subtaskDescription"';
     if (additionalInstructions?.isNotEmpty == true) {
       user = '$user\n\nAdditional instructions: $additionalInstructions';
     }
+    // When difficulty is provided, use the configured count ranges so the user
+    // gets more granular steps for hard/impossible tasks.
+    final Map<String, dynamic> schema;
+    if (difficulty != null) {
+      final (min, max) = _rangesFor(difficulty);
+      schema = _schemaFor(min, max);
+    } else {
+      schema = _breakdownSchema;
+    }
     final raw = await _llm.complete(
       breakdownPrompt,
       user,
-      responseSchema: _breakdownSchema,
+      responseSchema: schema,
     );
     return _parseJsonArray(raw);
   }

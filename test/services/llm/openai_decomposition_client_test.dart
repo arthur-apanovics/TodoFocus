@@ -10,6 +10,7 @@ import 'package:todo_app/services/llm/openai_decomposition_client.dart';
 
 class _FakeLlmClient extends LlmClient {
   String? capturedSystemPrompt;
+  String? capturedUserPrompt;
   Map<String, dynamic>? capturedSchema;
   final String _response;
 
@@ -24,6 +25,7 @@ class _FakeLlmClient extends LlmClient {
     Map<String, dynamic>? responseSchema,
   }) async {
     capturedSystemPrompt = systemPrompt;
+    capturedUserPrompt = userPrompt;
     capturedSchema = responseSchema;
     return _response;
   }
@@ -124,12 +126,58 @@ void main() {
     });
   });
 
+  group('OpenAiDecompositionClient.decompose — completedSteps', () {
+    test('appends completed steps to the user prompt when provided', () async {
+      final llm = _FakeLlmClient();
+      await _client(llm).decompose(
+        'Build a portfolio',
+        completedSteps: ['Choose tech stack', 'Set up repo'],
+      );
+      expect(llm.capturedUserPrompt, contains('Steps already completed'));
+      expect(llm.capturedUserPrompt, contains('1. Choose tech stack'));
+      expect(llm.capturedUserPrompt, contains('2. Set up repo'));
+    });
+
+    test('does not append completed steps section when list is empty', () async {
+      final llm = _FakeLlmClient();
+      await _client(llm).decompose('Build a portfolio', completedSteps: []);
+      expect(llm.capturedUserPrompt, isNot(contains('Steps already completed')));
+    });
+
+    test('does not append completed steps section when null', () async {
+      final llm = _FakeLlmClient();
+      await _client(llm).decompose('Build a portfolio');
+      expect(llm.capturedUserPrompt, isNot(contains('Steps already completed')));
+    });
+  });
+
   group('OpenAiDecompositionClient.breakdown', () {
-    test('uses fixed 1–3 schema regardless of difficulty', () async {
+    test('uses fixed 1–3 schema when no difficulty is provided', () async {
       final llm = _FakeLlmClient(response: '["sub-step 1"]');
       await _client(llm).breakdown('An overwhelming subtask');
       expect(llm.capturedSchema!['minItems'], 1);
       expect(llm.capturedSchema!['maxItems'], 3);
+    });
+
+    test('uses difficulty-based schema when difficulty is provided (easy)', () async {
+      final llm = _FakeLlmClient(response: '["sub-step 1", "sub-step 2"]');
+      await _client(llm, easyMin: 3, easyMax: 6).breakdown(
+        'An overwhelming subtask',
+        difficulty: GoalDifficulty.easy,
+      );
+      expect(llm.capturedSchema!['minItems'], 3);
+      expect(llm.capturedSchema!['maxItems'], 6);
+    });
+
+    test('uses difficulty-based schema when difficulty is provided (hard)', () async {
+      final items = List.generate(10, (i) => '"s${i + 1}"').join(',');
+      final llm = _FakeLlmClient(response: '[$items]');
+      await _client(llm, hardMin: 10, hardMax: 20).breakdown(
+        'An overwhelming subtask',
+        difficulty: GoalDifficulty.hard,
+      );
+      expect(llm.capturedSchema!['minItems'], 10);
+      expect(llm.capturedSchema!['maxItems'], 20);
     });
   });
 }
