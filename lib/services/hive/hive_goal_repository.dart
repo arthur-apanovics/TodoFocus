@@ -71,6 +71,11 @@ class HiveGoalRepository extends GoalRepository {
   }
 
   // --- Mapping: DTO → Domain ---
+  //
+  // IMPORTANT: when you add a field to GoalDto or Goal, update BOTH _toDomain
+  // and _toDto below, then add the field to the 'full field round-trip' test
+  // in test/services/hive/hive_goal_repository_test.dart — that test is the
+  // compile-time-equivalent enforcement for the mapping layer.
 
   Goal _toDomain(GoalDto dto) {
     return Goal(
@@ -88,6 +93,7 @@ class HiveGoalRepository extends GoalRepository {
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
       todayOrder: dto.todayOrder,
+      emoji: dto.emoji,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
   }
@@ -116,6 +122,7 @@ class HiveGoalRepository extends GoalRepository {
       ..dueDate = goal.dueDate
       ..isFocusedToday = goal.isFocusedToday
       ..todayOrder = goal.todayOrder
+      ..emoji = goal.emoji
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;
   }

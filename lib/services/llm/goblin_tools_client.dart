@@ -39,6 +39,16 @@ class GoblinToolsDecompositionClient implements DecompositionClient {
   }) =>
       _post(additionalInstructions ?? subtaskDescription, 1);
 
+  // Goblin Tools has no icon suggestion endpoint — always return null/empty.
+  @override
+  Future<String?> suggestIcon(String goalTitle, List<String> iconNames) async =>
+      null;
+
+  @override
+  Future<List<String?>> suggestIconBulk(
+          List<String> goalTitles, List<String> iconNames) async =>
+      List.filled(goalTitles.length, null);
+
   Future<List<String>> _post(String text, int spiciness) async {
     final response = await _http
         .post(

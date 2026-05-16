@@ -37,6 +37,15 @@ class _FakeDecompositionClient implements DecompositionClient {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
   }) async => ['sub-step 1'];
+
+  @override
+  Future<String?> suggestIcon(String goalTitle, List<String> iconNames) async =>
+      null;
+
+  @override
+  Future<List<String?>> suggestIconBulk(
+          List<String> goalTitles, List<String> iconNames) async =>
+      List.filled(goalTitles.length, null);
 }
 
 Future<List<String>> _runBackground(

@@ -2,8 +2,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import '../models/enums.dart';
+import '../models/goal.dart';
+import '../services/goal_repository.dart';
+import '../services/goal_service.dart';
 import '../services/settings/llm_profile.dart';
 import '../services/settings/llm_settings_service.dart';
+import 'widgets/icon_catalog.dart';
 
 // LLM configuration screen. Add new profile types by:
 //   1. Adding a subtype in llm_profile.dart
@@ -80,7 +85,7 @@ class LlmSettingsScreen extends StatefulWidget {
 class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   static const _presets = ['OpenAI Compatible', 'OpenRouter', 'Goblin Tools'];
 
-  late bool _enabled;
+  late bool _generateEmojis;
   late bool _debugMode;
 
   // Each profile type has its own draft so switching presets and back
@@ -112,7 +117,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   void initState() {
     super.initState();
     final service = context.read<LlmSettingsService>();
-    _enabled = service.isEnabled;
+    _generateEmojis = service.generateEmojis;
     _debugMode = service.debugMode;
 
     // Each draft is initialised from its own stored slot, so switching active
@@ -129,17 +134,92 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     };
   }
 
+  bool get _isGoblinTools => _selectedPreset == 'Goblin Tools';
+
+  // Effective emoji setting — always false for Goblin Tools since it has no
+  // emoji endpoint. The in-memory flag is preserved so switching back to an
+  // OpenAI-compatible preset restores whatever the user had before.
+  bool get _effectiveGenerateEmojis => _isGoblinTools ? false : _generateEmojis;
+
   void _onPresetChanged(String preset) {
     setState(() { _selectedPreset = preset; });
   }
 
   Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
-    await service.setEnabled(_enabled);
+    final wasEmojisEnabled = service.generateEmojis;
+    final nowEmojisEnabled = _effectiveGenerateEmojis;
+
+    await service.setGenerateEmojis(nowEmojisEnabled);
     await service.setDebugMode(_debugMode);
     await service.setProfile(_draft);
     if (!mounted) return;
+
+    // When emoji generation is newly switched on, offer to backfill existing goals.
+    if (!wasEmojisEnabled && nowEmojisEnabled) {
+      await _offerBulkEmojiGeneration(service);
+      if (!mounted) return;
+    }
+
     Navigator.pop(context);
+  }
+
+  Future<void> _offerBulkEmojiGeneration(LlmSettingsService service) async {
+    final repo = context.read<GoalRepository>();
+    final goalsWithoutEmoji = repo.all
+        .where((g) =>
+            g.emoji == null &&
+            g.status != GoalStatus.inbox &&
+            g.status != GoalStatus.archived)
+        .cast<Goal>()
+        .toList();
+
+    if (goalsWithoutEmoji.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Generate emojis for existing goals?'),
+        content: Text(
+          'You have ${goalsWithoutEmoji.length} goal${goalsWithoutEmoji.length == 1 ? '' : 's'} '
+          'without an emoji. Generate one for each now?\n\n'
+          'This sends a single request and runs in the background.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Run bulk generation in background — no await, no loading indicator.
+    _runBulkGeneration(service, goalsWithoutEmoji);
+  }
+
+  void _runBulkGeneration(LlmSettingsService service, List<Goal> goals) {
+    final client = service.buildClient();
+    if (client == null) return;
+    final goalService = context.read<GoalService>();
+    final titles = goals.map((g) => g.title).toList();
+    final ids = goals.map((g) => g.goalId).toList();
+
+    final names = iconByName.keys.toList();
+    client.suggestIconBulk(titles, names).then((emojis) {
+      final batch = <String, String>{};
+      for (var i = 0; i < ids.length && i < emojis.length; i++) {
+        final emoji = emojis[i];
+        if (emoji != null) batch[ids[i]] = emoji;
+      }
+      if (batch.isNotEmpty) goalService.bulkSetEmojis(batch);
+    }).catchError((_) {});
   }
 
   @override
@@ -152,31 +232,40 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          // ── Preferences ──────────────────────────────────────────────────
+          _SectionHeader(label: 'Preferences'),
           SwitchListTile(
-            title: const Text('Enable AI features'),
-            subtitle: const Text('Goal decomposition and suggestions'),
-            value: _enabled,
-            onChanged: (v) => setState(() { _enabled = v; }),
+            title: const Text('Generate goal emojis'),
+            subtitle: Text(
+              _isGoblinTools
+                  ? 'Not supported by Goblin Tools'
+                  : 'Adds a visual emoji to each goal using AI',
+            ),
+            value: _effectiveGenerateEmojis,
+            // Null onChanged disables the switch visually when Goblin Tools active
+            onChanged: _isGoblinTools
+                ? null
+                : (v) => setState(() { _generateEmojis = v; }),
           ),
           const Divider(height: 1),
-          if (_enabled) ...[
-            _PresetTile(
-              selected: _selectedPreset,
-              options: _presets,
-              onChanged: _onPresetChangedWithDefaults,
+          // ── Technical ────────────────────────────────────────────────────
+          _SectionHeader(label: 'Technical'),
+          _PresetTile(
+            selected: _selectedPreset,
+            options: _presets,
+            onChanged: _onPresetChangedWithDefaults,
+          ),
+          const Divider(height: 1),
+          _buildForm(),
+          const Divider(height: 1),
+          SwitchListTile(
+            title: const Text('Debug mode'),
+            subtitle: const Text(
+              'Show full error details in failure notifications',
             ),
-            const Divider(height: 1),
-            _buildForm(),
-            const Divider(height: 1),
-            SwitchListTile(
-              title: const Text('Debug mode'),
-              subtitle: const Text(
-                'Show full error details in failure notifications',
-              ),
-              value: _debugMode,
-              onChanged: (v) => setState(() { _debugMode = v; }),
-            ),
-          ],
+            value: _debugMode,
+            onChanged: (v) => setState(() { _debugMode = v; }),
+          ),
         ],
       ),
     );
@@ -202,6 +291,27 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+
+  const _SectionHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
 
 class _PresetTile extends StatelessWidget {
   final String selected;

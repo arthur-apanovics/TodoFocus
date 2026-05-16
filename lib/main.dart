@@ -18,6 +18,7 @@ import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
 import 'services/settings/llm_settings_service.dart';
+import 'screens/widgets/icon_catalog.dart';
 import 'theme/app_colors.dart';
 
 void main() async {
@@ -93,8 +94,11 @@ class TodoApp extends StatelessWidget {
           update: (_, repository, _) => GoalQueries(repository),
         ),
         ProxyProvider<LlmSettingsService, GoalDecompositionService>(
-          update: (_, settings, _) =>
-              GoalDecompositionService(client: settings.buildClient()),
+          update: (_, settings, _) => GoalDecompositionService(
+            client: settings.buildClient(),
+            generateEmojis: settings.generateEmojis,
+            iconNames: iconByName.keys.toList(),
+          ),
         ),
         ChangeNotifierProvider<DecompositionState>(
           create: (_) => DecompositionState(),

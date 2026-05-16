@@ -22,4 +22,16 @@ abstract interface class DecompositionClient {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
   });
+
+  /// Suggests a single icon name from [iconNames] that best represents
+  /// [goalTitle]. Returns null when the provider does not support icon
+  /// suggestions, the result is not in [iconNames], or the call fails.
+  Future<String?> suggestIcon(String goalTitle, List<String> iconNames);
+
+  /// Suggests icon names for multiple goals in a single request.
+  /// Returns a list the same length as [goalTitles]; entries not found in
+  /// [iconNames] or that failed are null. Implementations that don't support
+  /// icon suggestions should return a list of nulls.
+  Future<List<String?>> suggestIconBulk(
+      List<String> goalTitles, List<String> iconNames);
 }

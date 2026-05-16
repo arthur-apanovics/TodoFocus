@@ -11,29 +11,29 @@ class LlmSettingsService extends ChangeNotifier {
   static const _openAiKey = 'openai_profile';
   static const _goblinKey = 'goblin_profile';
   static const _activeTypeKey = 'active_profile_type';
-  static const _enabledKey = 'llm_enabled';
   static const _debugModeKey = 'llm_debug_mode';
+  static const _generateEmojisKey = 'llm_generate_emojis';
 
   final Box<String> _box;
   OpenAiCompatibleProfile _openAiProfile;
   GoblinToolsProfile _goblinProfile;
   String? _activeType; // typeKey of whichever preset is currently active
-  bool _enabled;
   bool _debugMode;
+  bool _generateEmojis;
 
   LlmSettingsService._({
     required Box<String> box,
     required OpenAiCompatibleProfile openAiProfile,
     required GoblinToolsProfile goblinProfile,
     required String? activeType,
-    required bool enabled,
     required bool debugMode,
+    required bool generateEmojis,
   })  : _box = box,
         _openAiProfile = openAiProfile,
         _goblinProfile = goblinProfile,
         _activeType = activeType,
-        _enabled = enabled,
-        _debugMode = debugMode;
+        _debugMode = debugMode,
+        _generateEmojis = generateEmojis;
 
   OpenAiCompatibleProfile get openAiProfile => _openAiProfile;
   GoblinToolsProfile get goblinProfile => _goblinProfile;
@@ -44,19 +44,16 @@ class LlmSettingsService extends ChangeNotifier {
         _ => null,
       };
 
-  bool get isEnabled => _enabled;
   bool get debugMode => _debugMode;
+  bool get generateEmojis => _generateEmojis;
 
-  // Returns a client only when LLM is enabled and a profile is configured.
-  DecompositionClient? buildClient() {
-    if (!_enabled) return null;
-    return activeProfile?.buildClient();
-  }
+  // Returns a client when a profile is configured, null otherwise.
+  // The app always operates in LLM mode; keyword fallback handles failures.
+  DecompositionClient? buildClient() => activeProfile?.buildClient();
 
-  // Toggles LLM on/off without discarding the stored profiles.
-  Future<void> setEnabled(bool enabled) async {
-    _enabled = enabled;
-    await _box.put(_enabledKey, enabled.toString());
+  Future<void> setGenerateEmojis(bool value) async {
+    _generateEmojis = value;
+    await _box.put(_generateEmojisKey, value.toString());
     notifyListeners();
   }
 
@@ -84,7 +81,7 @@ class LlmSettingsService extends ChangeNotifier {
   }
 
   Map<String, dynamic> exportToJson() => {
-        'llmEnabled': _enabled,
+        'generateEmojis': _generateEmojis,
         'activeProfileType': switch (activeProfile) {
           OpenAiCompatibleProfile() => OpenAiCompatibleProfile.typeKey,
           GoblinToolsProfile() => GoblinToolsProfile.typeKey,
@@ -97,8 +94,8 @@ class LlmSettingsService extends ChangeNotifier {
   // Restores settings from a backup snapshot. Each field is applied
   // independently; invalid or missing values fall back to the current value.
   Future<void> importFromJson(Map<String, dynamic> json) async {
-    final enabled = json['llmEnabled'];
     final activeType = json['activeProfileType'] as String?;
+    final generateEmojis = json['generateEmojis'];
 
     OpenAiCompatibleProfile? openAi;
     try {
@@ -119,7 +116,8 @@ class LlmSettingsService extends ChangeNotifier {
     _openAiProfile = openAi ?? _openAiProfile;
     _goblinProfile = goblin ?? _goblinProfile;
     _activeType = activeType;
-    _enabled = enabled is bool ? enabled : _enabled;
+    _generateEmojis =
+        generateEmojis is bool ? generateEmojis : _generateEmojis;
     await _box.put(_openAiKey, _openAiProfile.encode());
     await _box.put(_goblinKey, _goblinProfile.encode());
     if (activeType != null) {
@@ -127,7 +125,7 @@ class LlmSettingsService extends ChangeNotifier {
     } else {
       await _box.delete(_activeTypeKey);
     }
-    await _box.put(_enabledKey, _enabled.toString());
+    await _box.put(_generateEmojisKey, _generateEmojis.toString());
     notifyListeners();
   }
 
@@ -163,8 +161,8 @@ class LlmSettingsService extends ChangeNotifier {
       openAiProfile: openAiProfile,
       goblinProfile: goblinProfile,
       activeType: box.get(_activeTypeKey),
-      enabled: box.get(_enabledKey) == 'true',
       debugMode: box.get(_debugModeKey) == 'true',
+      generateEmojis: box.get(_generateEmojisKey) == 'true',
     );
 
     // --dart-define env vars overwrite stored OpenAI settings on launch.
@@ -178,10 +176,8 @@ class LlmSettingsService extends ChangeNotifier {
       );
       service._openAiProfile = envProfile;
       service._activeType = OpenAiCompatibleProfile.typeKey;
-      service._enabled = true;
       await box.put(_openAiKey, envProfile.encode());
       await box.put(_activeTypeKey, OpenAiCompatibleProfile.typeKey);
-      await box.put(_enabledKey, 'true');
     }
 
     return service;

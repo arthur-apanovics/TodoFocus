@@ -13,7 +13,8 @@ part 'goal_dto.g.dart';
 // 6: isFocusedToday  (active)
 // 7: todayOrder      (active)
 // 8: difficulty      (active)
-// Next available: 9
+// 9: emoji           (active)
+// Next available: 10
 
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
@@ -43,4 +44,7 @@ class GoalDto extends HiveObject {
 
   @HiveField(8)
   String? difficulty;
+
+  @HiveField(9)
+  String? emoji;
 }

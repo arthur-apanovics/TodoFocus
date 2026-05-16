@@ -125,6 +125,60 @@ class OpenAiDecompositionClient implements DecompositionClient {
     return _parseJsonArray(raw);
   }
 
+  // System prompt for icon suggestion — the name list is the bulk of the
+  // tokens (~900) and is identical across all calls, so providers that support
+  // prompt caching (Anthropic, OpenAI) only charge for it once.
+  static String _iconSystemPrompt(List<String> iconNames) =>
+      'You select icons for goals. '
+      'Reply with the single best matching icon name from the list below. '
+      'Output only the name, nothing else.\n'
+      'Icons: ${iconNames.join(',')}';
+
+  @override
+  Future<String?> suggestIcon(String goalTitle, List<String> iconNames) async {
+    if (iconNames.isEmpty) return null;
+    try {
+      final raw = await _llm.complete(
+        _iconSystemPrompt(iconNames),
+        goalTitle,
+        responseSchema: {'type': 'string'},
+      );
+      final name = raw.trim().replaceAll('"', '');
+      return iconNames.contains(name) ? name : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<List<String?>> suggestIconBulk(
+      List<String> goalTitles, List<String> iconNames) async {
+    if (goalTitles.isEmpty) return [];
+    if (iconNames.isEmpty) return List.filled(goalTitles.length, null);
+    try {
+      // Same system prompt as suggestIcon → hits the same prompt cache.
+      final raw = await _llm.complete(
+        _iconSystemPrompt(iconNames),
+        'Return a JSON array of icon names — one per goal, same order.\n'
+            '${jsonEncode(goalTitles)}',
+        responseSchema: {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'minItems': goalTitles.length,
+          'maxItems': goalTitles.length,
+        },
+      );
+      final parsed = _parseJsonArray(raw);
+      return List.generate(goalTitles.length, (i) {
+        if (i >= parsed.length) return null;
+        final name = parsed[i].trim().replaceAll('"', '');
+        return iconNames.contains(name) ? name : null;
+      });
+    } catch (_) {
+      return List.filled(goalTitles.length, null);
+    }
+  }
+
   // Tolerates markdown fences, leading prose, and other common LLM slop.
   // Throws FormatException when no valid array can be extracted.
   List<String> _parseJsonArray(String raw) {

@@ -11,6 +11,7 @@ import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import 'goal_detail_screen.dart';
+import 'widgets/goal_symbol.dart';
 
 class GoalsScreen extends StatefulWidget {
   final ValueNotifier<bool> showCompletedNotifier;
@@ -436,7 +437,7 @@ class _GoalTile extends StatelessWidget {
           ? Checkbox(value: isSelected, onChanged: (_) => onToggleSelect())
           : isDecomposing
           ? const _SpinnerLeading()
-          : _StatusBadge(status: goal.status),
+          : _StatusBadge(status: goal.status, emoji: goal.emoji),
       title: goal.dueDate != null
           ? Row(
               children: [
@@ -444,10 +445,7 @@ class _GoalTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   _formatDueDate(goal.dueDate!),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.muted,
-                  ),
+                  style: TextStyle(fontSize: 12, color: AppColors.muted),
                 ),
               ],
             )
@@ -518,11 +516,13 @@ class _SpinnerLeading extends StatelessWidget {
 
 class _StatusBadge extends StatelessWidget {
   final GoalStatus status;
+  final String? emoji;
 
-  const _StatusBadge({required this.status});
+  const _StatusBadge({required this.status, this.emoji});
 
   @override
   Widget build(BuildContext context) {
+    if (emoji != null) return GoalSymbol(name: emoji);
     return Icon(_iconFor(status), color: _colorFor(status));
   }
 

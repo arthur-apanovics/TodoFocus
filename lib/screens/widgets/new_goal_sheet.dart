@@ -7,6 +7,8 @@ import '../../services/draft_service.dart';
 import '../../services/goal_service.dart';
 import '../../services/goal_decomposition_service.dart';
 import 'app_bottom_sheet.dart';
+import 'emoji_picker_sheet.dart';
+import 'goal_symbol.dart';
 
 class NewGoalSheet extends StatefulWidget {
   final GoalService goalService;
@@ -32,6 +34,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
   final _descriptionFocus = FocusNode();
   DateTime? _dueDate;
   GoalDifficulty _difficulty = GoalDifficulty.easy;
+  String? _emoji;
 
   // Prevents dispose() from saving after a successful submission.
   bool _submitted = false;
@@ -79,6 +82,9 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
       difficulty: _difficulty,
     );
     widget.goalService.addGoal(goal);
+    if (_emoji != null) {
+      widget.goalService.setEmoji(goal.goalId, _emoji!);
+    }
 
     // Navigate immediately — subtasks populate asynchronously in the detail screen.
     if (!context.mounted) return;
@@ -90,6 +96,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
       description: goal.notes.isEmpty ? null : goal.notes,
       onResult: (descriptions) =>
           widget.goalService.replaceAllSubTasks(goal.goalId, descriptions),
+      onEmoji: (emoji) => widget.goalService.setEmoji(goal.goalId, emoji),
       state: widget.decompositionState,
       difficulty: _difficulty,
     ));
@@ -133,7 +140,13 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     setState(() {
       _dueDate = null;
       _difficulty = GoalDifficulty.easy;
+      _emoji = null;
     });
+  }
+
+  Future<void> _pickEmoji() async {
+    final picked = await showEmojiPickerSheet(context);
+    if (picked != null && mounted) setState(() => _emoji = picked);
   }
 
   @override
@@ -169,6 +182,46 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
             hintText: 'Any extra context...',
             border: OutlineInputBorder(),
           ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            GestureDetector(
+              onTap: _pickEmoji,
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: _emoji != null
+                    ? GoalSymbol(name: _emoji, size: 28)
+                    : Icon(
+                        Icons.add_reaction_outlined,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _emoji != null ? 'Tap to change emoji' : 'Add an emoji (optional)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (_emoji != null)
+              IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                tooltip: 'Remove emoji',
+                onPressed: () => setState(() { _emoji = null; }),
+              ),
+          ],
         ),
         const SizedBox(height: 12),
         Row(

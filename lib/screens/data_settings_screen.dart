@@ -6,6 +6,7 @@ import '../services/backup_service.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/sample_data.dart';
 import '../theme/app_colors.dart';
 
 class DataSettingsScreen extends StatelessWidget {
@@ -51,6 +52,11 @@ class _DataBody extends StatelessWidget {
         _SliverSectionHeader(title: 'Backup'),
         const SliverToBoxAdapter(child: _ExportTile()),
         const SliverToBoxAdapter(child: _ImportTile()),
+        const SliverToBoxAdapter(child: Divider(height: 1)),
+
+        // ── Developer ────────────────────────────────────────────────────────
+        _SliverSectionHeader(title: 'Developer'),
+        const SliverToBoxAdapter(child: _LoadSampleDataTile()),
         const SliverToBoxAdapter(child: Divider(height: 1)),
 
         // ── Danger zone ──────────────────────────────────────────────────────
@@ -286,6 +292,59 @@ class _ImportTile extends StatelessWidget {
             content: Text('Import failed — file could not be read')),
       );
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Developer
+// ---------------------------------------------------------------------------
+
+class _LoadSampleDataTile extends StatelessWidget {
+  const _LoadSampleDataTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.science_outlined),
+      title: const Text('Load sample data'),
+      subtitle: const Text('Adds 28 goals covering every state and difficulty'),
+      onTap: () => _confirm(context),
+    );
+  }
+
+  Future<void> _confirm(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Load sample data?'),
+        content: const Text(
+          'This adds 28 sample goals in various states (active, completed, '
+          'archived, inbox) to your current data. Existing goals are not affected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Load'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final service = context.read<GoalService>();
+    final goals = SampleData.build();
+    for (final goal in goals) {
+      service.addGoal(goal);
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Added ${goals.length} sample goals')),
+    );
   }
 }
 

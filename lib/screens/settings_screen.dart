@@ -141,17 +141,10 @@ class _LlmConfigTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<LlmSettingsService>();
     final profile = settings.activeProfile;
-    final enabled = settings.isEnabled;
     return ListTile(
       leading: const Icon(Icons.psychology_outlined),
       title: const Text('LLM configuration'),
-      subtitle: Text(
-        enabled && profile != null
-            ? '${profile.displayName} — enabled'
-            : profile != null
-                ? '${profile.displayName} — disabled'
-                : 'Not configured',
-      ),
+      subtitle: Text(profile != null ? profile.displayName : 'Not configured'),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => Navigator.push(
         context,

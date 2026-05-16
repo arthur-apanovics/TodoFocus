@@ -9,12 +9,28 @@ import 'llm/decomposition_client.dart';
 class GoalDecompositionService {
   final Uuid _uuid = const Uuid();
   final DecompositionClient? _client; // null = keyword-only mode
+  final bool _generateEmojis;
+  final List<String> _iconNames;
 
-  GoalDecompositionService({DecompositionClient? client}) : _client = client;
+  GoalDecompositionService({
+    DecompositionClient? client,
+    bool generateEmojis = false,
+    List<String> iconNames = const [],
+  })  : _client = client,
+        _generateEmojis = generateEmojis,
+        _iconNames = iconNames;
 
   /// Whether the service can break down individual subtasks via an external
   /// provider. False means no LLM/Goblin profile is configured.
   bool get canAutoBreakdown => _client != null;
+
+  /// Suggests a single icon name for [goalTitle] via the configured provider.
+  /// Returns null when icon generation is disabled, no provider is configured,
+  /// or the call fails — callers should silently skip on null.
+  Future<String?> suggestIcon(String goalTitle) async {
+    if (!_generateEmojis || _client == null || _iconNames.isEmpty) return null;
+    return _client.suggestIcon(goalTitle, _iconNames);
+  }
 
   /// Re-runs full decomposition on an existing goal's title/description,
   /// returning a fresh list of subtask descriptions. Returns null on failure
@@ -138,6 +154,9 @@ class GoalDecompositionService {
   /// — [state] is never marked and there is no loading flash.
   /// On LLM failure the method falls back to keyword templates and calls
   /// [onFallback] if provided.
+  ///
+  /// When [onEmoji] is supplied and emoji generation is enabled, a single emoji
+  /// is suggested concurrently with decomposition and delivered via [onEmoji].
   Future<void> decomposeInBackground({
     required String goalId,
     required String title,
@@ -146,12 +165,19 @@ class GoalDecompositionService {
     required DecompositionState state,
     VoidCallback? onFallback,
     GoalDifficulty difficulty = GoalDifficulty.easy,
+    void Function(String emoji)? onEmoji,
   }) async {
     if (_client == null) {
       // Synchronous keyword path — no loading indicator needed.
       onResult(_scaffoldDescriptions(title, description));
       return;
     }
+
+    // Fire icon suggestion concurrently so it doesn't block decomposition.
+    final Future<String?>? emojiFuture =
+        (_generateEmojis && onEmoji != null && _iconNames.isNotEmpty)
+            ? _client.suggestIcon(title, _iconNames)
+            : null;
 
     state.begin(goalId);
     try {
@@ -170,6 +196,14 @@ class GoalDecompositionService {
         descriptions = _scaffoldDescriptions(title, description);
       }
       onResult(descriptions);
+
+      // Deliver emoji once decomposition is done (usually already resolved).
+      if (emojiFuture != null) {
+        try {
+          final emoji = await emojiFuture;
+          if (emoji != null) onEmoji!(emoji);
+        } catch (_) {}
+      }
     } finally {
       state.end(goalId);
     }

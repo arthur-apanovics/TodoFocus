@@ -15,6 +15,8 @@ import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
+import 'widgets/emoji_picker_sheet.dart';
+import 'widgets/goal_symbol.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
 
@@ -181,7 +183,21 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(goal.title, overflow: TextOverflow.ellipsis),
+        title: goal.emoji != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GoalSymbol(name: goal.emoji, size: 22),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      goal.title,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            : Text(goal.title, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
@@ -337,12 +353,14 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
   final _notesFocus = FocusNode();
+  String? _emoji;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.goal.title);
     _notesController = TextEditingController(text: widget.goal.notes);
+    _emoji = widget.goal.emoji;
   }
 
   @override
@@ -362,8 +380,18 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
       title: title,
       notes: _notesController.text.trim(),
     );
+    if (_emoji != null) {
+      widget.goalService.setEmoji(widget.goal.goalId, _emoji!);
+    } else {
+      widget.goalService.clearEmoji(widget.goal.goalId);
+    }
 
     if (context.mounted) Navigator.pop(context);
+  }
+
+  Future<void> _pickEmoji() async {
+    final picked = await showEmojiPickerSheet(context);
+    if (picked != null && mounted) setState(() => _emoji = picked);
   }
 
   @override
@@ -392,6 +420,12 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
             labelText: 'Description',
             border: OutlineInputBorder(),
           ),
+        ),
+        const SizedBox(height: 12),
+        _EmojiRow(
+          emoji: _emoji,
+          onPick: _pickEmoji,
+          onClear: () => setState(() { _emoji = null; }),
         ),
         const SizedBox(height: 12),
         FilledButton(onPressed: _submit, child: const Text('Save changes')),
@@ -511,6 +545,64 @@ class _GoalActionsRow extends StatelessWidget {
       service.archiveGoal(goal.goalId);
       // The null-guard in GoalDetailScreen.build pops the screen automatically.
     }
+  }
+
+}
+
+// --- Emoji row ---
+
+/// Reusable emoji selector row used in both new-goal and edit-goal sheets.
+class _EmojiRow extends StatelessWidget {
+  final String? emoji;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  const _EmojiRow({
+    required this.emoji,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        GestureDetector(
+          onTap: onPick,
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(color: cs.outlineVariant),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: emoji != null
+                ? GoalSymbol(name: emoji, size: 28)
+                : Icon(
+                    Icons.add_reaction_outlined,
+                    color: cs.onSurfaceVariant,
+                  ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            emoji != null ? 'Tap to change emoji' : 'Add an emoji (optional)',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ),
+        if (emoji != null)
+          IconButton(
+            icon: const Icon(Icons.clear, size: 18),
+            tooltip: 'Remove emoji',
+            onPressed: onClear,
+          ),
+      ],
+    );
   }
 }
 
@@ -1099,6 +1191,7 @@ class _InboxReadyState extends StatelessWidget {
       description: goal.notes.isEmpty ? null : goal.notes,
       onResult: (descriptions) =>
           goalService.replaceAllSubTasks(goal.goalId, descriptions),
+      onEmoji: (emoji) => goalService.setEmoji(goal.goalId, emoji),
       state: decompState,
       difficulty: goal.difficulty,
     ));
