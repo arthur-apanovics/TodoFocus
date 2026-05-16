@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../../models/enums.dart';
 import 'decomposition_client.dart';
 import 'llm_client.dart';
 
@@ -6,8 +7,10 @@ import 'llm_client.dart';
 // JSON schema constraint, and output parsing. Extracted from GoalDecompositionService
 // so the service stays provider-agnostic.
 class OpenAiDecompositionClient implements DecompositionClient {
+  // Default system prompt — count range is appended dynamically at call time
+  // based on the goal's difficulty and the configured min/max values.
   static const defaultSystemPrompt =
-      'Break the goal into 3–6 short, concrete, ADHD friendly, actionable steps. '
+      'Break the goal into short, concrete, ADHD friendly, actionable steps. '
       'Each step must be a single sentence that is very easy to action.';
 
   static const defaultBreakdownPrompt =
@@ -19,18 +22,25 @@ class OpenAiDecompositionClient implements DecompositionClient {
   final String systemPrompt;
   final String breakdownPrompt;
 
+  // Per-difficulty subtask count bounds — configurable in LLM settings.
+  final int easyMin;
+  final int easyMax;
+  final int hardMin;
+  final int hardMax;
+  final int impossibleMin;
+  final int impossibleMax;
+
   OpenAiDecompositionClient(
     this._llm, {
     this.systemPrompt = defaultSystemPrompt,
     this.breakdownPrompt = defaultBreakdownPrompt,
+    this.easyMin = 3,
+    this.easyMax = 6,
+    this.hardMin = 10,
+    this.hardMax = 20,
+    this.impossibleMin = 30,
+    this.impossibleMax = 50,
   });
-
-  static const _subtasksSchema = {
-    'type': 'array',
-    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
-    'minItems': 2,
-    'maxItems': 10,
-  };
 
   // Tighter bounds than decompose — breakdown turns one overwhelming subtask
   // into 1–3 even smaller steps. More than 3 defeats the purpose.
@@ -41,25 +51,57 @@ class OpenAiDecompositionClient implements DecompositionClient {
     'maxItems': 3,
   };
 
+  (int, int) _rangesFor(GoalDifficulty? difficulty) => switch (difficulty) {
+    GoalDifficulty.easy || null => (easyMin, easyMax),
+    GoalDifficulty.hard => (hardMin, hardMax),
+    GoalDifficulty.impossible => (impossibleMin, impossibleMax),
+  };
+
+  Map<String, dynamic> _schemaFor(int min, int max) => {
+    'type': 'array',
+    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
+    'minItems': min,
+    'maxItems': max,
+  };
+
   @override
-  Future<List<String>> decompose(String title, {String? description, String? additionalInstructions}) async {
+  Future<List<String>> decompose(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+  }) async {
+    final (min, max) = _rangesFor(difficulty);
+    final effectiveSystem =
+        '$systemPrompt\n\nGenerate between $min and $max steps.';
     var user = description?.isNotEmpty == true
         ? 'Goal: "$title". Context: $description'
         : 'Goal: "$title"';
     if (additionalInstructions?.isNotEmpty == true) {
       user = '$user\n\nAdditional instructions: $additionalInstructions';
     }
-    final raw = await _llm.complete(systemPrompt, user, responseSchema: _subtasksSchema);
+    final raw = await _llm.complete(
+      effectiveSystem,
+      user,
+      responseSchema: _schemaFor(min, max),
+    );
     return _parseJsonArray(raw);
   }
 
   @override
-  Future<List<String>> breakdown(String subtaskDescription, {String? additionalInstructions}) async {
+  Future<List<String>> breakdown(
+    String subtaskDescription, {
+    String? additionalInstructions,
+  }) async {
     var user = 'Subtask: "$subtaskDescription"';
     if (additionalInstructions?.isNotEmpty == true) {
       user = '$user\n\nAdditional instructions: $additionalInstructions';
     }
-    final raw = await _llm.complete(breakdownPrompt, user, responseSchema: _breakdownSchema);
+    final raw = await _llm.complete(
+      breakdownPrompt,
+      user,
+      responseSchema: _breakdownSchema,
+    );
     return _parseJsonArray(raw);
   }
 

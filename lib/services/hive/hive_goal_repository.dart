@@ -83,6 +83,8 @@ class HiveGoalRepository extends GoalRepository {
         'paused' => GoalStatus.active,
         _ => GoalStatus.values.byName(dto.status),
       },
+      difficulty: GoalDifficulty.values.asNameMap()[dto.difficulty ?? ''] ??
+          GoalDifficulty.easy,
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
       todayOrder: dto.todayOrder,
@@ -110,6 +112,7 @@ class HiveGoalRepository extends GoalRepository {
       ..title = goal.title
       ..notes = goal.notes
       ..status = goal.status.name
+      ..difficulty = goal.difficulty.name
       ..dueDate = goal.dueDate
       ..isFocusedToday = goal.isFocusedToday
       ..todayOrder = goal.todayOrder

@@ -104,6 +104,23 @@ void main() {
       service.updateGoal('g1', notes: 'Only notes');
       expect(repo.findById('g1')!.title, 'Test goal');
     });
+
+    test('updates difficulty when provided', () {
+      final (service, repo) = makeService(seed: [makeGoal()]);
+      service.updateGoal('g1', difficulty: GoalDifficulty.hard);
+      expect(repo.findById('g1')!.difficulty, GoalDifficulty.hard);
+    });
+
+    test('does not overwrite difficulty when only title is passed', () {
+      final goal = Goal(
+        goalId: 'g1',
+        title: 'T',
+        difficulty: GoalDifficulty.impossible,
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.updateGoal('g1', title: 'Updated');
+      expect(repo.findById('g1')!.difficulty, GoalDifficulty.impossible);
+    });
   });
 
   // -------------------------------------------------------------------------

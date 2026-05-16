@@ -258,4 +258,46 @@ void main() {
       expect(makeGoal().nextSubTask, isNull);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // difficulty serialisation
+  // -------------------------------------------------------------------------
+
+  group('difficulty serialisation', () {
+    test('round-trips through toJson / fromJson for all values', () {
+      for (final d in GoalDifficulty.values) {
+        final goal = Goal(goalId: 'g1', title: 'T', difficulty: d);
+        final restored = Goal.fromJson(goal.toJson());
+        expect(restored.difficulty, d, reason: 'failed for ${d.name}');
+      }
+    });
+
+    test('defaults to easy when the JSON key is absent', () {
+      final json = <String, dynamic>{
+        'goalId': 'g1',
+        'title': 'T',
+        'notes': '',
+        'status': 'active',
+        'subtasks': <dynamic>[],
+      };
+      expect(Goal.fromJson(json).difficulty, GoalDifficulty.easy);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // archived goal guard
+  // -------------------------------------------------------------------------
+
+  group('archived goal', () {
+    test('stays archived when completeCurrentSubTask is called', () {
+      final g = Goal(
+        goalId: 'g1',
+        title: 'T',
+        status: GoalStatus.archived,
+        subtasks: [makeSubTask('a')],
+      );
+      g.completeCurrentSubTask();
+      expect(g.status, GoalStatus.archived);
+    });
+  });
 }

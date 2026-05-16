@@ -601,6 +601,10 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           onRestore: _restoreDefaultBreakdownPrompt,
           onChanged: _notifyFields,
         ),
+        _DifficultyRangesSection(
+          profile: widget.profile,
+          onChanged: widget.onChanged,
+        ),
         const SizedBox(height: 8),
       ],
     );
@@ -1108,6 +1112,178 @@ class _TestDialogState extends State<_TestDialog> {
             setState(() { _future = future; });
           },
           child: const Text('Run'),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Difficulty subtask count ranges
+// ---------------------------------------------------------------------------
+
+class _DifficultyRangesSection extends StatefulWidget {
+  final OpenAiCompatibleProfile profile;
+  final ValueChanged<OpenAiCompatibleProfile> onChanged;
+
+  const _DifficultyRangesSection({
+    required this.profile,
+    required this.onChanged,
+  });
+
+  @override
+  State<_DifficultyRangesSection> createState() =>
+      _DifficultyRangesSectionState();
+}
+
+class _DifficultyRangesSectionState extends State<_DifficultyRangesSection> {
+  late final TextEditingController _easyMinCtrl;
+  late final TextEditingController _easyMaxCtrl;
+  late final TextEditingController _hardMinCtrl;
+  late final TextEditingController _hardMaxCtrl;
+  late final TextEditingController _impossibleMinCtrl;
+  late final TextEditingController _impossibleMaxCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.profile;
+    _easyMinCtrl = TextEditingController(text: '${p.easyMin}');
+    _easyMaxCtrl = TextEditingController(text: '${p.easyMax}');
+    _hardMinCtrl = TextEditingController(text: '${p.hardMin}');
+    _hardMaxCtrl = TextEditingController(text: '${p.hardMax}');
+    _impossibleMinCtrl = TextEditingController(text: '${p.impossibleMin}');
+    _impossibleMaxCtrl = TextEditingController(text: '${p.impossibleMax}');
+  }
+
+  @override
+  void dispose() {
+    _easyMinCtrl.dispose();
+    _easyMaxCtrl.dispose();
+    _hardMinCtrl.dispose();
+    _hardMaxCtrl.dispose();
+    _impossibleMinCtrl.dispose();
+    _impossibleMaxCtrl.dispose();
+    super.dispose();
+  }
+
+  void _notify() {
+    final p = widget.profile;
+    widget.onChanged(p.copyWith(
+      easyMin: int.tryParse(_easyMinCtrl.text) ?? p.easyMin,
+      easyMax: int.tryParse(_easyMaxCtrl.text) ?? p.easyMax,
+      hardMin: int.tryParse(_hardMinCtrl.text) ?? p.hardMin,
+      hardMax: int.tryParse(_hardMaxCtrl.text) ?? p.hardMax,
+      impossibleMin: int.tryParse(_impossibleMinCtrl.text) ?? p.impossibleMin,
+      impossibleMax: int.tryParse(_impossibleMaxCtrl.text) ?? p.impossibleMax,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Subtask count by difficulty',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Min and max subtasks the LLM generates for each difficulty level.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DifficultyRangeRow(
+            label: 'Easy',
+            minCtrl: _easyMinCtrl,
+            maxCtrl: _easyMaxCtrl,
+            onChanged: _notify,
+          ),
+          const SizedBox(height: 8),
+          _DifficultyRangeRow(
+            label: 'Hard',
+            minCtrl: _hardMinCtrl,
+            maxCtrl: _hardMaxCtrl,
+            onChanged: _notify,
+          ),
+          const SizedBox(height: 8),
+          _DifficultyRangeRow(
+            label: 'Impossible',
+            minCtrl: _impossibleMinCtrl,
+            maxCtrl: _impossibleMaxCtrl,
+            onChanged: _notify,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DifficultyRangeRow extends StatelessWidget {
+  final String label;
+  final TextEditingController minCtrl;
+  final TextEditingController maxCtrl;
+  final VoidCallback onChanged;
+
+  const _DifficultyRangeRow({
+    required this.label,
+    required this.minCtrl,
+    required this.maxCtrl,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const fieldWidth = 64.0;
+    const inputDecoration = InputDecoration(
+      border: OutlineInputBorder(),
+      isDense: true,
+      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    );
+    return Row(
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        ),
+        SizedBox(
+          width: fieldWidth,
+          child: TextField(
+            controller: minCtrl,
+            keyboardType: TextInputType.number,
+            decoration: inputDecoration,
+            onChanged: (_) => onChanged(),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            '–',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+        SizedBox(
+          width: fieldWidth,
+          child: TextField(
+            controller: maxCtrl,
+            keyboardType: TextInputType.number,
+            decoration: inputDecoration,
+            onChanged: (_) => onChanged(),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Text(
+            'subtasks',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
       ],
     );

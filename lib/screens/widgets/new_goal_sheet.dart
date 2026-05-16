@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import '../../models/enums.dart';
 import '../../services/decomposition_state.dart';
 import '../../services/goal_service.dart';
 import '../../services/goal_decomposition_service.dart';
@@ -27,6 +28,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
   final _descriptionController = TextEditingController();
   final _descriptionFocus = FocusNode();
   DateTime? _dueDate;
+  GoalDifficulty _difficulty = GoalDifficulty.easy;
 
   @override
   void dispose() {
@@ -46,6 +48,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
       title: title,
       description: description.isEmpty ? null : description,
       dueDate: _dueDate,
+      difficulty: _difficulty,
     );
     widget.goalService.addGoal(goal);
 
@@ -60,6 +63,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
       onResult: (descriptions) =>
           widget.goalService.replaceAllSubTasks(goal.goalId, descriptions),
       state: widget.decompositionState,
+      difficulty: _difficulty,
     ));
   }
 
@@ -72,6 +76,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     final goal = widget.decompositionService.captureToInbox(
       title: title,
       description: description.isEmpty ? null : description,
+      difficulty: _difficulty,
     );
     widget.goalService.addGoal(goal);
 
@@ -140,6 +145,11 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
               ),
           ],
         ),
+        const SizedBox(height: 4),
+        _DifficultySelector(
+          value: _difficulty,
+          onChanged: (d) => setState(() => _difficulty = d),
+        ),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: () => _sendToInbox(context),
@@ -168,6 +178,38 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
               SizedBox(width: 8),
               Text('Create Goal'),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DifficultySelector extends StatelessWidget {
+  final GoalDifficulty value;
+  final ValueChanged<GoalDifficulty> onChanged;
+
+  const _DifficultySelector({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.tune_outlined, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SegmentedButton<GoalDifficulty>(
+            segments: GoalDifficulty.values
+                .map(
+                  (d) => ButtonSegment(
+                    value: d,
+                    label: Text(d.displayName),
+                  ),
+                )
+                .toList(),
+            selected: {value},
+            onSelectionChanged: (s) => onChanged(s.first),
+            showSelectedIcon: false,
           ),
         ),
       ],

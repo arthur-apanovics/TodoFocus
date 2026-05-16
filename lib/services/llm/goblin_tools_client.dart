@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../models/enums.dart';
 import 'decomposition_client.dart';
 
 // Goblin Tools Magic ToDo API — https://goblin.tools
@@ -17,7 +18,12 @@ class GoblinToolsDecompositionClient implements DecompositionClient {
   }) : _http = httpClient ?? http.Client();
 
   @override
-  Future<List<String>> decompose(String title, {String? description, String? additionalInstructions}) =>
+  Future<List<String>> decompose(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+  }) =>
       _post(additionalInstructions ?? title, spiciness);
 
   // Breakdown reuses the same endpoint with spiciness=1 — the API has no

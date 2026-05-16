@@ -24,13 +24,14 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..dueDate = fields[4] as DateTime?
       ..subtasks = (fields[5] as List).cast<SubTaskDto>()
       ..isFocusedToday = fields[6] == null ? false : fields[6] as bool
-      ..todayOrder = fields[7] == null ? 0 : fields[7] as int;
+      ..todayOrder = fields[7] == null ? 0 : fields[7] as int
+      ..difficulty = fields[8] as String?;
   }
 
   @override
   void write(BinaryWriter writer, GoalDto obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.goalId)
       ..writeByte(1)
@@ -46,7 +47,9 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..writeByte(6)
       ..write(obj.isFocusedToday)
       ..writeByte(7)
-      ..write(obj.todayOrder);
+      ..write(obj.todayOrder)
+      ..writeByte(8)
+      ..write(obj.difficulty);
   }
 
   @override
