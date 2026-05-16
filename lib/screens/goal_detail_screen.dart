@@ -206,11 +206,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               },
               itemBuilder: (context, index) {
                 final subtask = goal.subtasks[index];
-                return SubTaskTile(
+                return ReorderableDelayedDragStartListener(
                   key: ValueKey(subtask.subtaskId),
-                  subtask: subtask,
-                  goal: goal,
                   index: index,
+                  enabled: subtask.state == SubTaskState.pending,
+                  child: SubTaskTile(subtask: subtask, goal: goal),
                 );
               },
             ),
@@ -568,13 +568,11 @@ class _DueDateChip extends StatelessWidget {
 class SubTaskTile extends StatefulWidget {
   final SubTask subtask;
   final Goal goal; // need the parent goal to check isCurrentSubTask
-  final int index;
 
   const SubTaskTile({
     super.key,
     required this.subtask,
     required this.goal,
-    required this.index,
   });
 
   @override
@@ -588,7 +586,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
 
   SubTask get subtask => widget.subtask;
   Goal get goal => widget.goal;
-  int get index => widget.index;
 
   @override
   Widget build(BuildContext context) {
@@ -629,12 +626,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
         child: Opacity(
           opacity: _isBreakingDown ? 0.6 : 1.0,
           child: ListTile(
-            leading: (isCompleted || _isBreakingDown)
-                ? const Icon(Icons.drag_handle, color: Colors.transparent)
-                : ReorderableDragStartListener(
-                    index: index,
-                    child: const Icon(Icons.drag_handle),
-                  ),
             title: GestureDetector(
               onTap: (isPending && !_isBreakingDown)
                   ? () => _showEditSheet(context, service)
