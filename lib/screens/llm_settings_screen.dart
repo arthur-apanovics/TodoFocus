@@ -364,11 +364,8 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     }
   }
 
-  Future<List<String>> _runDecomposition(String goalTitle) {
-    final client = widget.profile.buildClient();
-    if (client == null) throw StateError('No LLM client configured for this profile');
-    return client.decompose(goalTitle);
-  }
+  Future<List<String>> _runDecomposition(String goalTitle) =>
+      widget.profile.buildClient().decompose(goalTitle);
 
   void _testConnection() {
     showDialog<void>(
