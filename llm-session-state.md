@@ -21,7 +21,7 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - **Goal management** — create, edit, delete goals; title + notes fields; optional due date
 - **Inbox capture** — add a goal without decomposing it; lives on its own tab until processed
 - **Inbox promotion** — adding the first subtask to an inbox goal automatically promotes it to `active`; inbox items do NOT auto-decompose — user triggers decomposition manually from the detail screen
-- **Goal decomposition** — manual subtask creation, edit, delete, reorder (drag handles)
+- **Goal subtask generation** — manual subtask creation, edit, delete, reorder (drag handles)
 - **Sequential subtask queue** — subtasks must be completed in order; `currentSubTask` is always the first `pending` one — derived, never stored; invalid multi-active state is unrepresentable by design
 - **Undo completion** — `uncompleteSubTask()` marks a completed subtask pending and re-inserts it just before the current one
 - **Focus tab** — star icon on goal tile toggles `isFocusedToday`; Focus screen shows current + next subtask peek per focused goal with a progress bar and drag-to-reorder
@@ -36,12 +36,12 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - **Persistent Android notification** — ongoing notification showing `❯ <currentSubTask>` as title, `↳ <nextSubTask>` as body, `<goalTitle>` as subText; action button "Next step" / "Finish goal" completes the subtask; tapping the body opens the Focus tab; suppressed if goal/subtask unchanged; re-posted on app resume via `WidgetsBindingObserver`; replays cold-start action via `getNotificationAppLaunchDetails()`
 - **Tests** — 79 passing tests across 4 layers (see Testing section)
 - **App icons** — generated from `logos/app-icon-1024.png` via `flutter_launcher_icons` for all Android mipmap densities and iOS AppIcon slots
-- **LLM decomposition** — pluggable provider system; goals decomposed into subtasks by LLM or keyword fallback; see LLM section below
+- **LLM-powered subtask generation** — pluggable provider system; goals decomposed into subtasks by LLM or keyword fallback; see LLM section below
 - **LLM settings UI** — `LlmSettingsScreen` with OpenAI-compatible config (URL, model, API key, temperature, timeout, custom system/breakdown prompts); supports OpenRouter and local llama-server via the same OpenAI endpoint
 - **Icon generation** — 665 Material icons across 16 categories (Work, Health, Learning, Food, Home, Travel, Creative, Finance, People, Tech, Transport, Animals, Communication, Events, Mindfulness); stored in `Goal.emoji` as short names (e.g., `'gym'`, `'running'`); falls back to rendering legacy Unicode emoji strings
-- **Async goal creation with loading indicator** — goals created immediately, icons/subtasks populated in the background via `decomposeInBackground` and `suggestIcon`; `DecompositionState` tracks in-flight goal IDs; detail screen shows spinner in place of subtask list; list tiles show spinner in place of status icon while decomposing
-- **Re-decompose subtasks** — three-dot menu on `GoalDetailScreen`; replaces all subtasks; optional additional instructions field in confirm dialog; uses `DecompositionState` for loading UI
-- **Subtask breakdown** — split button on every non-completed subtask tile; tap = auto-breakdown via LLM; long press = opens `_InstructionsSheet` for custom steering instructions first; falls back to manual split sheet when no LLM configured
+- **Async goal creation with loading indicator** — goals created immediately, icons/subtasks populated in the background via `decomposeInBackground` and `suggestIcon`; `DecompositionState` tracks in-flight goal IDs; detail screen shows spinner in place of subtask list; list tiles show spinner in place of status icon while generating
+- **Regenerate subtasks** — three-dot menu on `GoalDetailScreen`; replaces all subtasks; optional additional instructions field in confirm dialog; uses `DecompositionState` for loading UI
+- **Break down subtask** — split button on every non-completed subtask tile; tap = auto-breakdown via LLM; long press = opens `_InstructionsSheet` for custom steering instructions first; falls back to manual split sheet when no LLM configured
 - **Custom steering instructions** — both re-decompose and subtask breakdown accept optional free-text instructions; appended to LLM user message for OpenAI-compatible
 - **Bulk icon generation** — LLM Settings screen allows generating icons for goals without them; uses `suggestIconBulk` to batch requests
 
@@ -61,7 +61,7 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 ## LLM Integration
 
 ### Provider Architecture
-`DecompositionClient` is an abstract interface with four methods:
+`DecompositionClient` is an abstract interface with four methods (internal naming preserved for API stability):
 - `decompose(title, {description, additionalInstructions, difficulty, completedSteps})` → `List<String>` subtask descriptions
 - `breakdown(subtaskDescription, {additionalInstructions, difficulty})` → `List<String>` smaller steps
 - `suggestIcon(goalTitle, iconNames)` → `String?` single icon name from the provided list
@@ -70,7 +70,7 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 Implementations:
 - `OpenAiDecompositionClient` — wraps `LlmClient` (HTTP); appends `additionalInstructions` to the user message; difficulty controls subtask count bounds; includes prompt caching for icon names list
 
-`GoalDecompositionService` is provider-agnostic: it receives an optional `DecompositionClient?` and falls back to keyword templates when `null`. Icon generation is concurrent with decomposition and controlled by `_generateEmojis` flag.
+`GoalDecompositionService` is provider-agnostic: it receives an optional `DecompositionClient?` and falls back to keyword templates when `null`. Icon generation is concurrent with subtask generation and controlled by `_generateEmojis` flag.
 
 ### Keyword Fallback
 `_detectIntent(title, description)` scans for ~20 action-verb categories (learn, build, travel, etc.) and picks a matching template list from `_templatesByIntent`. Returns `'fallback'` if nothing matches.

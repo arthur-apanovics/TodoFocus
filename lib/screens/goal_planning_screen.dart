@@ -142,7 +142,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       if (!mounted) return;
       if (descriptions == null) {
         messenger.showSnackBar(
-          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+          const SnackBar(content: Text("Couldn't regenerate subtasks")),
         );
         return;
       }
@@ -556,7 +556,7 @@ class _GoalActionsRow extends StatelessWidget {
         if (llmEnabled && (isActive || isInbox) && onRedecompose != null)
           IconButton(
             icon: const Icon(Icons.auto_awesome_outlined),
-            tooltip: 'Re-decompose subtasks',
+            tooltip: 'Regenerate subtasks',
             onPressed: onRedecompose,
           ),
         if (isActive)
@@ -1306,7 +1306,7 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
         : 'All current subtasks will be replaced with new AI-generated steps.';
 
     return AlertDialog(
-      title: const Text('Re-decompose subtasks?'),
+      title: const Text('Regenerate subtasks?'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1349,7 +1349,7 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
               regenerateAll: _regenerateAll,
             ),
           ),
-          child: const Text('Re-decompose'),
+          child: const Text('Regenerate'),
         ),
       ],
     );

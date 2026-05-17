@@ -234,7 +234,7 @@ class _SelectionBar extends StatelessWidget {
           if (llmEnabled && activeSelectedCount > 0)
             IconButton(
               icon: const Icon(Icons.auto_awesome_outlined),
-              tooltip: 'Re-decompose',
+              tooltip: 'Regenerate',
               onPressed: onRedecompose,
             ),
           if (onArchive != null)
@@ -307,7 +307,7 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
   Widget build(BuildContext context) {
     final label = widget.count == 1 ? '1 goal' : '${widget.count} goals';
     return AlertDialog(
-      title: Text('Re-decompose $label'),
+      title: Text('Regenerate $label'),
       content: TextField(
         controller: _controller,
         autofocus: true,

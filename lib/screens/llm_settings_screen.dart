@@ -669,7 +669,7 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           ),
         ),
         _PromptSection(
-          label: 'Goal decomposition prompt',
+          label: 'Goal generation prompt',
           helper: 'Used when a new goal is broken into subtasks.',
           controller: _promptController,
           isDefault:
@@ -1052,7 +1052,7 @@ class _TestDialogState extends State<_TestDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Test decomposition'),
+      title: const Text('Test generation'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
