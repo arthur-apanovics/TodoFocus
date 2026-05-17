@@ -1,0 +1,41 @@
+name: Build Debug APK
+
+# Manual-only trigger. Produces an unminified debug APK for quick
+# sideloading and testing — no obfuscation, no R8, faster compile.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Debug mode skips R8/ProGuard minification entirely, cutting
+      # compile time significantly at the cost of a larger APK.
+      - name: Build debug APK
+        run: flutter build apk --debug --target-platform android-arm64
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: todo-app-debug-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 7

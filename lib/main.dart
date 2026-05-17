@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/screens/focus_screen.dart';
-import 'package:todo_app/screens/goal_detail_screen.dart';
+import 'package:todo_app/screens/goal_active_screen.dart';
+import 'package:todo_app/screens/goal_planning_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/inbox_screen.dart';
 import 'package:todo_app/screens/settings_screen.dart';
@@ -145,7 +146,7 @@ class _AppShellState extends State<AppShell>
   late final TabController _tabController;
   late final ValueNotifier<bool> _goalsShowCompleted;
 
-  static const _tabTitles = ['Today', 'Goals', 'Inbox'];
+  static const _tabTitles = ['Today', 'Goals', 'Planning'];
 
   @override
   void initState() {
@@ -227,10 +228,14 @@ class _AppShellState extends State<AppShell>
   }
 
   void _navigateToGoal(String goalId, {bool breakdown = false}) {
+    // Notifications only ever fire for goals in the today queue, which are
+    // by definition active — route straight to the execution view. The
+    // breakdown flag carries through so the "Break it down" notification
+    // action triggers immediately on arrival.
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GoalDetailScreen(
+        builder: (_) => GoalActiveScreen(
           goalId: goalId,
           triggerBreakdown: breakdown,
         ),
@@ -243,14 +248,14 @@ class _AppShellState extends State<AppShell>
     widget.tabNotifier.value = index;
   }
 
-  // Opens the new-goal bottom sheet and navigates to the detail screen on
-  // success. Called from the FAB and the notification action.
+  // Opens the new-goal bottom sheet. "Save" closes the sheet silently
+  // (goal lives in Planning tab); "Plan" returns the goalId so we push
+  // straight into the planning screen for subtask shaping.
   Future<void> _openNewGoalSheet() async {
     // Read inside the method so we always get current instances — reading at
     // build time would capture stale refs when ProxyProvider rebuilds.
     final goalService = context.read<GoalService>();
     final decompositionService = context.read<GoalDecompositionService>();
-    final decompositionState = context.read<DecompositionState>();
     final draftService = context.read<DraftService>();
 
     final goalId = await showModalBottomSheet<String>(
@@ -260,27 +265,28 @@ class _AppShellState extends State<AppShell>
       builder: (_) => NewGoalSheet(
         goalService: goalService,
         decompositionService: decompositionService,
-        decompositionState: decompositionState,
         draftService: draftService,
       ),
     );
     if (goalId != null && mounted) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+        MaterialPageRoute(builder: (_) => GoalPlanningScreen(goalId: goalId)),
       );
     }
   }
 
-  FloatingActionButton _buildFab(BuildContext context) {
-    return FloatingActionButton(
+  Widget _buildFab(BuildContext context) {
+    return FloatingActionButton.extended(
       onPressed: _openNewGoalSheet,
-      child: const Icon(Icons.add),
+      icon: const Icon(Icons.add),
+      label: const Text('Create goal'),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final inboxCount = context.watch<GoalQueries>().inbox.length;
     return AnimatedBuilder(
       animation: Listenable.merge([_tabController, _goalsShowCompleted]),
       builder: (context, _) => Scaffold(
@@ -316,21 +322,29 @@ class _AppShellState extends State<AppShell>
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tabController.index,
           onDestinationSelected: _onDestinationSelected,
-          destinations: const [
-            NavigationDestination(
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.bolt_outlined),
               selectedIcon: Icon(Icons.bolt),
               label: 'Focus',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.flag_outlined),
               selectedIcon: Icon(Icons.flag),
               label: 'Goals',
             ),
             NavigationDestination(
-              icon: Icon(Icons.inbox_outlined),
-              selectedIcon: Icon(Icons.inbox),
-              label: 'Inbox',
+              icon: Badge(
+                isLabelVisible: inboxCount > 0,
+                label: Text('$inboxCount'),
+                child: const Icon(Icons.edit_note_outlined),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: inboxCount > 0,
+                label: Text('$inboxCount'),
+                child: const Icon(Icons.edit_note),
+              ),
+              label: 'Planning',
             ),
           ],
         ),

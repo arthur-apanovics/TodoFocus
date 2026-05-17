@@ -502,7 +502,21 @@ class SampleData {
           status: GoalStatus.inbox,
           difficulty: GoalDifficulty.hard,
           emoji: '🎉',
-          subtasks: [],
+          // Mid-planning — subtasks drafted but not yet queued.
+          subtasks: [
+            SubTask(
+              subtaskId: _id(),
+              description: 'Pick a date and confirm Alex is free',
+            ),
+            SubTask(
+              subtaskId: _id(),
+              description: 'Lock in a venue (Aunt May\'s back garden?)',
+            ),
+            SubTask(
+              subtaskId: _id(),
+              description: 'Draft the guest list',
+            ),
+          ],
         ),
 
         Goal(

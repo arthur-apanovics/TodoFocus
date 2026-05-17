@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Release APK
 
 # Two ways this workflow runs:
 #   1. workflow_dispatch — manual trigger from the Actions tab in GitHub.
@@ -55,7 +55,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: todo-app-apks
+          name: todo-app-release-apk
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 

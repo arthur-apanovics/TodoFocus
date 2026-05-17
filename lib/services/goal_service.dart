@@ -34,6 +34,32 @@ class GoalService {
     _repository.save(goal);
   }
 
+  // Transitions an inbox (planning) goal to active. Triggered by the
+  // "Queue Goal" button on the planning screen. If every subtask happens
+  // to already be marked complete, the goal lands on completed instead.
+  void queueGoal(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    if (goal.status != GoalStatus.inbox) return;
+    final allDone = goal.subtasks.isNotEmpty &&
+        goal.subtasks.every((t) => t.state == SubTaskState.completed);
+    goal.status = allDone ? GoalStatus.completed : GoalStatus.active;
+    _repository.save(goal);
+  }
+
+  // Returns a completed goal to the planning (inbox) stage so it can be
+  // re-planned and re-queued. Resets all subtask states to pending so the
+  // goal can be executed again from scratch.
+  void sendToPlanning(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.status = GoalStatus.inbox;
+    for (final subtask in goal.subtasks) {
+      subtask.state = SubTaskState.pending;
+    }
+    _repository.save(goal);
+  }
+
   void clearArchive() {
     for (final goal in _repository.all
         .where((g) => g.status == GoalStatus.archived)

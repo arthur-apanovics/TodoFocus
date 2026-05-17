@@ -20,21 +20,26 @@ import 'widgets/goal_symbol.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
 
-class GoalDetailScreen extends StatefulWidget {
+class GoalPlanningScreen extends StatefulWidget {
   final String goalId;
   final bool triggerBreakdown;
+  // When true the screen is being used to edit an already-active goal
+  // (entered via the "Edit" button on GoalActiveScreen). The "Queue Goal"
+  // button is hidden because the goal is already queued.
+  final bool isEditingActive;
 
-  const GoalDetailScreen({
+  const GoalPlanningScreen({
     super.key,
     required this.goalId,
     this.triggerBreakdown = false,
+    this.isEditingActive = false,
   });
 
   @override
-  State<GoalDetailScreen> createState() => _GoalDetailScreenState();
+  State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
 
-class _GoalDetailScreenState extends State<GoalDetailScreen> {
+class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
 
   @override
@@ -212,7 +217,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           SliverToBoxAdapter(
             child: _GoalMetadataCard(
               goal: goal,
-              onRedecompose: () => _redecomposeGoal(goal),
+              // Re-decompose mid-execution would wipe pending work — hide it
+              // when this screen is opened to edit an already-active goal.
+              onRedecompose: widget.isEditingActive
+                  ? null
+                  : () => _redecomposeGoal(goal),
             ),
           ),
           // Section header
@@ -228,10 +237,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           // Loading state while decomposition is in flight
           if (isDecomposing)
             const SliverToBoxAdapter(child: _DecomposingState())
-          // Inbox item waiting for the user to decide what to do with it
-          else if (goal.status == GoalStatus.inbox)
+          // Planning entry point: inbox goal with no subtasks yet.
+          // Offers "Generate Subtasks" + an empty-list hint.
+          else if (goal.status == GoalStatus.inbox && goal.subtasks.isEmpty)
             SliverToBoxAdapter(child: _InboxReadyState(goal: goal))
-          // Reorderable subtask list
+          // Active-but-empty edge case (shouldn't normally happen but kept
+          // for safety; e.g. all subtasks deleted from an active goal).
           else if (goal.subtasks.isEmpty)
             const SliverToBoxAdapter(child: _EmptySubtaskState())
           else
@@ -247,12 +258,19 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   key: ValueKey(subtask.subtaskId),
                   index: index,
                   enabled: subtask.state == SubTaskState.pending,
-                  child: SubTaskTile(subtask: subtask, goal: goal),
+                  // Planning screen never shows completion controls; the
+                  // user is shaping subtasks, not executing them.
+                  child: SubTaskTile(
+                    subtask: subtask,
+                    goal: goal,
+                    showCompletion: false,
+                  ),
                 );
               },
             ),
         ],
       ),
+      bottomNavigationBar: _buildQueueBar(context, goal),
       floatingActionButton: isDecomposing
           ? null
           : FloatingActionButton(
@@ -260,6 +278,33 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               tooltip: 'Add subtask',
               child: const Icon(addSubtaskIcon),
             ),
+    );
+  }
+
+  // Renders the "Queue Goal" bottom bar for inbox goals being planned.
+  // Hidden entirely when editing an active goal or for non-inbox statuses.
+  // Disabled until at least one subtask has been added.
+  Widget? _buildQueueBar(BuildContext context, Goal goal) {
+    if (widget.isEditingActive) return null;
+    if (goal.status != GoalStatus.inbox) return null;
+    final canQueue = goal.subtasks.isNotEmpty;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.playlist_add_check),
+            label: const Text('Queue Goal'),
+            onPressed: canQueue
+                ? () {
+                    context.read<GoalService>().queueGoal(widget.goalId);
+                    Navigator.pop(context);
+                  }
+                : null,
+          ),
+        ),
+      ),
     );
   }
 
@@ -288,7 +333,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
 class _GoalMetadataCard extends StatelessWidget {
   final Goal goal;
-  final VoidCallback onRedecompose;
+  final VoidCallback? onRedecompose;
 
   const _GoalMetadataCard({
     required this.goal,
@@ -485,7 +530,10 @@ class _DifficultyRow extends StatelessWidget {
 
 class _GoalActionsRow extends StatelessWidget {
   final Goal goal;
-  final VoidCallback onRedecompose;
+  // Null disables the re-decompose action even when the goal is active —
+  // used when editing a mid-execution goal where wiping subtasks would
+  // discard pending work.
+  final VoidCallback? onRedecompose;
 
   const _GoalActionsRow({
     required this.goal,
@@ -498,13 +546,14 @@ class _GoalActionsRow extends StatelessWidget {
         context.watch<LlmSettingsService>().buildClient() != null;
     final service = context.read<GoalService>();
     final isActive = goal.status == GoalStatus.active;
+    final isInbox = goal.status == GoalStatus.inbox;
 
     return Row(
       children: [
         _DueDateChip(goal: goal),
         const Spacer(),
         // ── Add new goal operations here ────────────────────────────
-        if (llmEnabled && isActive)
+        if (llmEnabled && (isActive || isInbox) && onRedecompose != null)
           IconButton(
             icon: const Icon(Icons.auto_awesome_outlined),
             tooltip: 'Re-decompose subtasks',
@@ -543,7 +592,7 @@ class _GoalActionsRow extends StatelessWidget {
     );
     if (confirmed == true && context.mounted) {
       service.archiveGoal(goal.goalId);
-      // The null-guard in GoalDetailScreen.build pops the screen automatically.
+      // The null-guard in the parent screen's build pops automatically.
     }
   }
 
@@ -681,11 +730,16 @@ class _DueDateChip extends StatelessWidget {
 class SubTaskTile extends StatefulWidget {
   final SubTask subtask;
   final Goal goal; // need the parent goal to check isCurrentSubTask
+  // When false, the trailing complete/uncomplete/queued icons are hidden so
+  // the tile reads as planning-only (split + slide-to-delete remain). The
+  // planning screen passes false; GoalActiveScreen passes true.
+  final bool showCompletion;
 
   const SubTaskTile({
     super.key,
     required this.subtask,
     required this.goal,
+    this.showCompletion = true,
   });
 
   @override
@@ -799,6 +853,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     //   muted   → lock, restore  (present but secondary)
     //   strong  → primary action (the current subtask's circle)
     if (isCompleted) {
+      if (!widget.showCompletion) return null;
       return IconButton(
         icon: Icon(AppIcons.uncomplete, size: 20, color: AppColors.muted),
         tooltip: 'Mark incomplete',
@@ -807,7 +862,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Split button — shown on all non-completed subtasks.
+    // Split button — shown on all non-completed subtasks (planning or active).
     // Tap: auto-breakdown. Long press: opens an instructions sheet first.
     // No tooltip — Tooltip's long-press recognizer wins the gesture arena
     // over the outer GestureDetector, so we omit it here.
@@ -818,6 +873,11 @@ class _SubTaskTileState extends State<SubTaskTile> {
         onPressed: () => _handleSplit(context, service),
       ),
     );
+
+    if (!widget.showCompletion) {
+      // Planning mode: only the breakdown affordance, no complete/queued.
+      return splitButton;
+    }
 
     if (isCurrent) {
       return Row(
@@ -1155,14 +1215,14 @@ class _InboxReadyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox_outlined, size: 48, color: AppColors.muted),
+          Icon(Icons.edit_note_outlined, size: 48, color: AppColors.muted),
           const SizedBox(height: 12),
-          Text('In your inbox', style: Theme.of(context).textTheme.bodyLarge),
+          Text('Plan this goal', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),
           Text(
             decomp.canAutoBreakdown
-                ? 'Generate subtasks when you\'re ready to turn this into an active goal, or add them manually.'
-                : 'Add subtasks using the + button below to convert this into an active goal.',
+                ? 'Generate or add subtasks below, then hit Queue Goal when you\'re ready to start.'
+                : 'Add subtasks using the + button, then hit Queue Goal when you\'re ready to start.',
             style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
