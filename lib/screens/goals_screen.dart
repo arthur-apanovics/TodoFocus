@@ -495,7 +495,6 @@ class _GoalTile extends StatelessWidget {
   }
 
   String _subtitleFor(Goal goal) {
-    if (goal.status == GoalStatus.inbox) return 'In inbox — tap to decompose';
     if (goal.subtasks.isEmpty) return 'No subtasks yet';
     return '${goal.completedSubtaskCount} of ${goal.subtasks.length} complete';
   }
