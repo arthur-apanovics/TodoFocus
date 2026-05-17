@@ -172,7 +172,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
         title: const Text('Generate emojis for existing goals?'),
         content: Text(
           'You have ${goalsWithoutEmoji.length} goal${goalsWithoutEmoji.length == 1 ? '' : 's'} '
-          'without an emoji. Generate one for each now?\n\n'
+          'without an icon. Generate one for each now?\n\n'
           'This sends a single request and runs in the background.',
         ),
         actions: [

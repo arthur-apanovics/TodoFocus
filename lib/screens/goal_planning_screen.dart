@@ -1,5 +1,3 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
@@ -18,11 +16,10 @@ import 'widgets/app_bottom_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 
-const addSubtaskIcon = Icons.playlist_add;
-
 class GoalPlanningScreen extends StatefulWidget {
   final String goalId;
   final bool triggerBreakdown;
+
   // When true the screen is being used to edit an already-active goal
   // (entered via the "Edit" button on GoalActiveScreen). The "Queue Goal"
   // button is hidden because the goal is already queued.
@@ -69,9 +66,9 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       final message = debugMode && error != null
           ? error
           : 'AI unavailable — template subtasks used instead';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -103,46 +100,41 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
   }
 
-  Future<void> _redecomposeGoal(Goal goal) async {
+  Future<void> _generateSubtasks(
+    Goal goal, {
+    String? instructions,
+    bool regenerateAll = false,
+  }) async {
     final decomp = context.read<GoalDecompositionService>();
-    final draft = context.read<DraftService>();
+    final decompState = context.read<DecompositionState>();
+    final service = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
 
     final completedSteps = goal.subtasks
         .where((t) => t.state == SubTaskState.completed)
         .map((t) => t.description)
         .toList();
-
-    final result = await showDialog<({String instructions, bool regenerateAll})>(
-      context: context,
-      builder: (_) => _RedecomposeDialog(
-        goalId: goal.goalId,
-        draftService: draft,
-        completedCount: completedSteps.length,
-      ),
-    );
-    if (result == null || !mounted) return;
-    draft.clearRedecomposeInstructions(goal.goalId);
-
-    final decompState = context.read<DecompositionState>();
-    final service = context.read<GoalService>();
-    final messenger = ScaffoldMessenger.of(context);
-
-    final preserveCompleted = !result.regenerateAll && completedSteps.isNotEmpty;
+    final preserveCompleted = !regenerateAll && completedSteps.isNotEmpty;
 
     decompState.begin(goal.goalId);
     try {
       final descriptions = await decomp.redecomposeSubtasks(
         goal.title,
         description: goal.notes.isEmpty ? null : goal.notes,
-        additionalInstructions:
-            result.instructions.isEmpty ? null : result.instructions,
+        additionalInstructions: instructions,
         difficulty: goal.difficulty,
         completedSteps: preserveCompleted ? completedSteps : null,
       );
       if (!mounted) return;
       if (descriptions == null) {
         messenger.showSnackBar(
-          const SnackBar(content: Text("Couldn't regenerate subtasks")),
+          SnackBar(
+            content: Text(
+              goal.subtasks.isEmpty
+                  ? "Couldn't generate subtasks"
+                  : "Couldn't regenerate subtasks",
+            ),
+          ),
         );
         return;
       }
@@ -152,7 +144,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         service.replaceAllSubTasks(goal.goalId, descriptions);
       }
     } finally {
-      decompState.end(goal.goalId);
+      if (mounted) decompState.end(goal.goalId);
     }
   }
 
@@ -171,11 +163,9 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch the repository directly so we rebuild when any goal changes
     final repository = context.watch<GoalRepository>();
     final goal = repository.findById(widget.goalId);
 
-    // Guard against the goal being deleted while this screen is open
     if (goal == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) Navigator.pop(context);
@@ -183,66 +173,77 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       return const SizedBox.shrink();
     }
 
-    final isDecomposing =
-        context.watch<DecompositionState>().isDecomposing(widget.goalId);
+    final isGenerating = context.watch<DecompositionState>().isDecomposing(
+      widget.goalId,
+    );
+    final llmEnabled =
+        context.watch<LlmSettingsService>().buildClient() != null;
 
     return Scaffold(
       appBar: AppBar(
-        title: goal.emoji != null
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GoalSymbol(name: goal.emoji, size: 22),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      goal.title,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              )
-            : Text(goal.title, overflow: TextOverflow.ellipsis),
+        elevation: 0,
+        // Tapping the title opens the edit sheet, mirroring the tappable
+        // description below. Tooltip surfaces the affordance on long-press.
+        title: Tooltip(
+          message: 'Tap to edit title',
+          child: GestureDetector(
+            onTap: () => _showEditGoalSheet(context, goal),
+            child: goal.emoji != null
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GoalSymbol(name: goal.emoji, size: 20),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          goal.title,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(goal.title, overflow: TextOverflow.ellipsis),
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit goal',
-            onPressed: () => _showEditGoalSheet(context, goal),
+            icon: const Icon(Icons.archive_outlined),
+            tooltip: 'Archive goal',
+            onPressed: () {
+              final service = context.read<GoalService>();
+              _confirmArchive(context, service);
+            },
           ),
         ],
       ),
       body: CustomScrollView(
         slivers: [
-          // Metadata card (includes actions row)
           SliverToBoxAdapter(
-            child: _GoalMetadataCard(
+            child: _GoalDescriptionCard(
               goal: goal,
-              // Re-decompose mid-execution would wipe pending work — hide it
-              // when this screen is opened to edit an already-active goal.
-              onRedecompose: widget.isEditingActive
-                  ? null
-                  : () => _redecomposeGoal(goal),
+              onEdit: () =>
+                  _showEditGoalSheet(context, goal, autofocusDescription: true),
             ),
           ),
-          // Section header
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Text(
-                'Subtasks',
-                style: Theme.of(context).textTheme.titleMedium,
+          if (llmEnabled)
+            SliverToBoxAdapter(
+              child: _GenerationCard(
+                goal: goal,
+                isGenerating: isGenerating,
+                onGenerate: ({instructions, regenerateAll = false}) =>
+                    _generateSubtasks(
+                      goal,
+                      instructions: instructions,
+                      regenerateAll: regenerateAll,
+                    ),
               ),
             ),
-          ),
-          // Loading state while decomposition is in flight
-          if (isDecomposing)
+          // Small breathing room between the header block and the subtask list.
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          if (isGenerating)
             const SliverToBoxAdapter(child: _DecomposingState())
-          // Planning entry point: inbox goal with no subtasks yet.
-          // Offers "Generate Subtasks" + an empty-list hint.
           else if (goal.status == GoalStatus.inbox && goal.subtasks.isEmpty)
             SliverToBoxAdapter(child: _InboxReadyState(goal: goal))
-          // Active-but-empty edge case (shouldn't normally happen but kept
-          // for safety; e.g. all subtasks deleted from an active goal).
           else if (goal.subtasks.isEmpty)
             const SliverToBoxAdapter(child: _EmptySubtaskState())
           else
@@ -258,8 +259,6 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                   key: ValueKey(subtask.subtaskId),
                   index: index,
                   enabled: subtask.state == SubTaskState.pending,
-                  // Planning screen never shows completion controls; the
-                  // user is shaping subtasks, not executing them.
                   child: SubTaskTile(
                     subtask: subtask,
                     goal: goal,
@@ -271,12 +270,12 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         ],
       ),
       bottomNavigationBar: _buildQueueBar(context, goal),
-      floatingActionButton: isDecomposing
+      floatingActionButton: isGenerating
           ? null
           : FloatingActionButton(
               onPressed: () => _showAddSubTaskSheet(context),
               tooltip: 'Add subtask',
-              child: const Icon(addSubtaskIcon),
+              child: const Icon(AppIcons.addSubtask),
             ),
     );
   }
@@ -308,13 +307,21 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
   }
 
-  void _showEditGoalSheet(BuildContext context, Goal goal) {
+  void _showEditGoalSheet(
+    BuildContext context,
+    Goal goal, {
+    bool autofocusDescription = false,
+  }) {
     final service = context.read<GoalService>();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _GoalEditSheet(goal: goal, goalService: service),
+      builder: (_) => _GoalEditSheet(
+        goal: goal,
+        goalService: service,
+        autofocusDescription: autofocusDescription,
+      ),
     );
   }
 
@@ -324,59 +331,279 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _SubTaskSheet(goalId: widget.goalId, goalService: service),
+      builder: (_) =>
+          _SubTaskSheet(goalId: widget.goalId, goalService: service),
+    );
+  }
+
+  Future<void> _confirmArchive(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final repo = context.read<GoalRepository>();
+    final goal = repo.findById(widget.goalId);
+    if (goal == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Archive goal?'),
+        content: const Text(
+          'The goal will be moved to your completed archive.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      service.archiveGoal(goal.goalId);
+      Navigator.pop(context);
+    }
+  }
+}
+
+// --- AI generation card (collapsible) ---
+
+class _GenerationCard extends StatefulWidget {
+  final Goal goal;
+  final bool isGenerating;
+  final Future<void> Function({String? instructions, bool regenerateAll})
+  onGenerate;
+
+  const _GenerationCard({
+    required this.goal,
+    required this.isGenerating,
+    required this.onGenerate,
+  });
+
+  @override
+  State<_GenerationCard> createState() => _GenerationCardState();
+}
+
+class _GenerationCardState extends State<_GenerationCard> {
+  final _expansionController = ExpansibleController();
+  late final DraftService _draftService;
+  late final TextEditingController _instructionsController;
+  bool _regenerateAll = false;
+
+  bool get _isEmpty => widget.goal.subtasks.isEmpty;
+
+  int get _completedCount => widget.goal.subtasks
+      .where((t) => t.state == SubTaskState.completed)
+      .length;
+
+  @override
+  void initState() {
+    super.initState();
+    // Capture DraftService here — safe to use in dispose() without context.
+    _draftService = context.read<DraftService>();
+    _instructionsController = TextEditingController(
+      text: _draftService.redecomposeInstructions(widget.goal.goalId),
+    );
+    // Persist on every keystroke so the draft survives regardless of when or
+    // how this widget is disposed (navigation, parent rebuild, hot-restart, etc.)
+    _instructionsController.addListener(_saveInstructionsDraft);
+  }
+
+  void _saveInstructionsDraft() {
+    _draftService.saveRedecomposeInstructions(
+      widget.goal.goalId,
+      _instructionsController.text,
+    );
+  }
+
+  @override
+  void dispose() {
+    _instructionsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleGenerate() async {
+    // Collapse first so the subtask list is visible during generation.
+    _expansionController.collapse();
+
+    final instructions = _instructionsController.text.trim();
+    // Clear the field — dispose() will persist the empty string, so the next
+    // visit starts fresh after a generation.
+    _instructionsController.clear();
+
+    await widget.onGenerate(
+      instructions: instructions.isEmpty ? null : instructions,
+      regenerateAll: _regenerateAll,
+    );
+
+    if (mounted) setState(() => _regenerateAll = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final completedCount = _completedCount;
+    final stepWord = completedCount == 1 ? 'step' : 'steps';
+    final hasCompleted = completedCount > 0;
+    final buttonLabel = widget.isGenerating
+        ? 'Generating…'
+        : _isEmpty
+        ? 'Generate steps'
+        : 'Regenerate steps';
+
+    // Same surface colour as the AppBar and _GoalDescriptionCard so this
+    // reads as one continuous block. The border on the ExpansionTile is
+    // suppressed (known Flutter artifact); a Divider at the bottom separates
+    // the whole header region from the subtask list below.
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExpansionTile(
+            controller: _expansionController,
+            // Start expanded for empty goals (first-time planning), collapsed when
+            // subtasks already exist so the list is the primary focus.
+            initiallyExpanded: _isEmpty,
+            // Suppress the 1 px top/bottom border Flutter adds when expanded.
+            shape: const Border(),
+            collapsedShape: const Border(),
+            leading: widget.isGenerating
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(AppIcons.aiGenerate),
+            title: Text(_isEmpty ? 'Generate subtasks' : 'AI generation'),
+            children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DifficultyRow(goal: widget.goal),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _instructionsController,
+                  enabled: !widget.isGenerating,
+                  maxLines: 2,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Additional instructions (optional)',
+                    hintText: 'e.g. focus on the research phase',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (!_isEmpty && hasCompleted) ...[
+                  const SizedBox(height: 4),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      'Replace all (including $completedCount completed $stepWord)',
+                    ),
+                    value: _regenerateAll,
+                    onChanged: widget.isGenerating
+                        ? null
+                        : (v) => setState(() => _regenerateAll = v ?? false),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: widget.isGenerating ? null : _handleGenerate,
+                    icon: widget.isGenerating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(AppIcons.aiGenerate),
+                    label: Text(buttonLabel),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+          const Divider(height: 1, thickness: 1),
+        ],
+      ),
     );
   }
 }
 
-// --- Metadata card ---
+// --- Goal description card ---
 
-class _GoalMetadataCard extends StatelessWidget {
+class _GoalDescriptionCard extends StatelessWidget {
   final Goal goal;
-  final VoidCallback? onRedecompose;
+  final VoidCallback onEdit;
 
-  const _GoalMetadataCard({
-    required this.goal,
-    required this.onRedecompose,
-  });
+  const _GoalDescriptionCard({required this.goal, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (goal.notes.isNotEmpty) ...[
-              Text(goal.notes),
-              const SizedBox(height: 12),
-            ],
-            // Progress indicator
-            Row(
+    // Flush container — same surface color as the AppBar so they read as one
+    // continuous region. A bottom divider separates it from the cards below.
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: LinearProgressIndicator(
-                    value: goal.progressPercent,
-                    borderRadius: BorderRadius.circular(4),
+                // Notes / description (tap to edit)
+                GestureDetector(
+                  onTap: onEdit,
+                  child: goal.notes.isNotEmpty
+                      ? Text(
+                          goal.notes,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        )
+                      : Text(
+                          'Tap to add a description…',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                ),
+                if (goal.subtasks.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: goal.progressPercent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${goal.completedSubtaskCount}/${goal.subtasks.length}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '${goal.completedSubtaskCount}/${goal.subtasks.length}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                ],
+                const SizedBox(height: 8),
+                _DueDateChip(goal: goal),
               ],
             ),
-            const SizedBox(height: 8),
-            // Difficulty selector
-            _DifficultyRow(goal: goal),
-            const SizedBox(height: 4),
-            // Due date + goal operations
-            _GoalActionsRow(goal: goal, onRedecompose: onRedecompose),
-          ],
-        ),
+          ),
+          const Divider(height: 1, thickness: 1),
+        ],
       ),
     );
   }
@@ -387,8 +614,13 @@ class _GoalMetadataCard extends StatelessWidget {
 class _GoalEditSheet extends StatefulWidget {
   final Goal goal;
   final GoalService goalService;
+  final bool autofocusDescription;
 
-  const _GoalEditSheet({required this.goal, required this.goalService});
+  const _GoalEditSheet({
+    required this.goal,
+    required this.goalService,
+    this.autofocusDescription = false,
+  });
 
   @override
   State<_GoalEditSheet> createState() => _GoalEditSheetState();
@@ -406,6 +638,11 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
     _titleController = TextEditingController(text: widget.goal.title);
     _notesController = TextEditingController(text: widget.goal.notes);
     _emoji = widget.goal.emoji;
+    if (widget.autofocusDescription) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _notesFocus.requestFocus();
+      });
+    }
   }
 
   @override
@@ -470,7 +707,9 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
         _EmojiRow(
           emoji: _emoji,
           onPick: _pickEmoji,
-          onClear: () => setState(() { _emoji = null; }),
+          onClear: () => setState(() {
+            _emoji = null;
+          }),
         ),
         const SizedBox(height: 12),
         FilledButton(onPressed: _submit, child: const Text('Save changes')),
@@ -478,7 +717,6 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
     );
   }
 }
-
 
 // --- Difficulty row ---
 
@@ -490,23 +728,19 @@ class _DifficultyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          Icons.tune_outlined,
-          size: 16,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        Text(
+          'How difficult is this goal to achieve?',
+          style: Theme.of(context).textTheme.labelMedium,
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
           child: SegmentedButton<GoalDifficulty>(
             segments: GoalDifficulty.values
-                .map(
-                  (d) => ButtonSegment(
-                    value: d,
-                    label: Text(d.displayName),
-                  ),
-                )
+                .map((d) => ButtonSegment(value: d, label: Text(d.displayName)))
                 .toList(),
             selected: {goal.difficulty},
             onSelectionChanged: (s) =>
@@ -520,82 +754,6 @@ class _DifficultyRow extends StatelessWidget {
       ],
     );
   }
-}
-
-// --- Goal actions row (due date + operations) ---
-//
-// All goal-level operations live here. To add a new action, insert an
-// IconButton (or other widget) into the Row's children — the Spacer keeps
-// the due-date chip left-anchored and the buttons right-anchored.
-
-class _GoalActionsRow extends StatelessWidget {
-  final Goal goal;
-  // Null disables the re-decompose action even when the goal is active —
-  // used when editing a mid-execution goal where wiping subtasks would
-  // discard pending work.
-  final VoidCallback? onRedecompose;
-
-  const _GoalActionsRow({
-    required this.goal,
-    required this.onRedecompose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final llmEnabled =
-        context.watch<LlmSettingsService>().buildClient() != null;
-    final service = context.read<GoalService>();
-    final isActive = goal.status == GoalStatus.active;
-    final isInbox = goal.status == GoalStatus.inbox;
-
-    return Row(
-      children: [
-        _DueDateChip(goal: goal),
-        const Spacer(),
-        // ── Add new goal operations here ────────────────────────────
-        if (llmEnabled && (isActive || isInbox) && onRedecompose != null)
-          IconButton(
-            icon: const Icon(Icons.auto_awesome_outlined),
-            tooltip: 'Regenerate subtasks',
-            onPressed: onRedecompose,
-          ),
-        if (isActive)
-          IconButton(
-            icon: const Icon(Icons.archive_outlined),
-            tooltip: 'Archive goal',
-            onPressed: () => _confirmArchive(context, service),
-          ),
-        // ────────────────────────────────────────────────────────────
-      ],
-    );
-  }
-
-  Future<void> _confirmArchive(
-      BuildContext context, GoalService service) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Archive goal?'),
-        content: const Text(
-            'The goal will be moved to your completed archive.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Archive'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && context.mounted) {
-      service.archiveGoal(goal.goalId);
-      // The null-guard in the parent screen's build pops automatically.
-    }
-  }
-
 }
 
 // --- Emoji row ---
@@ -629,19 +787,16 @@ class _EmojiRow extends StatelessWidget {
             ),
             child: emoji != null
                 ? GoalSymbol(name: emoji, size: 28)
-                : Icon(
-                    Icons.add_reaction_outlined,
-                    color: cs.onSurfaceVariant,
-                  ),
+                : Icon(Icons.add_reaction_outlined, color: cs.onSurfaceVariant),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
-            emoji != null ? 'Tap to change emoji' : 'Add an emoji (optional)',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: cs.onSurfaceVariant,
-            ),
+            emoji != null ? 'Tap to change icon' : 'Add an icon (optional)',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ),
         if (emoji != null)
@@ -663,8 +818,18 @@ class _DueDateChip extends StatelessWidget {
   const _DueDateChip({required this.goal});
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   String _format(DateTime d) {
@@ -752,6 +917,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
   bool _isBreakingDown = false;
 
   SubTask get subtask => widget.subtask;
+
   Goal get goal => widget.goal;
 
   @override
@@ -805,18 +971,18 @@ class _SubTaskTileState extends State<SubTaskTile> {
                         color: AppColors.muted,
                       )
                     : isCurrent
-                        ? TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.strong,
-                          )
-                        : null,
+                    ? TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.strong,
+                      )
+                    : null,
               ),
             ),
             subtitle: _isBreakingDown
                 ? const Text('Breaking down…')
                 : isCompleted
-                    ? const Text('Completed')
-                    : null,
+                ? const Text('Completed')
+                : null,
             trailing: _buildTrailingAction(
               context,
               service,
@@ -869,7 +1035,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final splitButton = GestureDetector(
       onLongPress: () => _showSplitWithInstructions(context, service),
       child: IconButton(
-        icon: const Icon(Icons.call_split, size: 20),
+        icon: const Icon(AppIcons.breakdown, size: 20),
         onPressed: () => _handleSplit(context, service),
       ),
     );
@@ -924,24 +1090,28 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final draft = context.read<DraftService>();
     final subtaskId = subtask.subtaskId;
     final result =
-        await showModalBottomSheet<({String instructions, GoalDifficulty difficulty})>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _InstructionsSheet(
-        hint: 'e.g. keep each step under 5 minutes',
-        confirmLabel: 'Break down',
-        initialText: draft.breakdownInstructions(subtaskId),
-        onDraft: (text) => draft.saveBreakdownInstructions(subtaskId, text),
-      ),
-    );
+        await showModalBottomSheet<
+          ({String instructions, GoalDifficulty difficulty})
+        >(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          builder: (_) => _InstructionsSheet(
+            hint: 'e.g. keep each step under 5 minutes',
+            confirmLabel: 'Break down',
+            initialText: draft.breakdownInstructions(subtaskId),
+            onDraft: (text) => draft.saveBreakdownInstructions(subtaskId, text),
+          ),
+        );
     if (result != null && mounted) {
       draft.clearBreakdownInstructions(subtaskId);
       // ignore: use_build_context_synchronously
       _handleSplit(
         this.context,
         service,
-        additionalInstructions: result.instructions.isEmpty ? null : result.instructions,
+        additionalInstructions: result.instructions.isEmpty
+            ? null
+            : result.instructions,
         difficulty: result.difficulty,
       );
     }
@@ -977,15 +1147,17 @@ class _SubTaskTileState extends State<SubTaskTile> {
 
     if (descriptions == null) {
       setState(() => _isBreakingDown = false);
-      messenger.showSnackBar(SnackBar(
-        content: const Text("Couldn't break this down automatically"),
-        action: SnackBarAction(
-          label: 'Edit manually',
-          onPressed: () {
-            if (mounted) _showManualSplitSheet(this.context, service);
-          },
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text("Couldn't break this down automatically"),
+          action: SnackBarAction(
+            label: 'Edit manually',
+            onPressed: () {
+              if (mounted) _showManualSplitSheet(this.context, service);
+            },
+          ),
         ),
-      ));
+      );
       return;
     }
 
@@ -1019,7 +1191,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
       ),
     );
   }
-
 }
 // --- Add / Edit subtask sheet ---
 // Single sheet handles both modes — if existingSubTask is null, it's add mode
@@ -1144,11 +1315,10 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
     final step2 = _step2Controller.text.trim();
     if (step1.isEmpty || step2.isEmpty) return;
 
-    widget.goalService.splitSubTask(
-      widget.goalId,
-      widget.subtask.subtaskId,
-      [step1, step2],
-    );
+    widget.goalService.splitSubTask(widget.goalId, widget.subtask.subtaskId, [
+      step1,
+      step2,
+    ]);
 
     if (context.mounted) Navigator.pop(context);
   }
@@ -1221,137 +1391,13 @@ class _InboxReadyState extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             decomp.canAutoBreakdown
-                ? 'Generate or add subtasks below, then hit Queue Goal when you\'re ready to start.'
-                : 'Add subtasks using the + button, then hit Queue Goal when you\'re ready to start.',
+                ? 'Generate subtasks in the card above or add them manually with the + button.'
+                : 'Add subtasks using the + button.',
             style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
-          if (decomp.canAutoBreakdown) ...[
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-              label: const Text('Generate subtasks'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(0, 48),
-              ),
-              onPressed: () => _generate(context, decomp),
-            ),
-          ],
         ],
       ),
-    );
-  }
-
-  void _generate(BuildContext context, GoalDecompositionService decomp) {
-    final decompState = context.read<DecompositionState>();
-    final goalService = context.read<GoalService>();
-    unawaited(decomp.decomposeInBackground(
-      goalId: goal.goalId,
-      title: goal.title,
-      description: goal.notes.isEmpty ? null : goal.notes,
-      onResult: (descriptions) =>
-          goalService.replaceAllSubTasks(goal.goalId, descriptions),
-      onEmoji: (emoji) => goalService.setEmoji(goal.goalId, emoji),
-      state: decompState,
-      difficulty: goal.difficulty,
-    ));
-  }
-}
-
-class _RedecomposeDialog extends StatefulWidget {
-  final String goalId;
-  final DraftService draftService;
-  final int completedCount;
-
-  const _RedecomposeDialog({
-    required this.goalId,
-    required this.draftService,
-    required this.completedCount,
-  });
-
-  @override
-  State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
-}
-
-class _RedecomposeDialogState extends State<_RedecomposeDialog> {
-  late final TextEditingController _controller;
-  // Default: preserve completed steps (regenerate only pending).
-  bool _regenerateAll = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(
-      text: widget.draftService.redecomposeInstructions(widget.goalId),
-    );
-  }
-
-  @override
-  void dispose() {
-    // Always persist what the user typed — caller clears after confirmed.
-    widget.draftService.saveRedecomposeInstructions(
-      widget.goalId,
-      _controller.text,
-    );
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasCompleted = widget.completedCount > 0;
-    final stepWord = widget.completedCount == 1 ? 'step' : 'steps';
-    final bodyText = hasCompleted && !_regenerateAll
-        ? 'Completed steps will be preserved. Only unfinished steps will be regenerated.'
-        : 'All current subtasks will be replaced with new AI-generated steps.';
-
-    return AlertDialog(
-      title: const Text('Regenerate subtasks?'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(bodyText),
-          if (hasCompleted) ...[
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                'Replace all (including ${widget.completedCount} completed $stepWord)',
-              ),
-              value: _regenerateAll,
-              onChanged: (v) => setState(() => _regenerateAll = v ?? false),
-            ),
-          ],
-          const SizedBox(height: 8),
-          TextField(
-            controller: _controller,
-            maxLines: 2,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Additional instructions (optional)',
-              hintText: 'e.g. focus on the research phase',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            (
-              instructions: _controller.text.trim(),
-              regenerateAll: _regenerateAll,
-            ),
-          ),
-          child: const Text('Regenerate'),
-        ),
-      ],
     );
   }
 }
@@ -1414,10 +1460,7 @@ class _InstructionsSheetState extends State<_InstructionsSheet> {
         const SizedBox(height: 8),
         SegmentedButton<GoalDifficulty>(
           segments: const [
-            ButtonSegment(
-              value: GoalDifficulty.easy,
-              label: Text('Few steps'),
-            ),
+            ButtonSegment(value: GoalDifficulty.easy, label: Text('Few steps')),
             ButtonSegment(
               value: GoalDifficulty.hard,
               label: Text('More steps'),
@@ -1432,13 +1475,10 @@ class _InstructionsSheetState extends State<_InstructionsSheet> {
         ),
         const SizedBox(height: 12),
         FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            (
-              instructions: _controller.text.trim(),
-              difficulty: _difficulty,
-            ),
-          ),
+          onPressed: () => Navigator.pop(context, (
+            instructions: _controller.text.trim(),
+            difficulty: _difficulty,
+          )),
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           child: Text(widget.confirmLabel),
         ),
@@ -1484,7 +1524,7 @@ class _EmptySubtaskState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(addSubtaskIcon, size: 48, color: AppColors.muted),
+          Icon(AppIcons.addSubtask, size: 48, color: AppColors.muted),
           const SizedBox(height: 12),
           Text('No subtasks yet', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),

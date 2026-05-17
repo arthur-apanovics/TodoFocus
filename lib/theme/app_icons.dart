@@ -33,6 +33,15 @@ class AppIcons {
   /// Marks an item that is queued up
   static const IconData nextInQueue = Icons.subdirectory_arrow_right_outlined;
 
+  /// "Add a new subtask to the goal."
+  static const IconData addSubtask = Icons.playlist_add;
+
+  /// "Break this subtask down into smaller, more actionable steps."
+  static const IconData breakdown = Icons.call_split;
+
+  /// "Generate or regenerate subtasks using AI."
+  static const IconData aiGenerate = Icons.auto_awesome_outlined;
+
   // ---------------------------------------------------------------------
   // State icons — passive indicators, no onPressed
   // ---------------------------------------------------------------------
