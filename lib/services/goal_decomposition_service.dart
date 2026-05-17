@@ -21,7 +21,7 @@ class GoalDecompositionService {
         _iconNames = iconNames;
 
   /// Whether the service can break down individual subtasks via an external
-  /// provider. False means no LLM/Goblin profile is configured.
+  /// provider. False means no LLM profile is configured.
   bool get canAutoBreakdown => _client != null;
 
   /// Suggests a single icon name for [goalTitle] via the configured provider.

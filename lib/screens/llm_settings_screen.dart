@@ -14,6 +14,10 @@ import 'widgets/icon_catalog.dart';
 //   1. Adding a subtype in llm_profile.dart
 //   2. Adding its name to _presets
 //   3. Adding a case in _buildForm and handling in initState / _onPresetChanged
+//
+// Currently supported providers:
+// - OpenAI Compatible (including OpenRouter, local llama-server, etc.)
+// - (OpenRouter is handled as a special case of OpenAI Compatible)
 
 // ---------------------------------------------------------------------------
 // OpenRouter model data + fetch
@@ -83,21 +87,16 @@ class LlmSettingsScreen extends StatefulWidget {
 }
 
 class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
-  static const _presets = ['OpenAI Compatible', 'OpenRouter', 'Goblin Tools'];
+  static const _presets = ['OpenAI Compatible', 'OpenRouter'];
 
   late bool _generateEmojis;
   late bool _debugMode;
 
-  // Each profile type has its own draft so switching presets and back
-  // does not discard previously entered values.
+  // Draft for the OpenAI Compatible profile while editing.
   late OpenAiCompatibleProfile _openAiDraft;
-  late GoblinToolsProfile _goblinDraft;
   late String _selectedPreset;
 
-  LlmProfile get _draft => switch (_selectedPreset) {
-    'Goblin Tools' => _goblinDraft,
-    _ => _openAiDraft,
-  };
+  LlmProfile get _draft => _openAiDraft;
 
   // When switching to the OpenRouter preset, pre-fill the URL if it's blank.
   void _onPresetChangedWithDefaults(String preset) {
@@ -120,13 +119,9 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     _generateEmojis = service.generateEmojis;
     _debugMode = service.debugMode;
 
-    // Each draft is initialised from its own stored slot, so switching active
-    // preset and saving never wipes the other type's configuration.
     _openAiDraft = service.openAiProfile;
-    _goblinDraft = service.goblinProfile;
 
     _selectedPreset = switch (service.activeProfile) {
-      GoblinToolsProfile() => 'Goblin Tools',
       OpenAiCompatibleProfile(endpointUrl: final url)
           when url.contains('openrouter.ai') =>
         'OpenRouter',
@@ -134,12 +129,7 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     };
   }
 
-  bool get _isGoblinTools => _selectedPreset == 'Goblin Tools';
-
-  // Effective emoji setting — always false for Goblin Tools since it has no
-  // emoji endpoint. The in-memory flag is preserved so switching back to an
-  // OpenAI-compatible preset restores whatever the user had before.
-  bool get _effectiveGenerateEmojis => _isGoblinTools ? false : _generateEmojis;
+  bool get _effectiveGenerateEmojis => _generateEmojis;
 
   void _onPresetChanged(String preset) {
     setState(() { _selectedPreset = preset; });
@@ -235,17 +225,12 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
           // ── Preferences ──────────────────────────────────────────────────
           _SectionHeader(label: 'Preferences'),
           SwitchListTile(
-            title: const Text('Generate goal emojis'),
-            subtitle: Text(
-              _isGoblinTools
-                  ? 'Not supported by Goblin Tools'
-                  : 'Adds a visual emoji to each goal using AI',
+            title: const Text('Generate goal icons'),
+            subtitle: const Text(
+              'Adds a visual icon to each goal using AI',
             ),
             value: _effectiveGenerateEmojis,
-            // Null onChanged disables the switch visually when Goblin Tools active
-            onChanged: _isGoblinTools
-                ? null
-                : (v) => setState(() { _generateEmojis = v; }),
+            onChanged: (v) => setState(() { _generateEmojis = v; }),
           ),
           const Divider(height: 1),
           // ── Technical ────────────────────────────────────────────────────
@@ -272,10 +257,6 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
   }
 
   Widget _buildForm() => switch (_selectedPreset) {
-    'Goblin Tools' => _GoblinToolsForm(
-      profile: _goblinDraft,
-      onChanged: (p) => setState(() { _goblinDraft = p; }),
-    ),
     'OpenRouter' => _OpenAiCompatibleForm(
       profile: _openAiDraft,
       onChanged: (p) => setState(() { _openAiDraft = p; }),
@@ -830,51 +811,6 @@ class _PromptSection extends StatelessWidget {
             minLines: 3,
             textCapitalization: TextCapitalization.sentences,
             onChanged: (_) => onChanged(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Goblin Tools form
-// ---------------------------------------------------------------------------
-
-class _GoblinToolsForm extends StatelessWidget {
-  final GoblinToolsProfile profile;
-  final ValueChanged<GoblinToolsProfile> onChanged;
-
-  const _GoblinToolsForm({required this.profile, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Number of subtasks',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 1, label: Text('Few')),
-              ButtonSegment(value: 2, label: Text('Some')),
-              ButtonSegment(value: 3, label: Text('Many')),
-            ],
-            selected: {profile.spiciness},
-            onSelectionChanged: (s) =>
-                onChanged(profile.copyWith(spiciness: s.first)),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Goblin Tools is a free third-party service — no API key required.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
           ),
         ],
       ),

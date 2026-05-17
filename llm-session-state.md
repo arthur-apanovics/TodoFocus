@@ -1,5 +1,5 @@
 # Todo App — LLM Session State
-**Last updated:** 2026-05-15  
+**Last updated:** 2026-05-17  
 **Framework:** Flutter (Dart)  
 **Purpose:** Preserve project context, decisions, and progress across LLM sessions. Read this before touching any code.
 
@@ -37,11 +37,13 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 - **Tests** — 79 passing tests across 4 layers (see Testing section)
 - **App icons** — generated from `logos/app-icon-1024.png` via `flutter_launcher_icons` for all Android mipmap densities and iOS AppIcon slots
 - **LLM decomposition** — pluggable provider system; goals decomposed into subtasks by LLM or keyword fallback; see LLM section below
-- **LLM settings UI** — `LlmSettingsScreen` with per-type config for OpenAI-compatible and Goblin Tools; each preset stored under its own Hive key so switching presets never overwrites the other's config
-- **Async goal creation with loading indicator** — goals created immediately, subtasks populated in the background via `decomposeInBackground`; `DecompositionState` tracks in-flight goal IDs; detail screen shows spinner in place of subtask list; list tiles show spinner in place of status icon while decomposing
+- **LLM settings UI** — `LlmSettingsScreen` with OpenAI-compatible config (URL, model, API key, temperature, timeout, custom system/breakdown prompts); supports OpenRouter and local llama-server via the same OpenAI endpoint
+- **Icon generation** — 665 Material icons across 16 categories (Work, Health, Learning, Food, Home, Travel, Creative, Finance, People, Tech, Transport, Animals, Communication, Events, Mindfulness); stored in `Goal.emoji` as short names (e.g., `'gym'`, `'running'`); falls back to rendering legacy Unicode emoji strings
+- **Async goal creation with loading indicator** — goals created immediately, icons/subtasks populated in the background via `decomposeInBackground` and `suggestIcon`; `DecompositionState` tracks in-flight goal IDs; detail screen shows spinner in place of subtask list; list tiles show spinner in place of status icon while decomposing
 - **Re-decompose subtasks** — three-dot menu on `GoalDetailScreen`; replaces all subtasks; optional additional instructions field in confirm dialog; uses `DecompositionState` for loading UI
 - **Subtask breakdown** — split button on every non-completed subtask tile; tap = auto-breakdown via LLM; long press = opens `_InstructionsSheet` for custom steering instructions first; falls back to manual split sheet when no LLM configured
-- **Custom steering instructions** — both re-decompose and subtask breakdown accept optional free-text instructions; appended to LLM user message for OpenAI-compatible; used as the submission text for Goblin Tools (replaces the original value)
+- **Custom steering instructions** — both re-decompose and subtask breakdown accept optional free-text instructions; appended to LLM user message for OpenAI-compatible
+- **Bulk icon generation** — LLM Settings screen allows generating icons for goals without them; uses `suggestIconBulk` to batch requests
 
 ### Post-MVP / Planned
 - **Daily reset** — Focus list resets each day; carry-over rules TBD; this is the trigger for extracting `todayOrder`/`isFocusedToday` into a separate `TodaySession` object
@@ -59,25 +61,27 @@ The app is Flutter-only (Android primary target). No backend; all state is local
 ## LLM Integration
 
 ### Provider Architecture
-`DecompositionClient` is an abstract interface with two methods:
-- `decompose(title, {description, additionalInstructions})` → `List<String>` subtask descriptions
-- `breakdown(subtaskDescription, {additionalInstructions})` → `List<String>` smaller steps
+`DecompositionClient` is an abstract interface with four methods:
+- `decompose(title, {description, additionalInstructions, difficulty, completedSteps})` → `List<String>` subtask descriptions
+- `breakdown(subtaskDescription, {additionalInstructions, difficulty})` → `List<String>` smaller steps
+- `suggestIcon(goalTitle, iconNames)` → `String?` single icon name from the provided list
+- `suggestIconBulk(goalTitles, iconNames)` → `List<String?>` icon names (one per goal, same order)
 
 Implementations:
-- `OpenAiDecompositionClient` — wraps `LlmClient` (HTTP); appends `additionalInstructions` to the user message
-- `GoblinToolsDecompositionClient` — hits `goblin.tools/api/todo/`; `additionalInstructions` replaces the original text entirely (since Goblin has no system-prompt steering)
+- `OpenAiDecompositionClient` — wraps `LlmClient` (HTTP); appends `additionalInstructions` to the user message; difficulty controls subtask count bounds; includes prompt caching for icon names list
 
-`GoalDecompositionService` is provider-agnostic: it receives an optional `DecompositionClient?` and falls back to keyword templates when `null`.
+`GoalDecompositionService` is provider-agnostic: it receives an optional `DecompositionClient?` and falls back to keyword templates when `null`. Icon generation is concurrent with decomposition and controlled by `_generateEmojis` flag.
 
 ### Keyword Fallback
 `_detectIntent(title, description)` scans for ~20 action-verb categories (learn, build, travel, etc.) and picks a matching template list from `_templatesByIntent`. Returns `'fallback'` if nothing matches.
 
 ### Settings Persistence
 `LlmSettingsService` (Hive `Box<String>`, key `app_settings`):
-- Two separate storage slots: `openai_profile` and `goblin_profile` — switching the active preset never overwrites the other
-- `active_profile_type` stores which preset is currently active
-- `llm_enabled` boolean
-- One-time migration from legacy single `active_profile` key
+- Single storage slot: `openai_profile` (Goblin Tools support dropped for complexity reduction)
+- `active_profile_type` stores which preset is currently active (currently only `OpenAiCompatibleProfile.typeKey`)
+- `generateEmojis` boolean — enables/disables concurrent icon suggestion during decomposition
+- `debugMode` boolean — shows full error details in failure notifications
+- One-time migration from legacy single `active_profile` key and removal of `goblin_profile` key
 - `--dart-define` env vars (`LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TEMPERATURE`) override stored OpenAI settings at startup
 
 ### `DecompositionState`
@@ -87,6 +91,10 @@ Key methods: `begin(goalId)`, `end(goalId)`, `isDecomposing(goalId)`, `fail(goal
 
 ### `decomposeInBackground`
 Fire-and-forget async method on `GoalDecompositionService`. Marks state, calls LLM, falls back to keywords on error, delivers results via `onResult` callback, clears state in `finally`. No loading flash when no client is configured (synchronous keyword path).
+
+Concurrent icon suggestion: if `_generateEmojis && onEmoji != null && _iconNames.isNotEmpty`, fires `_client.suggestIcon(title, _iconNames)` in parallel with decomposition. Icon arrives via `onEmoji` callback once resolved.
+
+Icon names list is passed from `main.dart` during service construction: `iconByName.keys.toList()` from `icon_catalog.dart` (665 names across 16 categories).
 
 ---
 
@@ -148,9 +156,12 @@ lib/
 │   ├── goal_detail_screen.dart         — StatefulWidget; subtask CRUD, reorder, complete, undo; loading/inbox/empty states;
 │   │                                     re-decompose menu; split button (tap=auto, long-press=instructions sheet);
 │   │                                     triggerBreakdown param for notification action; fallback snackbar via DecompositionState
-│   ├── llm_settings_screen.dart        — LLM config UI: preset picker, OpenAI form (url/model/key/temp/timeout/prompts),
-│   │                                     Goblin Tools form (spiciness); save is async
+│   ├── llm_settings_screen.dart        — LLM config UI: OpenAI-compatible form (url/model/key/temp/timeout/custom prompts),
+│   │                                     bulk icon generation button for goals without icons; save is async
 │   └── widgets/
+│       ├── icon_catalog.dart           — 665 Material icons across 16 categories; returns `IconData?` by name
+│       ├── goal_symbol.dart            — renders icon for Goal.emoji; inherits IconTheme size when null
+│       ├── emoji_picker_sheet.dart     — Material Icons picker with search; used in goal creation/detail
 │       ├── app_bottom_sheet.dart       — shared sheet chrome (handle, padding, keyboard avoid)
 │       └── new_goal_sheet.dart         — new goal form; Create pops with goalId + fires decomposeInBackground;
 │                                         Inbox saves immediately with no decomposition
@@ -170,14 +181,13 @@ lib/
 │   │   ├── sub_task_dto.dart           — Hive DTO (typeId: 1), field index registry in comments
 │   │   └── sub_task_dto.g.dart         — generated — DO NOT EDIT
 │   ├── llm/
-│   │   ├── decomposition_client.dart   — abstract interface: decompose(), breakdown() — both accept additionalInstructions
-│   │   ├── openai_decomposition_client.dart — OpenAI-compatible impl; additionalInstructions appended to user message
-│   │   ├── goblin_tools_client.dart    — Goblin Tools impl; additionalInstructions replaces the original text
+│   │   ├── decomposition_client.dart   — abstract interface: decompose(), breakdown(), suggestIcon(), suggestIconBulk()
+│   │   ├── openai_decomposition_client.dart — OpenAI-compatible impl; additionalInstructions appended to user message; supports prompt caching
 │   │   ├── llm_client.dart             — HTTP client wrapping the OpenAI chat completions endpoint
 │   │   └── llm_config.dart             — reads --dart-define env vars (LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TEMPERATURE)
 │   └── settings/
-│       ├── llm_profile.dart            — sealed class: OpenAiCompatibleProfile | GoblinToolsProfile; JSON encode/decode
-│       └── llm_settings_service.dart   — Hive-backed; separate keys per profile type; activeType; isEnabled; debugMode
+│       ├── llm_profile.dart            — sealed class: OpenAiCompatibleProfile only; JSON encode/decode
+│       └── llm_settings_service.dart   — Hive-backed; single openai_profile key; activeType; generateEmojis; debugMode
 └── theme/
     ├── app_colors.dart                 — centralised colour palette (see Theme section)
     └── app_icons.dart                  — centralised icon constants (semantic names)
@@ -227,6 +237,7 @@ test/
 | `dueDate` | `DateTime?` | Optional |
 | `isFocusedToday` | `bool` | Toggled via star icon on Goals screen |
 | `todayOrder` | `int` | Position in the today queue; 0-based; assigned by `toggleFocusToday`, rewritten by `reorderTodayQueue` |
+| `emoji` | `String?` | Optional icon name (e.g., `'gym'`, `'running'`) from `iconCatalog`, or legacy Unicode emoji string |
 | `subtasks` | `List<SubTask>` | Ordered queue; mutable list |
 | `currentSubTask` | `SubTask?` | Computed — first `pending` subtask |
 | `nextSubTask` | `SubTask?` | Computed — second `pending` (used for Focus peek and notification) |
@@ -273,7 +284,8 @@ Schema evolution rule: **never reuse a retired field index**. Add new fields at 
 | 5 | `subtasks` | active — `List<SubTaskDto>` |
 | 6 | `isFocusedToday` | active — defaults `false` if null (backward compat) |
 | 7 | `todayOrder` | active — defaults `0` if null (backward compat) |
-| — | Next available | **8** |
+| 8 | `emoji` | active — optional icon name or legacy emoji string; defaults `null` if missing |
+| — | Next available | **9** |
 
 ### `SubTaskDto` — typeId: 1
 | Index | Field | Status |
@@ -291,7 +303,7 @@ After editing any `@HiveType`/`@HiveField` annotated class, regenerate adapters:
 ```bash
 flutter pub run build_runner build --delete-conflicting-outputs
 ```
-`goal_dto.g.dart` was hand-edited to add fields 6 (`isFocusedToday`) and 7 (`todayOrder`). `writeByte(n)` in the adapter's `write()` method is the **total field count** (currently `8`), not an index.
+`goal_dto.g.dart` was hand-edited to add fields 6 (`isFocusedToday`), 7 (`todayOrder`), and 8 (`emoji`). `writeByte(n)` in the adapter's `write()` method is the **total field count** (currently `9`), not an index.
 
 ---
 
@@ -423,10 +435,43 @@ Requires `permissions: contents: write` on the job.
 | `todayOrder` on `Goal`, not a separate entity | "Today queue" state is just two fields (`isFocusedToday`, `todayOrder`); extraction to `TodaySession` deferred until daily-reset logic is built, which is the natural trigger. |
 | Notification channel `focus_task_v2` | Android locks channel importance at creation; versioned ID forces recreation with new importance settings. |
 | `DecompositionState` as standalone `ChangeNotifierProvider` | Not a `ProxyProvider` — must survive LLM settings changes without losing in-flight tracking. A `ProxyProvider` would recreate it whenever `LlmSettingsService` notifies. |
-| Separate Hive keys per LLM profile type | Switching active preset used to overwrite the other type's config. Per-key storage (`openai_profile`, `goblin_profile`) means each type is independent; one-time migration from legacy `active_profile` key. |
+| Material Icons instead of emoji picker | Simplifies theming, removes dependency fragility, and gives consistent design language. `icon_catalog.dart` provides 665 curated names; legacy Unicode emoji strings still render via `GoalSymbol` fallback. |
+| Dropped Goblin Tools support | Complexity reduction — maintains single OpenAI-compatible provider path. Goblin's limitation (no system prompt, no icon suggestions, no steering) didn't justify separate code path. |
+| Icon names in catalog, not hardcoded | `icon_catalog.dart` with 16 categories is discoverable and extensible. Passed to LLM for `suggestIcon` via `iconByName.keys.toList()` in `main.dart`. |
+| `GoalSymbol` inherits icon size from `IconTheme` | When no explicit size is set, the widget respects the ambient theme — meaning icons stay in sync with status badges without extra measurements. |
 | `TextEditingController` in dialog as `StatefulWidget` | Disposing a controller owned by a `showDialog` caller while the dialog's exit animation is still running triggers `_dependents.isEmpty` assertion. Owning it in a `StatefulWidget` dialog ensures disposal happens after the widget is fully unmounted. |
 | No tooltip on split button | `Tooltip` registers a `LongPressGestureRecognizer` that wins over an outer `GestureDetector`. Removing the tooltip lets the `GestureDetector.onLongPress` fire correctly to open the instructions sheet. |
 | Inbox items don't auto-decompose | User intent: inbox is a true backlog. Auto-decomposing on capture would promote items to active without the user consciously deciding to act on them. |
+
+---
+
+## Quick Reference — Useful Commands
+
+```bash
+# Run tests (79 tests across 4 layers)
+flutter test
+
+# Analyze code (strict checks)
+flutter analyze
+
+# Generate Hive adapters after editing @HiveType/@HiveField
+flutter pub run build_runner build --delete-conflicting-outputs
+
+# Regenerate app icons from logos/app-icon-1024.png
+flutter pub run flutter_launcher_icons
+
+# Build release APK (arm64)
+flutter build apk --release --target-platform android-arm64
+
+# Run the app in debug mode
+flutter run
+
+# Format code
+dart format lib/ test/
+
+# View the interactive project structure
+# (Open this file's Project Structure section)
+```
 
 ---
 
@@ -437,7 +482,7 @@ Requires `permissions: contents: write` on the job.
 - **Nullable getter capture:** When using a nullable computed getter (e.g. `currentSubTask`) multiple times in a method, capture it in a local variable first. Dart flow analysis won't smart-cast through a getter.
 - **`context.mounted` after async gaps:** Always check before using `BuildContext` after any `await` or `addPostFrameCallback`.
 - **`GoalRepository.save()` uses `goalId` as the Hive key** — `_box.put(goal.goalId, dto)`. Never use `_box.add()` / `_box.addAll()` — those use auto-incrementing integer keys and will create duplicate entries that `delete(goalId)` can never reach.
-- **Hive adapter `writeByte(n)` is the field count, not the index** — the first argument to `writeByte` in the `write()` method is the total number of fields written. Currently `8` for `GoalDto`.
+- **Hive adapter `writeByte(n)` is the field count, not the index** — the first argument to `writeByte` in the `write()` method is the total number of fields written. Currently `9` for `GoalDto` (including `emoji` at index 8).
 - **`_recalculateStatus()` is not called from the constructor** — status is stored exactly as set. This matters for tests and for Hive rehydration.
 - **`Slidable` key must be `ValueKey(subtaskId)`** — ensures Flutter reuses widget elements across rebuilds.
 - **`cascade (..)` in DTO mapping** — sets multiple fields on one object without repeating the variable name; used extensively in `_toDto()` and `_subTaskToDto()`.
@@ -445,5 +490,7 @@ Requires `permissions: contents: write` on the job.
 - **Notification suppress cache** — `NotificationService` stores `_shownGoalId` / `_shownSubtaskId`; `update()` is a no-op if both match. This prevents sound/vibration on every app resume when state hasn't changed.
 - **`ReorderableListView` index convention** — `newIndex` from `onReorder` is one past the drop target when moving an item downward. `GoalService.reorderTodayQueue` normalises this with `if (newIndex > oldIndex) newIndex -= 1`.
 - **`Card.clipBehavior: Clip.hardEdge`** — required on `_FocusGoalCard` so the `InkWell` ripple is clipped to the card's rounded corners.
-- **LLM `additionalInstructions` null vs empty string** — callers pass `null` when no instructions are provided (not an empty string). Both `OpenAiDecompositionClient` and `GoblinToolsDecompositionClient` check `isNotEmpty` before applying. Passing `null` produces identical output to having no instructions field at all.
+- **LLM `additionalInstructions` null vs empty string** — callers pass `null` when no instructions are provided (not an empty string). `OpenAiDecompositionClient` checks `isNotEmpty` before applying. Passing `null` produces identical output to having no instructions field at all.
 - **`GoalDetailScreen` is a `StatefulWidget`** — converted from `StatelessWidget` to support `DecompositionState` listener for fallback snackbars and the `triggerBreakdown` post-frame callback. `context.watch<DecompositionState>()` still lives in `build()` for the loading UI.
+- **`GoalSymbol` size is nullable** — when `null`, inherits the ambient `IconTheme.size` (or defaults to 24.0). This keeps icons visually aligned with `_StatusBadge` icons without manual size tuning.
+- **Icon catalog names must be unique** — `iconByName` is a flat map keyed by name across all categories. Adding a duplicate name will silently overwrite the earlier entry.

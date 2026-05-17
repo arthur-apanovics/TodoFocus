@@ -9,14 +9,12 @@ import 'llm_profile.dart';
 class LlmSettingsService extends ChangeNotifier {
   static const _boxName = 'app_settings';
   static const _openAiKey = 'openai_profile';
-  static const _goblinKey = 'goblin_profile';
   static const _activeTypeKey = 'active_profile_type';
   static const _debugModeKey = 'llm_debug_mode';
   static const _generateEmojisKey = 'llm_generate_emojis';
 
   final Box<String> _box;
   OpenAiCompatibleProfile _openAiProfile;
-  GoblinToolsProfile _goblinProfile;
   String? _activeType; // typeKey of whichever preset is currently active
   bool _debugMode;
   bool _generateEmojis;
@@ -24,23 +22,19 @@ class LlmSettingsService extends ChangeNotifier {
   LlmSettingsService._({
     required Box<String> box,
     required OpenAiCompatibleProfile openAiProfile,
-    required GoblinToolsProfile goblinProfile,
     required String? activeType,
     required bool debugMode,
     required bool generateEmojis,
   })  : _box = box,
         _openAiProfile = openAiProfile,
-        _goblinProfile = goblinProfile,
         _activeType = activeType,
         _debugMode = debugMode,
         _generateEmojis = generateEmojis;
 
   OpenAiCompatibleProfile get openAiProfile => _openAiProfile;
-  GoblinToolsProfile get goblinProfile => _goblinProfile;
 
   LlmProfile? get activeProfile => switch (_activeType) {
         OpenAiCompatibleProfile.typeKey => _openAiProfile,
-        GoblinToolsProfile.typeKey => _goblinProfile,
         _ => null,
       };
 
@@ -63,18 +57,13 @@ class LlmSettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Saves the profile under its own type key and updates the active type.
-  // Saving OpenAI settings never touches the stored Goblin config, and vice versa.
+  // Saves the profile and updates the active type.
   Future<void> setProfile(LlmProfile profile) async {
     switch (profile) {
       case OpenAiCompatibleProfile():
         _openAiProfile = profile;
         _activeType = OpenAiCompatibleProfile.typeKey;
         await _box.put(_openAiKey, profile.encode());
-      case GoblinToolsProfile():
-        _goblinProfile = profile;
-        _activeType = GoblinToolsProfile.typeKey;
-        await _box.put(_goblinKey, profile.encode());
     }
     await _box.put(_activeTypeKey, _activeType!);
     notifyListeners();
@@ -84,11 +73,9 @@ class LlmSettingsService extends ChangeNotifier {
         'generateEmojis': _generateEmojis,
         'activeProfileType': switch (activeProfile) {
           OpenAiCompatibleProfile() => OpenAiCompatibleProfile.typeKey,
-          GoblinToolsProfile() => GoblinToolsProfile.typeKey,
           null => null,
         },
         'openaiProfile': _openAiProfile.toJson(),
-        'goblinProfile': _goblinProfile.toJson(),
       };
 
   // Restores settings from a backup snapshot. Each field is applied
@@ -105,21 +92,11 @@ class LlmSettingsService extends ChangeNotifier {
       }
     } catch (_) {}
 
-    GoblinToolsProfile? goblin;
-    try {
-      final raw = json['goblinProfile'];
-      if (raw is Map<String, dynamic>) {
-        goblin = GoblinToolsProfile.fromJson(raw);
-      }
-    } catch (_) {}
-
     _openAiProfile = openAi ?? _openAiProfile;
-    _goblinProfile = goblin ?? _goblinProfile;
     _activeType = activeType;
     _generateEmojis =
         generateEmojis is bool ? generateEmojis : _generateEmojis;
     await _box.put(_openAiKey, _openAiProfile.encode());
-    await _box.put(_goblinKey, _goblinProfile.encode());
     if (activeType != null) {
       await _box.put(_activeTypeKey, activeType);
     } else {
@@ -134,16 +111,11 @@ class LlmSettingsService extends ChangeNotifier {
 
     // --- One-time migration from old single-key format ---
     final legacy = box.get('active_profile');
-    if (legacy != null &&
-        box.get(_openAiKey) == null &&
-        box.get(_goblinKey) == null) {
+    if (legacy != null && box.get(_openAiKey) == null) {
       final old = LlmProfile.tryDecode(legacy);
       if (old is OpenAiCompatibleProfile) {
         await box.put(_openAiKey, old.encode());
         await box.put(_activeTypeKey, OpenAiCompatibleProfile.typeKey);
-      } else if (old is GoblinToolsProfile) {
-        await box.put(_goblinKey, old.encode());
-        await box.put(_activeTypeKey, GoblinToolsProfile.typeKey);
       }
     }
 
@@ -152,14 +124,9 @@ class LlmSettingsService extends ChangeNotifier {
         ) ??
         const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
 
-    final goblinProfile =
-        _decodeAs<GoblinToolsProfile>(box.get(_goblinKey)) ??
-            const GoblinToolsProfile();
-
     final service = LlmSettingsService._(
       box: box,
       openAiProfile: openAiProfile,
-      goblinProfile: goblinProfile,
       activeType: box.get(_activeTypeKey),
       debugMode: box.get(_debugModeKey) == 'true',
       generateEmojis: box.get(_generateEmojisKey) == 'true',
