@@ -36,10 +36,12 @@ void main() {
       expect(g.subtasks.first.subtaskId, 'a');
     });
 
-    test('promotes an inbox goal to active', () {
+    test('leaves an inbox goal in inbox (planning stays put)', () {
+      // The two-stage workflow keeps planning goals in the inbox until
+      // the user explicitly queues them via GoalService.queueGoal().
       final g = makeGoal(status: GoalStatus.inbox);
       g.addSubTask(makeSubTask('a'));
-      expect(g.status, GoalStatus.active);
+      expect(g.status, GoalStatus.inbox);
     });
 
     test('restores a completed goal to active', () {

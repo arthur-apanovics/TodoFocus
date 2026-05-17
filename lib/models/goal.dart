@@ -66,9 +66,6 @@ class Goal {
 
   void addSubTask(SubTask task) {
     subtasks.add(task);
-    // Recalculate so an inbox goal becomes active when its first subtask
-    // is added, and a completed goal becomes active again if a subtask
-    // is appended after the fact.
     _recalculateStatus();
   }
 
@@ -149,7 +146,9 @@ class Goal {
   }
 
   void _recalculateStatus() {
-    if (status == GoalStatus.archived) return;
+    // Inbox goals stay in the planning stage until the user explicitly
+    // queues them via GoalService.queueGoal(). Archived goals are frozen.
+    if (status == GoalStatus.archived || status == GoalStatus.inbox) return;
     final allDone =
         subtasks.isNotEmpty &&
         subtasks.every((t) => t.state == SubTaskState.completed);

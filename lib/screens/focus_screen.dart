@@ -6,7 +6,7 @@ import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
-import 'goal_detail_screen.dart';
+import 'goal_active_screen.dart';
 
 class FocusScreen extends StatelessWidget {
   const FocusScreen({super.key});
@@ -63,7 +63,7 @@ class _FocusGoalCard extends StatelessWidget {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+            builder: (_) => GoalActiveScreen(goalId: goal.goalId),
           ),
         ),
         child: Padding(

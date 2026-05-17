@@ -7,13 +7,13 @@ import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
-import 'goal_detail_screen.dart';
+import 'goal_planning_screen.dart';
 
-// The Inbox tab — shows goals captured without any decomposition yet.
-// Tapping an item navigates to the detail screen, where the user adds
-// subtasks. As soon as the first subtask is added, Goal._recalculateStatus()
-// flips the goal's status from `inbox` to `active`, so it leaves this list
-// and shows up on the Goals tab instead.
+// The Planning tab — shows inbox goals that the user is still shaping
+// into a plan. Tapping opens the planning screen where subtasks can be
+// generated/added/edited and then queued for execution. Goals only leave
+// this list when the user explicitly hits "Queue Goal" on the planning
+// screen (or deletes the goal).
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
 
@@ -41,12 +41,12 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox_outlined, size: 48, color: AppColors.muted),
+          Icon(Icons.edit_note_outlined, size: 48, color: AppColors.muted),
           const SizedBox(height: 12),
-          const Text('Inbox is empty'),
+          const Text('Nothing being planned'),
           const SizedBox(height: 4),
           Text(
-            'Capture quick ideas here to process later',
+            'Capture an idea and shape it here before queuing it up',
             style: TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
@@ -103,24 +103,24 @@ class _InboxTile extends StatelessWidget {
                 height: 24,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : Icon(Icons.inbox_outlined, color: AppColors.muted),
+            : Icon(Icons.edit_note_outlined, color: AppColors.muted),
         title: Text(goal.title),
         subtitle: Text(
           isDecomposing
               ? 'Generating subtasks…'
-              : goal.notes.isNotEmpty
-                  ? goal.notes
-                  : 'Tap to add subtasks',
+              : goal.subtasks.isNotEmpty
+                  ? '${goal.subtasks.length} subtask${goal.subtasks.length == 1 ? '' : 's'} planned'
+                  : goal.notes.isNotEmpty
+                      ? goal.notes
+                      : 'Tap to plan this goal',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: const Icon(Icons.chevron_right),
-        // Reuse the detail screen — adding a subtask there will move
-        // this goal out of the inbox automatically (see Goal.addSubTask).
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => GoalDetailScreen(goalId: goal.goalId),
+            builder: (_) => GoalPlanningScreen(goalId: goal.goalId),
           ),
         ),
       ),

@@ -323,4 +323,52 @@ void main() {
       expect(repo.all, isEmpty);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // queueGoal
+  // -------------------------------------------------------------------------
+
+  group('queueGoal', () {
+    test('transitions an inbox goal with subtasks to active', () {
+      final goal = makeGoal(
+        status: GoalStatus.inbox,
+        subtasks: [makeSubTask('s1')],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.queueGoal('g1');
+      expect(repo.findById('g1')!.status, GoalStatus.active);
+    });
+
+    test('transitions an inbox goal with no subtasks to active', () {
+      // Caller is responsible for disabling the button when empty; the
+      // service still queues bare goals if asked to.
+      final goal = makeGoal(status: GoalStatus.inbox);
+      final (service, repo) = makeService(seed: [goal]);
+      service.queueGoal('g1');
+      expect(repo.findById('g1')!.status, GoalStatus.active);
+    });
+
+    test('lands on completed when every subtask is already done', () {
+      final goal = makeGoal(
+        status: GoalStatus.inbox,
+        subtasks: [makeSubTask('s1', state: SubTaskState.completed)],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.queueGoal('g1');
+      expect(repo.findById('g1')!.status, GoalStatus.completed);
+    });
+
+    test('is a no-op for a non-inbox goal', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]); // active
+      final (service, repo) = makeService(seed: [goal]);
+      service.queueGoal('g1');
+      expect(repo.findById('g1')!.status, GoalStatus.active);
+    });
+
+    test('is a no-op for an unknown goalId', () {
+      final (service, repo) = makeService();
+      service.queueGoal('nonexistent');
+      expect(repo.all, isEmpty);
+    });
+  });
 }
