@@ -6,7 +6,7 @@ import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
-import 'goal_planning_screen.dart' show SubTaskTile;
+import 'goal_planning_screen.dart' show GoalPlanningScreen, SubTaskTile;
 import 'widgets/goal_symbol.dart';
 
 // Execution-focused view for an active goal. The planning screen is for
