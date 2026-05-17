@@ -7,6 +7,7 @@ import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
+import '../services/draft_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -14,6 +15,8 @@ import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
+import 'widgets/emoji_picker_sheet.dart';
+import 'widgets/goal_symbol.dart';
 
 const addSubtaskIcon = Icons.playlist_add;
 
@@ -95,6 +98,59 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
   }
 
+  Future<void> _redecomposeGoal(Goal goal) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final draft = context.read<DraftService>();
+
+    final completedSteps = goal.subtasks
+        .where((t) => t.state == SubTaskState.completed)
+        .map((t) => t.description)
+        .toList();
+
+    final result = await showDialog<({String instructions, bool regenerateAll})>(
+      context: context,
+      builder: (_) => _RedecomposeDialog(
+        goalId: goal.goalId,
+        draftService: draft,
+        completedCount: completedSteps.length,
+      ),
+    );
+    if (result == null || !mounted) return;
+    draft.clearRedecomposeInstructions(goal.goalId);
+
+    final decompState = context.read<DecompositionState>();
+    final service = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final preserveCompleted = !result.regenerateAll && completedSteps.isNotEmpty;
+
+    decompState.begin(goal.goalId);
+    try {
+      final descriptions = await decomp.redecomposeSubtasks(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
+        additionalInstructions:
+            result.instructions.isEmpty ? null : result.instructions,
+        difficulty: goal.difficulty,
+        completedSteps: preserveCompleted ? completedSteps : null,
+      );
+      if (!mounted) return;
+      if (descriptions == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
+        );
+        return;
+      }
+      if (preserveCompleted) {
+        service.replacePendingSubTasks(goal.goalId, descriptions);
+      } else {
+        service.replaceAllSubTasks(goal.goalId, descriptions);
+      }
+    } finally {
+      decompState.end(goal.goalId);
+    }
+  }
+
   void _showManualSplit(SubTask subtask, GoalService service) {
     showModalBottomSheet(
       context: context,
@@ -127,29 +183,42 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: GestureDetector(
-          onTap: () => _showEditGoalSheet(context, goal),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(goal.title, overflow: TextOverflow.ellipsis),
-              ),
-              const SizedBox(width: 6),
-              const Icon(Icons.edit_outlined, size: 16),
-            ],
+        title: goal.emoji != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GoalSymbol(name: goal.emoji, size: 22),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      goal.title,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            : Text(goal.title, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit goal',
+            onPressed: () => _showEditGoalSheet(context, goal),
           ),
-        ),
-        actions: [_GoalMenuButton(goal: goal)],
+        ],
       ),
       body: CustomScrollView(
         slivers: [
-          // Metadata card
-          SliverToBoxAdapter(child: _GoalMetadataCard(goal: goal)),
+          // Metadata card (includes actions row)
+          SliverToBoxAdapter(
+            child: _GoalMetadataCard(
+              goal: goal,
+              onRedecompose: () => _redecomposeGoal(goal),
+            ),
+          ),
           // Section header
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: Text(
                 'Subtasks',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -174,11 +243,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               },
               itemBuilder: (context, index) {
                 final subtask = goal.subtasks[index];
-                return SubTaskTile(
+                return ReorderableDelayedDragStartListener(
                   key: ValueKey(subtask.subtaskId),
-                  subtask: subtask,
-                  goal: goal,
                   index: index,
+                  enabled: subtask.state == SubTaskState.pending,
+                  child: SubTaskTile(subtask: subtask, goal: goal),
                 );
               },
             ),
@@ -219,15 +288,19 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
 class _GoalMetadataCard extends StatelessWidget {
   final Goal goal;
+  final VoidCallback onRedecompose;
 
-  const _GoalMetadataCard({required this.goal});
+  const _GoalMetadataCard({
+    required this.goal,
+    required this.onRedecompose,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -251,19 +324,12 @@ class _GoalMetadataCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (goal.dueDate != null) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today_outlined, size: 14),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Due ${goal.dueDate!.day}/${goal.dueDate!.month}/${goal.dueDate!.year}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ],
+            const SizedBox(height: 8),
+            // Difficulty selector
+            _DifficultyRow(goal: goal),
+            const SizedBox(height: 4),
+            // Due date + goal operations
+            _GoalActionsRow(goal: goal, onRedecompose: onRedecompose),
           ],
         ),
       ),
@@ -287,12 +353,14 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
   final _notesFocus = FocusNode();
+  String? _emoji;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.goal.title);
     _notesController = TextEditingController(text: widget.goal.notes);
+    _emoji = widget.goal.emoji;
   }
 
   @override
@@ -312,8 +380,18 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
       title: title,
       notes: _notesController.text.trim(),
     );
+    if (_emoji != null) {
+      widget.goalService.setEmoji(widget.goal.goalId, _emoji!);
+    } else {
+      widget.goalService.clearEmoji(widget.goal.goalId);
+    }
 
     if (context.mounted) Navigator.pop(context);
+  }
+
+  Future<void> _pickEmoji() async {
+    final picked = await showEmojiPickerSheet(context);
+    if (picked != null && mounted) setState(() => _emoji = picked);
   }
 
   @override
@@ -344,113 +422,256 @@ class _GoalEditSheetState extends State<_GoalEditSheet> {
           ),
         ),
         const SizedBox(height: 12),
+        _EmojiRow(
+          emoji: _emoji,
+          onPick: _pickEmoji,
+          onClear: () => setState(() { _emoji = null; }),
+        ),
+        const SizedBox(height: 12),
         FilledButton(onPressed: _submit, child: const Text('Save changes')),
       ],
     );
   }
 }
 
-class _GoalMenuButton extends StatelessWidget {
+
+// --- Difficulty row ---
+
+class _DifficultyRow extends StatelessWidget {
   final Goal goal;
 
-  const _GoalMenuButton({required this.goal});
+  const _DifficultyRow({required this.goal});
 
   @override
   Widget build(BuildContext context) {
     final service = context.read<GoalService>();
-    final canRedecompose =
-        context.read<GoalDecompositionService>().canAutoBreakdown;
-
-    return PopupMenuButton<String>(
-      onSelected: (value) {
-        switch (value) {
-          case 'redecompose':
-            _confirmRedecompose(context, service);
-          case 'delete':
-            _confirmDelete(context, service);
-        }
-      },
-      itemBuilder: (_) => [
-        if (canRedecompose)
-          const PopupMenuItem(
-            value: 'redecompose',
-            child: Text('Re-decompose subtasks'),
-          ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Text(
-            'Delete goal',
-            style: TextStyle(color: AppColors.destructive),
+    return Row(
+      children: [
+        Icon(
+          Icons.tune_outlined,
+          size: 16,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SegmentedButton<GoalDifficulty>(
+            segments: GoalDifficulty.values
+                .map(
+                  (d) => ButtonSegment(
+                    value: d,
+                    label: Text(d.displayName),
+                  ),
+                )
+                .toList(),
+            selected: {goal.difficulty},
+            onSelectionChanged: (s) =>
+                service.updateGoal(goal.goalId, difficulty: s.first),
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+            ),
           ),
         ),
       ],
     );
   }
+}
 
-  Future<void> _confirmRedecompose(
-    BuildContext context,
-    GoalService service,
-  ) async {
-    final decomp = context.read<GoalDecompositionService>();
+// --- Goal actions row (due date + operations) ---
+//
+// All goal-level operations live here. To add a new action, insert an
+// IconButton (or other widget) into the Row's children — the Spacer keeps
+// the due-date chip left-anchored and the buttons right-anchored.
 
-    // Returns the instructions string on confirm, null on cancel.
-    // Using a StatefulWidget dialog so the TextEditingController is disposed
-    // after the exit animation — not while the TextField is still in the tree.
-    final instructions = await showDialog<String>(
-      context: context,
-      builder: (_) => const _RedecomposeDialog(),
+class _GoalActionsRow extends StatelessWidget {
+  final Goal goal;
+  final VoidCallback onRedecompose;
+
+  const _GoalActionsRow({
+    required this.goal,
+    required this.onRedecompose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final llmEnabled =
+        context.watch<LlmSettingsService>().buildClient() != null;
+    final service = context.read<GoalService>();
+    final isActive = goal.status == GoalStatus.active;
+
+    return Row(
+      children: [
+        _DueDateChip(goal: goal),
+        const Spacer(),
+        // ── Add new goal operations here ────────────────────────────
+        if (llmEnabled && isActive)
+          IconButton(
+            icon: const Icon(Icons.auto_awesome_outlined),
+            tooltip: 'Re-decompose subtasks',
+            onPressed: onRedecompose,
+          ),
+        if (isActive)
+          IconButton(
+            icon: const Icon(Icons.archive_outlined),
+            tooltip: 'Archive goal',
+            onPressed: () => _confirmArchive(context, service),
+          ),
+        // ────────────────────────────────────────────────────────────
+      ],
     );
-
-    if (instructions == null) return;
-    if (!context.mounted) return;
-
-    final decompState = context.read<DecompositionState>();
-    final messenger = ScaffoldMessenger.of(context);
-
-    decompState.begin(goal.goalId);
-    try {
-      final descriptions = await decomp.redecomposeSubtasks(
-        goal.title,
-        description: goal.notes.isEmpty ? null : goal.notes,
-        additionalInstructions: instructions.isEmpty ? null : instructions,
-      );
-      if (descriptions == null) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text("Couldn't re-decompose subtasks")),
-        );
-        return;
-      }
-      service.replaceAllSubTasks(goal.goalId, descriptions);
-    } finally {
-      decompState.end(goal.goalId);
-    }
   }
 
-  void _confirmDelete(BuildContext context, GoalService service) {
-    showDialog(
+  Future<void> _confirmArchive(
+      BuildContext context, GoalService service) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete goal?'),
-        content: const Text('This will delete the goal and all its subtasks.'),
+        title: const Text('Archive goal?'),
+        content: const Text(
+            'The goal will be moved to your completed archive.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.destructive,
-            ),
-            onPressed: () {
-              Navigator.pop(context); // close dialog
-              service.removeGoal(goal.goalId);
-              // GoalDetailScreen.build null-guard pops the detail screen
-              // when it rebuilds and finds goal == null.
-            },
-            child: const Text('Delete'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Archive'),
           ),
         ],
       ),
+    );
+    if (confirmed == true && context.mounted) {
+      service.archiveGoal(goal.goalId);
+      // The null-guard in GoalDetailScreen.build pops the screen automatically.
+    }
+  }
+
+}
+
+// --- Emoji row ---
+
+/// Reusable emoji selector row used in both new-goal and edit-goal sheets.
+class _EmojiRow extends StatelessWidget {
+  final String? emoji;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  const _EmojiRow({
+    required this.emoji,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        GestureDetector(
+          onTap: onPick,
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(color: cs.outlineVariant),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: emoji != null
+                ? GoalSymbol(name: emoji, size: 28)
+                : Icon(
+                    Icons.add_reaction_outlined,
+                    color: cs.onSurfaceVariant,
+                  ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            emoji != null ? 'Tap to change emoji' : 'Add an emoji (optional)',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ),
+        if (emoji != null)
+          IconButton(
+            icon: const Icon(Icons.clear, size: 18),
+            tooltip: 'Remove emoji',
+            onPressed: onClear,
+          ),
+      ],
+    );
+  }
+}
+
+// --- Due date chip ---
+
+class _DueDateChip extends StatelessWidget {
+  final Goal goal;
+
+  const _DueDateChip({required this.goal});
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _format(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(d.year, d.month, d.day);
+    final diff = date.difference(today).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Tomorrow';
+    if (diff == -1) return 'Yesterday';
+    if (diff < 0) return '${diff.abs()}d overdue';
+    if (diff <= 7) return 'In ${diff}d';
+    final label = '${_months[d.month - 1]} ${d.day}';
+    return d.year == now.year ? label : '$label ${d.year}';
+  }
+
+  Future<void> _pickDate(BuildContext context) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: goal.dueDate != null && !goal.dueDate!.isBefore(today)
+          ? goal.dueDate!
+          : today,
+      firstDate: today,
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked != null && context.mounted) {
+      context.read<GoalService>().setDueDate(goal.goalId, picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final date = goal.dueDate;
+    if (date == null) {
+      return ActionChip(
+        avatar: Icon(
+          Icons.calendar_today_outlined,
+          size: 14,
+          color: AppColors.muted,
+        ),
+        label: Text('Add date', style: TextStyle(color: AppColors.muted)),
+        side: BorderSide.none,
+        backgroundColor: Colors.transparent,
+        onPressed: () => _pickDate(context),
+      );
+    }
+    return InputChip(
+      avatar: const Icon(Icons.calendar_today_outlined, size: 14),
+      label: Text(_format(date)),
+      onPressed: () => _pickDate(context),
+      onDeleted: () =>
+          context.read<GoalService>().setDueDate(goal.goalId, null),
+      deleteIcon: const Icon(Icons.close, size: 14),
+      deleteButtonTooltipMessage: 'Remove date',
     );
   }
 }
@@ -460,13 +681,11 @@ class _GoalMenuButton extends StatelessWidget {
 class SubTaskTile extends StatefulWidget {
   final SubTask subtask;
   final Goal goal; // need the parent goal to check isCurrentSubTask
-  final int index;
 
   const SubTaskTile({
     super.key,
     required this.subtask,
     required this.goal,
-    required this.index,
   });
 
   @override
@@ -480,7 +699,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
 
   SubTask get subtask => widget.subtask;
   Goal get goal => widget.goal;
-  int get index => widget.index;
 
   @override
   Widget build(BuildContext context) {
@@ -521,12 +739,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
         child: Opacity(
           opacity: _isBreakingDown ? 0.6 : 1.0,
           child: ListTile(
-            leading: (isCompleted || _isBreakingDown)
-                ? const Icon(Icons.drag_handle, color: Colors.transparent)
-                : ReorderableDragStartListener(
-                    index: index,
-                    child: const Icon(Icons.drag_handle),
-                  ),
             title: GestureDetector(
               onTap: (isPending && !_isBreakingDown)
                   ? () => _showEditSheet(context, service)
@@ -621,12 +833,15 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Pending but not current — locked until earlier subtasks complete.
+    // Pending but not current — queued until earlier subtasks complete.
+    // `AppIcons.queued` reads as "waiting your turn" (circle-outline glyph
+    // rhymes with the hollow-circle of `complete`), unlike the older lock
+    // which read as "permission denied".
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         splitButton,
-        Icon(Icons.lock_outline, size: 18, color: AppColors.muted),
+        Icon(AppIcons.queued, size: 20, color: AppColors.muted),
         const SizedBox(width: 8),
       ],
     );
@@ -646,18 +861,29 @@ class _SubTaskTileState extends State<SubTaskTile> {
       _showManualSplitSheet(context, service);
       return;
     }
-    final instructions = await showModalBottomSheet<String>(
+    final draft = context.read<DraftService>();
+    final subtaskId = subtask.subtaskId;
+    final result =
+        await showModalBottomSheet<({String instructions, GoalDifficulty difficulty})>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const _InstructionsSheet(
+      builder: (_) => _InstructionsSheet(
         hint: 'e.g. keep each step under 5 minutes',
         confirmLabel: 'Break down',
+        initialText: draft.breakdownInstructions(subtaskId),
+        onDraft: (text) => draft.saveBreakdownInstructions(subtaskId, text),
       ),
     );
-    if (instructions != null && mounted) {
+    if (result != null && mounted) {
+      draft.clearBreakdownInstructions(subtaskId);
       // ignore: use_build_context_synchronously
-      _handleSplit(this.context, service, additionalInstructions: instructions);
+      _handleSplit(
+        this.context,
+        service,
+        additionalInstructions: result.instructions.isEmpty ? null : result.instructions,
+        difficulty: result.difficulty,
+      );
     }
   }
 
@@ -665,6 +891,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     BuildContext context,
     GoalService service, {
     String? additionalInstructions,
+    GoalDifficulty? difficulty,
   }) async {
     final decomp = context.read<GoalDecompositionService>();
 
@@ -681,6 +908,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final descriptions = await decomp.breakdownSubtask(
       subtask.description,
       additionalInstructions: additionalInstructions,
+      difficulty: difficulty,
     );
 
     // If the widget was disposed mid-await (e.g. the goal got deleted),
@@ -963,39 +1191,79 @@ class _InboxReadyState extends StatelessWidget {
       description: goal.notes.isEmpty ? null : goal.notes,
       onResult: (descriptions) =>
           goalService.replaceAllSubTasks(goal.goalId, descriptions),
+      onEmoji: (emoji) => goalService.setEmoji(goal.goalId, emoji),
       state: decompState,
+      difficulty: goal.difficulty,
     ));
   }
 }
 
 class _RedecomposeDialog extends StatefulWidget {
-  const _RedecomposeDialog();
+  final String goalId;
+  final DraftService draftService;
+  final int completedCount;
+
+  const _RedecomposeDialog({
+    required this.goalId,
+    required this.draftService,
+    required this.completedCount,
+  });
 
   @override
   State<_RedecomposeDialog> createState() => _RedecomposeDialogState();
 }
 
 class _RedecomposeDialogState extends State<_RedecomposeDialog> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
+  // Default: preserve completed steps (regenerate only pending).
+  bool _regenerateAll = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.draftService.redecomposeInstructions(widget.goalId),
+    );
+  }
 
   @override
   void dispose() {
+    // Always persist what the user typed — caller clears after confirmed.
+    widget.draftService.saveRedecomposeInstructions(
+      widget.goalId,
+      _controller.text,
+    );
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasCompleted = widget.completedCount > 0;
+    final stepWord = widget.completedCount == 1 ? 'step' : 'steps';
+    final bodyText = hasCompleted && !_regenerateAll
+        ? 'Completed steps will be preserved. Only unfinished steps will be regenerated.'
+        : 'All current subtasks will be replaced with new AI-generated steps.';
+
     return AlertDialog(
       title: const Text('Re-decompose subtasks?'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'All current subtasks will be replaced with new AI-generated steps.',
-          ),
-          const SizedBox(height: 16),
+          Text(bodyText),
+          if (hasCompleted) ...[
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'Replace all (including ${widget.completedCount} completed $stepWord)',
+              ),
+              value: _regenerateAll,
+              onChanged: (v) => setState(() => _regenerateAll = v ?? false),
+            ),
+          ],
+          const SizedBox(height: 8),
           TextField(
             controller: _controller,
             maxLines: 2,
@@ -1014,7 +1282,13 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            (
+              instructions: _controller.text.trim(),
+              regenerateAll: _regenerateAll,
+            ),
+          ),
           child: const Text('Re-decompose'),
         ),
       ],
@@ -1025,18 +1299,34 @@ class _RedecomposeDialogState extends State<_RedecomposeDialog> {
 class _InstructionsSheet extends StatefulWidget {
   final String hint;
   final String confirmLabel;
+  final String initialText;
+  final ValueChanged<String>? onDraft;
 
-  const _InstructionsSheet({required this.hint, required this.confirmLabel});
+  const _InstructionsSheet({
+    required this.hint,
+    required this.confirmLabel,
+    this.initialText = '',
+    this.onDraft,
+  });
 
   @override
   State<_InstructionsSheet> createState() => _InstructionsSheetState();
 }
 
 class _InstructionsSheetState extends State<_InstructionsSheet> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
+  GoalDifficulty _difficulty = GoalDifficulty.easy;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
 
   @override
   void dispose() {
+    // Always persist what the user typed — caller clears after confirmed.
+    widget.onDraft?.call(_controller.text);
     _controller.dispose();
     super.dispose();
   }
@@ -1056,9 +1346,39 @@ class _InstructionsSheetState extends State<_InstructionsSheet> {
             border: const OutlineInputBorder(),
           ),
         ),
+        const SizedBox(height: 16),
+        Text(
+          'Breakdown granularity',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        const SizedBox(height: 8),
+        SegmentedButton<GoalDifficulty>(
+          segments: const [
+            ButtonSegment(
+              value: GoalDifficulty.easy,
+              label: Text('Few steps'),
+            ),
+            ButtonSegment(
+              value: GoalDifficulty.hard,
+              label: Text('More steps'),
+            ),
+            ButtonSegment(
+              value: GoalDifficulty.impossible,
+              label: Text('Many steps'),
+            ),
+          ],
+          selected: {_difficulty},
+          onSelectionChanged: (s) => setState(() => _difficulty = s.first),
+        ),
         const SizedBox(height: 12),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            (
+              instructions: _controller.text.trim(),
+              difficulty: _difficulty,
+            ),
+          ),
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           child: Text(widget.confirmLabel),
         ),

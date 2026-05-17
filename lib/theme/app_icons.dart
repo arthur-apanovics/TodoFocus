@@ -32,4 +32,14 @@ class AppIcons {
 
   /// Marks an item that is queued up
   static const IconData nextInQueue = Icons.subdirectory_arrow_right_outlined;
+
+  // ---------------------------------------------------------------------
+  // State icons — passive indicators, no onPressed
+  // ---------------------------------------------------------------------
+
+  /// "Queued — scheduled for later." A clock outline reads as "this has
+  /// a time in its future" rather than "permission denied" (lock) or
+  /// "pending your turn" (three-dot pending), making it clear the subtask
+  /// is waiting for earlier steps to complete.
+  static const IconData queued = Icons.pending_actions;
 }

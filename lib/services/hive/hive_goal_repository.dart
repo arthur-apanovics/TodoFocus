@@ -1,6 +1,5 @@
 import 'package:collection/collection.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:todo_app/services/sample_data.dart';
 import '../../models/enums.dart';
 import '../../models/goal.dart';
 import '../../models/sub_task.dart';
@@ -15,15 +14,7 @@ class HiveGoalRepository extends GoalRepository {
   // repository is used — see main.dart initialisation below
   late final Box<GoalDto> _box;
 
-  HiveGoalRepository(this._box, {bool seed = true}) {
-    if (seed && _box.isEmpty) {
-      // Key by goalId to match save()/delete() — otherwise addAll uses
-      // auto-incrementing integer keys and later saves create duplicates.
-      _box.putAll({
-        for (final goal in SampleData.goals) goal.goalId: _toDto(goal),
-      });
-    }
-  }
+  HiveGoalRepository(this._box, {bool seed = true});
 
   // --- GoalRepository implementation ---
 
@@ -49,7 +40,42 @@ class HiveGoalRepository extends GoalRepository {
     notifyListeners();
   }
 
+  @override
+  Future<void> clear() async {
+    await _box.clear();
+    notifyListeners();
+  }
+
+  @override
+  List<Map<String, dynamic>> exportToJson() =>
+      _box.values.map((dto) => _toDomain(dto).toJson()).toList();
+
+  @override
+  Future<({int imported, int skipped})> importFromJson(
+    List<dynamic> data,
+  ) async {
+    int imported = 0;
+    int skipped = 0;
+    await _box.clear();
+    for (final item in data) {
+      try {
+        final goal = Goal.fromJson(item as Map<String, dynamic>);
+        await _box.put(goal.goalId, _toDto(goal));
+        imported++;
+      } catch (_) {
+        skipped++;
+      }
+    }
+    notifyListeners();
+    return (imported: imported, skipped: skipped);
+  }
+
   // --- Mapping: DTO → Domain ---
+  //
+  // IMPORTANT: when you add a field to GoalDto or Goal, update BOTH _toDomain
+  // and _toDto below, then add the field to the 'full field round-trip' test
+  // in test/services/hive/hive_goal_repository_test.dart — that test is the
+  // compile-time-equivalent enforcement for the mapping layer.
 
   Goal _toDomain(GoalDto dto) {
     return Goal(
@@ -58,12 +84,16 @@ class HiveGoalRepository extends GoalRepository {
       notes: dto.notes,
       // Legacy "paused" records (from before pause was removed) silently
       // become active. The next save() rewrites them with the new value.
-      status: dto.status == 'paused'
-          ? GoalStatus.active
-          : GoalStatus.values.byName(dto.status),
+      status: switch (dto.status) {
+        'paused' => GoalStatus.active,
+        _ => GoalStatus.values.byName(dto.status),
+      },
+      difficulty: GoalDifficulty.values.asNameMap()[dto.difficulty ?? ''] ??
+          GoalDifficulty.easy,
       dueDate: dto.dueDate,
       isFocusedToday: dto.isFocusedToday,
       todayOrder: dto.todayOrder,
+      emoji: dto.emoji,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
   }
@@ -88,9 +118,11 @@ class HiveGoalRepository extends GoalRepository {
       ..title = goal.title
       ..notes = goal.notes
       ..status = goal.status.name
+      ..difficulty = goal.difficulty.name
       ..dueDate = goal.dueDate
       ..isFocusedToday = goal.isFocusedToday
       ..todayOrder = goal.todayOrder
+      ..emoji = goal.emoji
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;
   }

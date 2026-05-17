@@ -218,6 +218,67 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // Full field round-trip — KEEP THIS TEST UP TO DATE
+  //
+  // This is the enforcement mechanism for the DTO ↔ Domain mapping layer.
+  // Whenever a new field is added to GoalDto / Goal, add it here with a
+  // non-default value so the test will fail if _toDomain or _toDto is not
+  // updated. The previous emoji bug (field existed in the DTO but was never
+  // read/written by the mappers) was caught by exactly this pattern.
+  // -------------------------------------------------------------------------
+
+  group('full field round-trip', () {
+    test('every Goal field survives a save/reload cycle', () {
+      final due = DateTime(2030, 6, 15);
+      final original = Goal(
+        goalId: 'full',
+        title: 'Full field test',
+        notes: 'Some notes',
+        status: GoalStatus.inbox,
+        difficulty: GoalDifficulty.hard,
+        dueDate: due,
+        emoji: '🚀',
+        isFocusedToday: true,
+        todayOrder: 7,
+        subtasks: [
+          SubTask(
+            subtaskId: 'st1',
+            description: 'Step one',
+            state: SubTaskState.completed,
+          ),
+          SubTask(
+            subtaskId: 'st2',
+            description: 'Step two',
+            state: SubTaskState.pending,
+          ),
+        ],
+      );
+
+      _repo.save(original);
+      final loaded = _repo.findById('full')!;
+
+      expect(loaded.goalId, original.goalId, reason: 'goalId');
+      expect(loaded.title, original.title, reason: 'title');
+      expect(loaded.notes, original.notes, reason: 'notes');
+      expect(loaded.status, original.status, reason: 'status');
+      expect(loaded.difficulty, original.difficulty, reason: 'difficulty');
+      expect(loaded.dueDate, original.dueDate, reason: 'dueDate');
+      expect(loaded.emoji, original.emoji, reason: 'emoji');
+      expect(loaded.isFocusedToday, original.isFocusedToday,
+          reason: 'isFocusedToday');
+      expect(loaded.todayOrder, original.todayOrder, reason: 'todayOrder');
+
+      expect(loaded.subtasks.length, 2, reason: 'subtask count');
+      expect(loaded.subtasks[0].subtaskId, 'st1', reason: 'subtask[0].id');
+      expect(loaded.subtasks[0].state, SubTaskState.completed,
+          reason: 'subtask[0].state');
+      expect(loaded.subtasks[1].subtaskId, 'st2', reason: 'subtask[1].id');
+      expect(loaded.subtasks[1].state, SubTaskState.pending,
+          reason: 'subtask[1].state');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // save is idempotent (no duplication on repeated saves)
   // Bug: using addAll() instead of putAll() caused duplicate entries.
   // -------------------------------------------------------------------------

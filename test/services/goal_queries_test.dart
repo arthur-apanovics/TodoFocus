@@ -106,12 +106,11 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // goals — excludes inbox items
+  // goals — active only (completed/archived have their own getters)
   // -------------------------------------------------------------------------
 
   group('GoalQueries.goals', () {
     test('excludes inbox goals', () {
-      // Bug: inbox items were appearing on the Goals tab
       final q = makeQueries([
         makeGoal(id: 'g1', status: GoalStatus.inbox),
         makeGoal(id: 'g2', status: GoalStatus.active),
@@ -124,14 +123,54 @@ void main() {
       expect(q.goals.map((g) => g.goalId), ['g1']);
     });
 
-    test('includes completed goals', () {
+    test('excludes completed goals', () {
       final q = makeQueries([makeGoal(id: 'g1', status: GoalStatus.completed)]);
-      expect(q.goals.map((g) => g.goalId), ['g1']);
+      expect(q.goals, isEmpty);
+    });
+
+    test('excludes archived goals', () {
+      final q = makeQueries([makeGoal(id: 'g1', status: GoalStatus.archived)]);
+      expect(q.goals, isEmpty);
     });
 
     test('is empty when all goals are in inbox', () {
       final q = makeQueries([makeGoal(status: GoalStatus.inbox)]);
       expect(q.goals, isEmpty);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // completedGoals / archivedGoals
+  // -------------------------------------------------------------------------
+
+  group('GoalQueries.completedGoals', () {
+    test('returns only completed goals', () {
+      final q = makeQueries([
+        makeGoal(id: 'g1', status: GoalStatus.active),
+        makeGoal(id: 'g2', status: GoalStatus.completed),
+        makeGoal(id: 'g3', status: GoalStatus.archived),
+      ]);
+      expect(q.completedGoals.map((g) => g.goalId), ['g2']);
+    });
+
+    test('is empty when no goals are completed', () {
+      final q = makeQueries([makeGoal(status: GoalStatus.active)]);
+      expect(q.completedGoals, isEmpty);
+    });
+  });
+
+  group('GoalQueries.archivedGoals', () {
+    test('returns only archived goals', () {
+      final q = makeQueries([
+        makeGoal(id: 'g1', status: GoalStatus.active),
+        makeGoal(id: 'g2', status: GoalStatus.archived),
+      ]);
+      expect(q.archivedGoals.map((g) => g.goalId), ['g2']);
+    });
+
+    test('is empty when no goals are archived', () {
+      final q = makeQueries([makeGoal(status: GoalStatus.active)]);
+      expect(q.archivedGoals, isEmpty);
     });
   });
 

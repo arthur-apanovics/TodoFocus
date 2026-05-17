@@ -50,10 +50,15 @@ class AppColors {
   // ---------------------------------------------------------------------
 
   /// Primary highlight — focused goals, the "current" step, active CTAs.
-  static const Color accent = Colors.green;
+  /// Material Green 800 — the deeper "focus here" tone, intentionally distinct
+  /// from `success` so the eye doesn't read "active" and "done" as the same
+  /// state.
+  static final Color accent = Colors.green.shade800;
   static final Color accentSurface = Colors.indigo.shade50;
 
   /// Completion / success — all-done indicators, completed-state badges.
+  /// Material Green 500 — the brighter "you did it" tone. Kept inside the
+  /// green family for brand restraint but visibly lighter than `accent`.
   static const Color success = Colors.green;
   static final Color successSurface = Colors.green.shade50;
 

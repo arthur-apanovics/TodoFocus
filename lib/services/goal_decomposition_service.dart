@@ -1,16 +1,86 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
-import 'llm/llm_client.dart';
+import 'decomposition_state.dart';
+import 'llm/decomposition_client.dart';
 
 class GoalDecompositionService {
   final Uuid _uuid = const Uuid();
-  final LlmClient? _llm; // null = keyword-only mode
+  final DecompositionClient? _client; // null = keyword-only mode
+  final bool _generateEmojis;
+  final List<String> _iconNames;
 
-  GoalDecompositionService({LlmClient? llm}) : _llm = llm;
+  GoalDecompositionService({
+    DecompositionClient? client,
+    bool generateEmojis = false,
+    List<String> iconNames = const [],
+  })  : _client = client,
+        _generateEmojis = generateEmojis,
+        _iconNames = iconNames;
+
+  /// Whether the service can break down individual subtasks via an external
+  /// provider. False means no LLM/Goblin profile is configured.
+  bool get canAutoBreakdown => _client != null;
+
+  /// Suggests a single icon name for [goalTitle] via the configured provider.
+  /// Returns null when icon generation is disabled, no provider is configured,
+  /// or the call fails — callers should silently skip on null.
+  Future<String?> suggestIcon(String goalTitle) async {
+    if (!_generateEmojis || _client == null || _iconNames.isEmpty) return null;
+    return _client.suggestIcon(goalTitle, _iconNames);
+  }
+
+  /// Re-runs full decomposition on an existing goal's title/description,
+  /// returning a fresh list of subtask descriptions. Returns null on failure
+  /// or when no provider is configured — caller should show an error.
+  Future<List<String>?> redecomposeSubtasks(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+    List<String>? completedSteps,
+  }) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.decompose(
+        title,
+        description: description,
+        additionalInstructions: additionalInstructions,
+        difficulty: difficulty,
+        completedSteps: completedSteps,
+      );
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Re-decompose failed: $e');
+      return null;
+    }
+  }
+
+  /// Breaks an existing subtask down into smaller steps via the configured
+  /// provider. Returns null if no provider is configured or the call failed —
+  /// callers should fall back to a manual flow.
+  Future<List<String>?> breakdownSubtask(
+    String description, {
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+  }) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.breakdown(
+        description,
+        additionalInstructions: additionalInstructions,
+        difficulty: difficulty,
+      );
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Subtask breakdown failed: $e');
+      return null;
+    }
+  }
 
   // The single public method — takes raw user input, returns a structured Goal.
   // The method signature stays the same when swapping LLM providers.
@@ -20,6 +90,7 @@ class GoalDecompositionService {
     required String title,
     String? description,
     DateTime? dueDate,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
     VoidCallback? onLlmFallback,
   }) async {
     final goalId = _uuid.v4();
@@ -27,6 +98,7 @@ class GoalDecompositionService {
       goalId,
       title,
       description,
+      difficulty,
       onLlmFallback,
     );
 
@@ -35,71 +107,144 @@ class GoalDecompositionService {
       title: title,
       notes: description ?? '',
       dueDate: dueDate,
+      difficulty: difficulty,
       subtasks: subtasks,
     );
   }
 
+  // Creates a goal shell with no subtasks. Use [decomposeInBackground] to
+  // populate subtasks asynchronously after saving the goal.
+  Goal createGoal({
+    required String title,
+    String? description,
+    DateTime? dueDate,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
+  }) {
+    return Goal(
+      goalId: _uuid.v4(),
+      title: title,
+      notes: description ?? '',
+      dueDate: dueDate,
+      difficulty: difficulty,
+      subtasks: [],
+    );
+  }
+
   // Captures a raw goal into the inbox without decomposing it
-  Goal captureToInbox({required String title, String? description}) {
+  Goal captureToInbox({
+    required String title,
+    String? description,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
+  }) {
     return Goal(
       goalId: _uuid.v4(),
       title: title,
       notes: description ?? '',
       status: GoalStatus.inbox,
+      difficulty: difficulty,
       subtasks: [],
     );
+  }
+
+  /// Decomposes a goal in the background and delivers descriptions via
+  /// [onResult]. While the LLM call is in flight, [state] marks the goal as
+  /// decomposing so the UI can show a loading indicator.
+  ///
+  /// When no client is configured, keyword templates are applied synchronously
+  /// — [state] is never marked and there is no loading flash.
+  /// On LLM failure the method falls back to keyword templates and calls
+  /// [onFallback] if provided.
+  ///
+  /// When [onEmoji] is supplied and emoji generation is enabled, a single emoji
+  /// is suggested concurrently with decomposition and delivered via [onEmoji].
+  Future<void> decomposeInBackground({
+    required String goalId,
+    required String title,
+    String? description,
+    required void Function(List<String> descriptions) onResult,
+    required DecompositionState state,
+    VoidCallback? onFallback,
+    GoalDifficulty difficulty = GoalDifficulty.easy,
+    void Function(String emoji)? onEmoji,
+  }) async {
+    if (_client == null) {
+      // Synchronous keyword path — no loading indicator needed.
+      onResult(_scaffoldDescriptions(title, description));
+      return;
+    }
+
+    // Fire icon suggestion concurrently so it doesn't block decomposition.
+    final Future<String?>? emojiFuture =
+        (_generateEmojis && onEmoji != null && _iconNames.isNotEmpty)
+            ? _client.suggestIcon(title, _iconNames)
+            : null;
+
+    state.begin(goalId);
+    try {
+      List<String> descriptions;
+      try {
+        descriptions = await _client.decompose(
+          title,
+          description: description,
+          difficulty: difficulty,
+        );
+        if (descriptions.isEmpty) throw StateError('empty result');
+      } catch (e) {
+        debugPrint('LLM decomposition failed, using keyword fallback: $e');
+        onFallback?.call();
+        state.fail(goalId, errorMessage: e.toString());
+        descriptions = _scaffoldDescriptions(title, description);
+      }
+      onResult(descriptions);
+
+      // Deliver emoji once decomposition is done (usually already resolved).
+      if (emojiFuture != null) {
+        try {
+          final emoji = await emojiFuture;
+          if (emoji != null) onEmoji!(emoji);
+        } catch (_) {}
+      }
+    } finally {
+      state.end(goalId);
+    }
   }
 
   Future<List<SubTask>> _buildSubTasks(
     String goalId,
     String title,
     String? description,
+    GoalDifficulty difficulty,
     VoidCallback? onLlmFallback,
   ) async {
-    if (_llm != null) {
+    if (_client != null) {
       try {
-        return await _llmSubTasks(title, description);
+        final descriptions = await _client.decompose(
+          title,
+          description: description,
+          difficulty: difficulty,
+        );
+        return descriptions
+            .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
+            .toList();
       } catch (e) {
-        debugPrint('LLM decomposition failed, using keyword fallback: $e');
+        debugPrint('Decomposition failed, using keyword fallback: $e');
         onLlmFallback?.call();
       }
     }
     return _scaffoldSubTasks(goalId, title, description);
   }
 
-  Future<List<SubTask>> _llmSubTasks(
-    String title,
-    String? description,
-  ) async {
-    const system =
-        'Break the goal into 3–6 short, concrete, actionable steps. '
-        'Return ONLY a JSON array of strings — no explanation, no markdown. '
-        'Example: ["Step one","Step two","Step three"]';
-
-    final user = description?.isNotEmpty == true
-        ? 'Goal: "$title". Context: $description'
-        : 'Goal: "$title"';
-
-    final raw = await _llm!.complete(system, user);
-
-    // Parse JSON array — throws on malformed response, caught by _buildSubTasks
-    final parsed = jsonDecode(raw) as List;
-    return parsed
-        .map((s) => SubTask(subtaskId: _uuid.v4(), description: s as String))
-        .toList();
+  List<String> _scaffoldDescriptions(String title, String? description) {
+    final intent = _detectIntent(title, description);
+    return _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
   }
 
-  // Private — replaced by _llmSubTasks when LLM is available.
-  // Kept as fallback for offline / unconfigured mode.
   List<SubTask> _scaffoldSubTasks(
     String goalId,
     String title,
     String? description,
   ) {
-    final intent = _detectIntent(title, description);
-    final templates = _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
-
-    return templates
+    return _scaffoldDescriptions(title, description)
         .map((desc) => SubTask(subtaskId: _uuid.v4(), description: desc))
         .toList();
   }
@@ -113,27 +258,108 @@ class GoalDecompositionService {
     // broader single-word matches further down the list.
     const patterns = <String, List<String>>{
       // Everyday / one-shot tasks
-      'reminder': ['remember to', "don't forget", 'do not forget', 'dont forget'],
-      'errand': ['pick up', 'pickup', 'drop off', 'dropoff', 'drop by', 'collect from'],
-      'travel': ['trip', 'vacation', 'holiday', 'flight', 'hotel', 'fly to', 'drive to', 'travel'],
-      'cook': ['cook', 'bake', 'meal prep', 'prepare meal', 'make dinner', 'make lunch', 'make breakfast'],
+      'reminder': [
+        'remember to',
+        "don't forget",
+        'do not forget',
+        'dont forget',
+      ],
+      'errand': [
+        'pick up',
+        'pickup',
+        'drop off',
+        'dropoff',
+        'drop by',
+        'collect from',
+      ],
+      'travel': [
+        'trip',
+        'vacation',
+        'holiday',
+        'flight',
+        'hotel',
+        'fly to',
+        'drive to',
+        'travel',
+      ],
+      'cook': [
+        'cook',
+        'bake',
+        'meal prep',
+        'prepare meal',
+        'make dinner',
+        'make lunch',
+        'make breakfast',
+      ],
       'apply': ['apply for', 'submit application'],
       'appointment': ['book', 'reschedule', 'appointment'],
       'buy': ['buy', 'purchase', 'order', 'shop for'],
-      'call': ['call', 'phone', 'email', 'text', 'message', 'contact', 'reach out'],
+      'call': [
+        'call',
+        'phone',
+        'email',
+        'text',
+        'message',
+        'contact',
+        'reach out',
+      ],
       'clean': ['clean', 'tidy', 'declutter', 'wash', 'do laundry', 'vacuum'],
       'pay': ['pay', 'renew', 'file taxes'],
       // Project / improvement tasks
-      'learn': ['learn', 'study', 'understand', 'master', 'practise', 'practice'],
+      'learn': [
+        'learn',
+        'study',
+        'understand',
+        'master',
+        'practise',
+        'practice',
+      ],
       'build': ['build', 'develop', 'implement', 'code', 'program', 'create'],
-      'write': ['write', 'draft', 'author', 'document', 'compose', 'blog', 'essay'],
-      'plan': ['plan', 'organise', 'organize', 'prepare', 'schedule', 'arrange', 'set up'],
+      'write': [
+        'write',
+        'draft',
+        'author',
+        'document',
+        'compose',
+        'blog',
+        'essay',
+      ],
+      'plan': [
+        'plan',
+        'organise',
+        'organize',
+        'prepare',
+        'schedule',
+        'arrange',
+        'set up',
+      ],
       'read': ['read', 'finish reading', 'go through'],
       'fix': ['fix', 'debug', 'solve', 'resolve', 'troubleshoot', 'repair'],
-      'research': ['research', 'investigate', 'analyse', 'analyze', 'audit', 'evaluate'],
+      'research': [
+        'research',
+        'investigate',
+        'analyse',
+        'analyze',
+        'audit',
+        'evaluate',
+      ],
       'launch': ['launch', 'ship', 'release', 'deploy', 'publish'],
-      'design': ['design', 'prototype', 'wireframe', 'mockup', 'sketch', 'redesign'],
-      'exercise': ['exercise', 'workout', 'work out', 'train', 'jog', 'stretch'],
+      'design': [
+        'design',
+        'prototype',
+        'wireframe',
+        'mockup',
+        'sketch',
+        'redesign',
+      ],
+      'exercise': [
+        'exercise',
+        'workout',
+        'work out',
+        'train',
+        'jog',
+        'stretch',
+      ],
     };
 
     for (final entry in patterns.entries) {
@@ -149,10 +375,7 @@ class GoalDecompositionService {
   }
 
   static const _templatesByIntent = <String, List<String>>{
-    'reminder': [
-      'Note when this needs to happen',
-      'Do the task',
-    ],
+    'reminder': ['Note when this needs to happen', 'Do the task'],
     'errand': [
       'Confirm details (location, hours, what you need)',
       'Plan when you will go',

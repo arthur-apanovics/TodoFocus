@@ -4,32 +4,45 @@ import 'package:todo_app/screens/focus_screen.dart';
 import 'package:todo_app/screens/goal_detail_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/inbox_screen.dart';
+import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'models/enums.dart';
+import 'services/backup_service.dart';
+import 'services/daily_reset_service.dart';
+import 'services/decomposition_state.dart';
+import 'services/draft_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
-import 'services/llm/llm_config.dart';
-import 'services/llm/llm_client.dart';
+import 'services/settings/llm_settings_service.dart';
+import 'screens/widgets/icon_catalog.dart';
 import 'theme/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final goalRepository = await HiveGoalRepository.init();
-
-  final llmConfig = LlmConfig.fromEnvironment();
-  final llmClient = llmConfig != null ? LlmClient(llmConfig) : null;
+  final llmSettingsService = await LlmSettingsService.init();
+  final dailyResetService = await DailyResetService.init(goalRepository);
 
   final tabNotifier = ValueNotifier<int>(0);
+  final goalNavNotifier =
+      ValueNotifier<({String goalId, int seq, bool breakdown})?>(null);
 
   final notificationService = NotificationService(
-    tabNotifier: tabNotifier,
+    goalNavNotifier: goalNavNotifier,
     repository: goalRepository,
   );
   await notificationService.init();
+
+  // Schedule morning prompt if configured.
+  if (dailyResetService.morningPromptEnabled) {
+    final t = dailyResetService.morningPromptTime;
+    await notificationService.scheduleMorningPrompt(t.hour, t.minute);
+  }
 
   goalRepository.addListener(() {
     notificationService.update(GoalQueries(goalRepository).todayQueue);
@@ -40,24 +53,30 @@ void main() async {
 
   runApp(TodoApp(
     goalRepository: goalRepository,
-    llmClient: llmClient,
+    llmSettingsService: llmSettingsService,
+    dailyResetService: dailyResetService,
     notificationService: notificationService,
     tabNotifier: tabNotifier,
+    goalNavNotifier: goalNavNotifier,
   ));
 }
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
-  final LlmClient? llmClient;
+  final LlmSettingsService llmSettingsService;
+  final DailyResetService dailyResetService;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
   const TodoApp({
     super.key,
     required this.goalRepository,
-    this.llmClient,
+    required this.llmSettingsService,
+    required this.dailyResetService,
     required this.notificationService,
     required this.tabNotifier,
+    required this.goalNavNotifier,
   });
 
   @override
@@ -65,13 +84,33 @@ class TodoApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<GoalRepository>.value(value: goalRepository),
+        ChangeNotifierProvider<LlmSettingsService>.value(
+          value: llmSettingsService,
+        ),
         ProxyProvider<GoalRepository, GoalService>(
           update: (_, repository, _) => GoalService(repository),
         ),
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, _) => GoalQueries(repository),
         ),
-        Provider(create: (_) => GoalDecompositionService(llm: llmClient)),
+        ProxyProvider<LlmSettingsService, GoalDecompositionService>(
+          update: (_, settings, _) => GoalDecompositionService(
+            client: settings.buildClient(),
+            generateEmojis: settings.generateEmojis,
+            iconNames: iconByName.keys.toList(),
+          ),
+        ),
+        ChangeNotifierProvider<DecompositionState>(
+          create: (_) => DecompositionState(),
+        ),
+        Provider<DraftService>(create: (_) => DraftService()),
+        ChangeNotifierProvider<DailyResetService>.value(
+          value: dailyResetService,
+        ),
+        ProxyProvider2<GoalRepository, LlmSettingsService, BackupService>(
+          update: (_, goals, settings, _) =>
+              BackupService(goals: goals, settings: settings),
+        ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
       ],
@@ -81,7 +120,7 @@ class TodoApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: AppShell(tabNotifier: tabNotifier),
+        home: AppShell(tabNotifier: tabNotifier, goalNavNotifier: goalNavNotifier),
       ),
     );
   }
@@ -89,114 +128,355 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
 
-  const AppShell({super.key, required this.tabNotifier});
+  const AppShell({
+    super.key,
+    required this.tabNotifier,
+    required this.goalNavNotifier,
+  });
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
-  late int _currentIndex;
+class _AppShellState extends State<AppShell>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  late final ValueNotifier<bool> _goalsShowCompleted;
 
-  static const List<Widget> _screens = [
-    FocusScreen(),
-    GoalsScreen(),
-    InboxScreen(),
-  ];
+  static const _tabTitles = ['Today', 'Goals', 'Inbox'];
 
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.tabNotifier.value;
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.tabNotifier.value,
+    );
+    _goalsShowCompleted = ValueNotifier(false);
+    _tabController.addListener(_onTabControllerChanged);
     widget.tabNotifier.addListener(_onExternalTabChange);
+    widget.goalNavNotifier.addListener(_onGoalNavRequested);
     WidgetsBinding.instance.addObserver(this);
+    // Cold-start: notification action fired before AppShell was mounted.
+    final pending = widget.goalNavNotifier.value;
+    if (pending != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _navigateToGoal(pending.goalId, breakdown: pending.breakdown);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabControllerChanged);
+    _tabController.dispose();
+    _goalsShowCompleted.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
+    widget.goalNavNotifier.removeListener(_onGoalNavRequested);
     super.dispose();
+  }
+
+  // Fires on every animation frame during a swipe and once when settled.
+  // Only sync the notifier when the animation has fully settled to avoid
+  // triggering side-effects (e.g. notification updates) mid-swipe.
+  void _onTabControllerChanged() {
+    if (!_tabController.indexIsChanging &&
+        widget.tabNotifier.value != _tabController.index) {
+      widget.tabNotifier.value = _tabController.index;
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Re-post the notification in case it was cleared while backgrounded.
-      // ongoing: true blocks swipe-to-dismiss but not long-press clear or
-      // system memory pressure, so we always re-assert it on resume.
-      final repo = context.read<GoalRepository>();
-      context.read<NotificationService>()
-          .update(GoalQueries(repo).todayQueue);
+      _checkResetAndUpdateNotification();
+    }
+  }
+
+  Future<void> _checkResetAndUpdateNotification() async {
+    final repo = context.read<GoalRepository>();
+    final notif = context.read<NotificationService>();
+    final resetService = context.read<DailyResetService>();
+
+    final wasReset = await resetService.checkAndReset();
+    final queue = GoalQueries(repo).todayQueue;
+
+    if (wasReset && queue.isEmpty) {
+      await notif.showAssignTasksPrompt();
+    } else {
+      await notif.update(queue);
     }
   }
 
   void _onExternalTabChange() {
-    if (mounted && widget.tabNotifier.value != _currentIndex) {
-      setState(() => _currentIndex = widget.tabNotifier.value);
+    if (mounted && widget.tabNotifier.value != _tabController.index) {
+      _tabController.animateTo(widget.tabNotifier.value);
     }
   }
 
+  void _onGoalNavRequested() {
+    final request = widget.goalNavNotifier.value;
+    if (!mounted || request == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _navigateToGoal(request.goalId, breakdown: request.breakdown);
+    });
+  }
+
+  void _navigateToGoal(String goalId, {bool breakdown = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GoalDetailScreen(
+          goalId: goalId,
+          triggerBreakdown: breakdown,
+        ),
+      ),
+    );
+  }
+
   void _onDestinationSelected(int index) {
-    setState(() => _currentIndex = index);
+    _tabController.animateTo(index);
     widget.tabNotifier.value = index;
   }
 
-  FloatingActionButton _buildFab(BuildContext context) {
+  // Opens the new-goal bottom sheet and navigates to the detail screen on
+  // success. Called from the FAB and the notification action.
+  Future<void> _openNewGoalSheet() async {
+    // Read inside the method so we always get current instances — reading at
+    // build time would capture stale refs when ProxyProvider rebuilds.
     final goalService = context.read<GoalService>();
     final decompositionService = context.read<GoalDecompositionService>();
+    final decompositionState = context.read<DecompositionState>();
+    final draftService = context.read<DraftService>();
 
+    final goalId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => NewGoalSheet(
+        goalService: goalService,
+        decompositionService: decompositionService,
+        decompositionState: decompositionState,
+        draftService: draftService,
+      ),
+    );
+    if (goalId != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => GoalDetailScreen(goalId: goalId)),
+      );
+    }
+  }
+
+  FloatingActionButton _buildFab(BuildContext context) {
     return FloatingActionButton(
-      onPressed: () async {
-        final goalId = await showModalBottomSheet<String>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
-          builder: (_) => NewGoalSheet(
-            goalService: goalService,
-            decompositionService: decompositionService,
-          ),
-        );
-        if (goalId != null && context.mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => GoalDetailScreen(goalId: goalId),
-            ),
-          );
-        }
-      },
+      onPressed: _openNewGoalSheet,
       child: const Icon(Icons.add),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      floatingActionButton: _buildFab(context),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: _onDestinationSelected,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.bolt_outlined),
-            selectedIcon: Icon(Icons.bolt),
-            label: 'Focus',
+    return AnimatedBuilder(
+      animation: Listenable.merge([_tabController, _goalsShowCompleted]),
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: Text(_tabTitles[_tabController.index]),
+          actions: [
+            if (_tabController.index == 1) ...[
+              _GoalsFilterButton(
+                showCompleted: _goalsShowCompleted.value,
+                onChanged: (v) => _goalsShowCompleted.value = v,
+              ),
+              _SortButton(),
+            ],
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
+            ),
+          ],
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            const FocusScreen(),
+            GoalsScreen(showCompletedNotifier: _goalsShowCompleted),
+            const InboxScreen(),
+          ],
+        ),
+        floatingActionButton: _buildFab(context),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabController.index,
+          onDestinationSelected: _onDestinationSelected,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.bolt_outlined),
+              selectedIcon: Icon(Icons.bolt),
+              label: 'Focus',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.flag_outlined),
+              selectedIcon: Icon(Icons.flag),
+              label: 'Goals',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.inbox_outlined),
+              selectedIcon: Icon(Icons.inbox),
+              label: 'Inbox',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Goals tab — filter toggle (Active / Done) + sort button + sort sheet
+// ---------------------------------------------------------------------------
+
+class _GoalsFilterButton extends StatelessWidget {
+  final bool showCompleted;
+  final ValueChanged<bool> onChanged;
+
+  const _GoalsFilterButton({
+    required this.showCompleted,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SegmentedButton<bool>(
+        style: SegmentedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          textStyle: Theme.of(context).textTheme.labelSmall,
+        ),
+        segments: const [
+          ButtonSegment(value: false, label: Text('Active')),
+          ButtonSegment(value: true, label: Text('Done')),
+        ],
+        selected: {showCompleted},
+        onSelectionChanged: (s) => onChanged(s.first),
+        showSelectedIcon: false,
+      ),
+    );
+  }
+}
+
+class _SortButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final order = context.watch<DailyResetService>().sortOrder;
+    return IconButton(
+      icon: const Icon(Icons.sort),
+      tooltip: 'Sort goals',
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => _SortSheet(
+          current: order,
+          onSelected: context.read<DailyResetService>().setSortOrder,
+        ),
+      ),
+    );
+  }
+}
+
+class _SortSheet extends StatelessWidget {
+  final GoalSortOrder current;
+  final void Function(GoalSortOrder) onSelected;
+
+  const _SortSheet({required this.current, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+            child: Text(
+              'Sort goals',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.flag_outlined),
-            selectedIcon: Icon(Icons.flag),
-            label: 'Goals',
+          _SortTile(
+            label: 'Date added',
+            subtitle: 'Oldest first',
+            icon: Icons.calendar_today_outlined,
+            selected: current == GoalSortOrder.dateAdded,
+            onTap: () {
+              onSelected(GoalSortOrder.dateAdded);
+              Navigator.pop(context);
+            },
           ),
-          NavigationDestination(
-            icon: Icon(Icons.inbox_outlined),
-            selectedIcon: Icon(Icons.inbox),
-            label: 'Inbox',
+          _SortTile(
+            label: 'Urgency',
+            subtitle: 'Near deadlines → previously assigned → rest',
+            icon: Icons.priority_high,
+            selected: current == GoalSortOrder.urgency,
+            onTap: () {
+              onSelected(GoalSortOrder.urgency);
+              Navigator.pop(context);
+            },
           ),
+          _SortTile(
+            label: 'Smart',
+            subtitle: 'Same as urgency — recommended default',
+            icon: Icons.auto_awesome_outlined,
+            selected: current == GoalSortOrder.smart,
+            onTap: () {
+              onSelected(GoalSortOrder.smart);
+              Navigator.pop(context);
+            },
+          ),
+          const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+}
+
+class _SortTile extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SortTile({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon,
+          color: selected ? Theme.of(context).colorScheme.primary : null),
+      title: Text(label,
+          style: selected
+              ? TextStyle(color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600)
+              : null),
+      subtitle: Text(subtitle),
+      trailing: selected ? const Icon(Icons.check) : null,
+      onTap: onTap,
     );
   }
 }

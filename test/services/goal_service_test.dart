@@ -104,6 +104,23 @@ void main() {
       service.updateGoal('g1', notes: 'Only notes');
       expect(repo.findById('g1')!.title, 'Test goal');
     });
+
+    test('updates difficulty when provided', () {
+      final (service, repo) = makeService(seed: [makeGoal()]);
+      service.updateGoal('g1', difficulty: GoalDifficulty.hard);
+      expect(repo.findById('g1')!.difficulty, GoalDifficulty.hard);
+    });
+
+    test('does not overwrite difficulty when only title is passed', () {
+      final goal = Goal(
+        goalId: 'g1',
+        title: 'T',
+        difficulty: GoalDifficulty.impossible,
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.updateGoal('g1', title: 'Updated');
+      expect(repo.findById('g1')!.difficulty, GoalDifficulty.impossible);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -260,6 +277,50 @@ void main() {
       service.reorderSubTask('g1', 2, 1); // move s3 before s2
       final ids = repo.findById('g1')!.subtasks.map((t) => t.subtaskId);
       expect(ids.toList(), ['s1', 's3', 's2']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // replacePendingSubTasks
+  // -------------------------------------------------------------------------
+
+  group('replacePendingSubTasks', () {
+    test('removes pending subtasks and adds new ones, preserving completed', () {
+      final goal = makeGoal(subtasks: [
+        makeSubTask('s1', state: SubTaskState.completed),
+        makeSubTask('s2'),
+        makeSubTask('s3'),
+      ]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.replacePendingSubTasks('g1', ['New step A', 'New step B']);
+      final loaded = repo.findById('g1')!;
+      expect(loaded.subtasks.length, 3); // 1 completed + 2 new
+      expect(loaded.subtasks[0].subtaskId, 's1');
+      expect(loaded.subtasks[1].description, 'New step A');
+      expect(loaded.subtasks[2].description, 'New step B');
+    });
+
+    test('replaces all subtasks when none are completed', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1'), makeSubTask('s2')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.replacePendingSubTasks('g1', ['Only step']);
+      final loaded = repo.findById('g1')!;
+      expect(loaded.subtasks.length, 1);
+      expect(loaded.subtasks.first.description, 'Only step');
+    });
+
+    test('is a no-op when descriptions list is empty', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.replacePendingSubTasks('g1', []);
+      final loaded = repo.findById('g1')!;
+      expect(loaded.subtasks.length, 1); // unchanged
+    });
+
+    test('is a no-op for an unknown goalId', () {
+      final (service, repo) = makeService();
+      service.replacePendingSubTasks('nonexistent', ['Step']);
+      expect(repo.all, isEmpty);
     });
   });
 }

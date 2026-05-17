@@ -1,16 +1,27 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
+import '../../models/enums.dart';
+import '../../services/decomposition_state.dart';
+import '../../services/draft_service.dart';
 import '../../services/goal_service.dart';
 import '../../services/goal_decomposition_service.dart';
 import 'app_bottom_sheet.dart';
+import 'emoji_picker_sheet.dart';
+import 'goal_symbol.dart';
 
 class NewGoalSheet extends StatefulWidget {
   final GoalService goalService;
   final GoalDecompositionService decompositionService;
+  final DecompositionState decompositionState;
+  final DraftService draftService;
 
   const NewGoalSheet({
     super.key,
     required this.goalService,
     required this.decompositionService,
+    required this.decompositionState,
+    required this.draftService,
   });
 
   @override
@@ -18,61 +29,96 @@ class NewGoalSheet extends StatefulWidget {
 }
 
 class _NewGoalSheetState extends State<NewGoalSheet> {
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  late final TextEditingController _titleController;
+  late final TextEditingController _descriptionController;
+  final _descriptionFocus = FocusNode();
   DateTime? _dueDate;
-  bool _loading = false;
+  GoalDifficulty _difficulty = GoalDifficulty.easy;
+  String? _emoji;
+
+  // Prevents dispose() from saving after a successful submission.
+  bool _submitted = false;
+
+  DraftService get _draft => widget.draftService;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: _draft.newGoalTitle);
+    _descriptionController =
+        TextEditingController(text: _draft.newGoalDescription);
+    _dueDate = _draft.newGoalDueDate;
+    _difficulty = _draft.newGoalDifficulty;
+  }
 
   @override
   void dispose() {
+    if (!_submitted) {
+      _draft.saveNewGoal(
+        title: _titleController.text,
+        description: _descriptionController.text,
+        dueDate: _dueDate,
+        difficulty: _difficulty,
+      );
+    }
     _titleController.dispose();
     _descriptionController.dispose();
+    _descriptionFocus.dispose();
     super.dispose();
   }
 
-  Future<void> _createGoal(BuildContext context) async {
+  void _createGoal(BuildContext context) {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
-    setState(() => _loading = true);
+    _submitted = true;
+    _draft.clearNewGoal();
 
-    bool usedFallback = false;
-    final goal = await widget.decompositionService.decompose(
+    final description = _descriptionController.text.trim();
+    final goal = widget.decompositionService.createGoal(
       title: title,
-      description: _descriptionController.text.trim(),
+      description: description.isEmpty ? null : description,
       dueDate: _dueDate,
-      onLlmFallback: () => usedFallback = true,
+      difficulty: _difficulty,
     );
-
     widget.goalService.addGoal(goal);
+    if (_emoji != null) {
+      widget.goalService.setEmoji(goal.goalId, _emoji!);
+    }
 
+    // Navigate immediately — subtasks populate asynchronously in the detail screen.
     if (!context.mounted) return;
-
-    // Capture messenger before popping — the sheet's context is invalid after pop.
-    final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context, goal.goalId);
 
-    if (usedFallback) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('AI assistant unavailable — used smart templates instead'),
-          duration: Duration(seconds: 4),
-        ),
-      );
-    }
+    unawaited(widget.decompositionService.decomposeInBackground(
+      goalId: goal.goalId,
+      title: goal.title,
+      description: goal.notes.isEmpty ? null : goal.notes,
+      onResult: (descriptions) =>
+          widget.goalService.replaceAllSubTasks(goal.goalId, descriptions),
+      onEmoji: (emoji) => widget.goalService.setEmoji(goal.goalId, emoji),
+      state: widget.decompositionState,
+      difficulty: _difficulty,
+    ));
   }
 
   void _sendToInbox(BuildContext context) {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
+    _submitted = true;
+    _draft.clearNewGoal();
+
+    final description = _descriptionController.text.trim();
     final goal = widget.decompositionService.captureToInbox(
       title: title,
-      description: _descriptionController.text.trim(),
+      description: description.isEmpty ? null : description,
+      difficulty: _difficulty,
     );
-
     widget.goalService.addGoal(goal);
-    if (context.mounted) Navigator.pop(context);
+
+    if (!context.mounted) return;
+    Navigator.pop(context);
   }
 
   Future<void> _pickDueDate() async {
@@ -87,15 +133,38 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
     }
   }
 
+  void _clearFields() {
+    _draft.clearNewGoal();
+    _titleController.text = '';
+    _descriptionController.text = '';
+    setState(() {
+      _dueDate = null;
+      _difficulty = GoalDifficulty.easy;
+      _emoji = null;
+    });
+  }
+
+  Future<void> _pickEmoji() async {
+    final picked = await showEmojiPickerSheet(context);
+    if (picked != null && mounted) setState(() => _emoji = picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppBottomSheet(
       title: 'New Goal',
+      trailing: IconButton(
+        icon: const Icon(Icons.clear_all),
+        tooltip: 'Clear all fields',
+        onPressed: _clearFields,
+      ),
       children: [
         TextField(
           controller: _titleController,
           autofocus: true,
-          enabled: !_loading,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) => _descriptionFocus.requestFocus(),
           decoration: const InputDecoration(
             labelText: 'Title',
             hintText: 'What do you want to achieve?',
@@ -105,8 +174,9 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         const SizedBox(height: 12),
         TextField(
           controller: _descriptionController,
+          focusNode: _descriptionFocus,
           maxLines: 2,
-          enabled: !_loading,
+          textCapitalization: TextCapitalization.sentences,
           decoration: const InputDecoration(
             labelText: 'Description (optional)',
             hintText: 'Any extra context...',
@@ -116,10 +186,50 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         const SizedBox(height: 12),
         Row(
           children: [
+            GestureDetector(
+              onTap: _pickEmoji,
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: _emoji != null
+                    ? GoalSymbol(name: _emoji, size: 28)
+                    : Icon(
+                        Icons.add_reaction_outlined,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _emoji != null ? 'Tap to change emoji' : 'Add an emoji (optional)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (_emoji != null)
+              IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                tooltip: 'Remove emoji',
+                onPressed: () => setState(() { _emoji = null; }),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
             const Icon(Icons.calendar_today_outlined, size: 18),
             const SizedBox(width: 8),
             TextButton(
-              onPressed: _loading ? null : _pickDueDate,
+              onPressed: _pickDueDate,
               child: Text(
                 _dueDate == null
                     ? 'Set due date (optional)'
@@ -129,14 +239,18 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
             if (_dueDate != null)
               IconButton(
                 icon: const Icon(Icons.clear, size: 18),
-                onPressed:
-                    _loading ? null : () => setState(() => _dueDate = null),
+                onPressed: () => setState(() => _dueDate = null),
               ),
           ],
         ),
+        const SizedBox(height: 4),
+        _DifficultySelector(
+          value: _difficulty,
+          onChanged: (d) => setState(() => _difficulty = d),
+        ),
         const SizedBox(height: 8),
         OutlinedButton(
-          onPressed: _loading ? null : () => _sendToInbox(context),
+          onPressed: () => _sendToInbox(context),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
           ),
@@ -151,27 +265,50 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
         ),
         const SizedBox(height: 8),
         FilledButton(
-          onPressed: _loading ? null : () => _createGoal(context),
+          onPressed: () => _createGoal(context),
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
           ),
-          child: _loading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.flag_outlined, size: 18),
+              SizedBox(width: 8),
+              Text('Create Goal'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DifficultySelector extends StatelessWidget {
+  final GoalDifficulty value;
+  final ValueChanged<GoalDifficulty> onChanged;
+
+  const _DifficultySelector({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.tune_outlined, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SegmentedButton<GoalDifficulty>(
+            segments: GoalDifficulty.values
+                .map(
+                  (d) => ButtonSegment(
+                    value: d,
+                    label: Text(d.displayName),
                   ),
                 )
-              : const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.flag_outlined, size: 18),
-                    SizedBox(width: 8),
-                    Text('Create Goal'),
-                  ],
-                ),
+                .toList(),
+            selected: {value},
+            onSelectionChanged: (s) => onChanged(s.first),
+            showSelectedIcon: false,
+          ),
         ),
       ],
     );
