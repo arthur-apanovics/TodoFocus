@@ -276,15 +276,17 @@ class _AppShellState extends State<AppShell>
     }
   }
 
-  FloatingActionButton _buildFab(BuildContext context) {
-    return FloatingActionButton(
+  Widget _buildFab(BuildContext context) {
+    return FloatingActionButton.extended(
       onPressed: _openNewGoalSheet,
-      child: const Icon(Icons.add),
+      icon: const Icon(Icons.add),
+      label: const Text('Create goal'),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final inboxCount = context.watch<GoalQueries>().inbox.length;
     return AnimatedBuilder(
       animation: Listenable.merge([_tabController, _goalsShowCompleted]),
       builder: (context, _) => Scaffold(
@@ -320,20 +322,28 @@ class _AppShellState extends State<AppShell>
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tabController.index,
           onDestinationSelected: _onDestinationSelected,
-          destinations: const [
-            NavigationDestination(
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.bolt_outlined),
               selectedIcon: Icon(Icons.bolt),
               label: 'Focus',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.flag_outlined),
               selectedIcon: Icon(Icons.flag),
               label: 'Goals',
             ),
             NavigationDestination(
-              icon: Icon(Icons.edit_note_outlined),
-              selectedIcon: Icon(Icons.edit_note),
+              icon: Badge(
+                isLabelVisible: inboxCount > 0,
+                label: Text('$inboxCount'),
+                child: const Icon(Icons.edit_note_outlined),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: inboxCount > 0,
+                label: Text('$inboxCount'),
+                child: const Icon(Icons.edit_note),
+              ),
               label: 'Planning',
             ),
           ],

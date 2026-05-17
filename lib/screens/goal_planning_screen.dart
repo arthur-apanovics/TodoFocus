@@ -546,13 +546,14 @@ class _GoalActionsRow extends StatelessWidget {
         context.watch<LlmSettingsService>().buildClient() != null;
     final service = context.read<GoalService>();
     final isActive = goal.status == GoalStatus.active;
+    final isInbox = goal.status == GoalStatus.inbox;
 
     return Row(
       children: [
         _DueDateChip(goal: goal),
         const Spacer(),
         // ── Add new goal operations here ────────────────────────────
-        if (llmEnabled && isActive && onRedecompose != null)
+        if (llmEnabled && (isActive || isInbox) && onRedecompose != null)
           IconButton(
             icon: const Icon(Icons.auto_awesome_outlined),
             tooltip: 'Re-decompose subtasks',

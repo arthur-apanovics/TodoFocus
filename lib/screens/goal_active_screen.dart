@@ -9,9 +9,11 @@ import '../theme/app_colors.dart';
 import 'goal_planning_screen.dart' show GoalPlanningScreen, SubTaskTile;
 import 'widgets/goal_symbol.dart';
 
-// Execution-focused view for an active goal. The planning screen is for
-// shaping subtasks; this screen is for completing them. Tapping "Edit" in
-// the AppBar opens the planning screen in `isEditingActive` mode.
+enum _GoalAction { plan, archive, sendToPlanning }
+
+// Execution-focused view for an active or completed goal. The planning screen
+// is for shaping subtasks; this screen is for completing them. The three-dot
+// menu opens the planning screen ("Plan"), archives, or sends back to planning.
 class GoalActiveScreen extends StatefulWidget {
   final String goalId;
   // Set when arriving from the "Break it down" notification action — fires
@@ -30,10 +32,17 @@ class GoalActiveScreen extends StatefulWidget {
 
 class _GoalActiveScreenState extends State<GoalActiveScreen> {
   bool _completionAnnounced = false;
+  // True when the goal was active at the moment this screen was pushed.
+  // Used to distinguish "just finished" (pop + celebrate) from "navigated
+  // to an already-completed goal" (render read-only view, no pop).
+  bool _wasActive = false;
 
   @override
   void initState() {
     super.initState();
+    _wasActive =
+        context.read<GoalRepository>().findById(widget.goalId)?.status ==
+            GoalStatus.active;
     if (widget.triggerBreakdown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _autoBreakdown();
@@ -60,6 +69,28 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
   }
 
+  void _handleAction(BuildContext context, Goal goal, _GoalAction action) {
+    final service = context.read<GoalService>();
+    switch (action) {
+      case _GoalAction.plan:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GoalPlanningScreen(
+              goalId: goal.goalId,
+              isEditingActive: true,
+            ),
+          ),
+        );
+      case _GoalAction.archive:
+        service.archiveGoal(goal.goalId);
+        Navigator.pop(context);
+      case _GoalAction.sendToPlanning:
+        service.sendToPlanning(goal.goalId);
+        Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final repository = context.watch<GoalRepository>();
@@ -72,10 +103,11 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
       return const SizedBox.shrink();
     }
 
-    // Goal just transitioned to completed (last subtask checked off on
-    // this screen) — announce + pop back to the Goals tab once. The flag
-    // prevents repeat triggers if the user re-enters the completed goal.
-    if (goal.status == GoalStatus.completed && !_completionAnnounced) {
+    final isCompleted = goal.status == GoalStatus.completed;
+
+    // Goal just transitioned to completed while the user was on this screen
+    // (last subtask checked off here). Celebrate + pop back once.
+    if (isCompleted && _wasActive && !_completionAnnounced) {
       _completionAnnounced = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -86,7 +118,10 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
       });
     }
 
-    final isCompleted = goal.status == GoalStatus.completed;
+    // Suppress rendering during the async pop frame.
+    if (isCompleted && _wasActive && _completionAnnounced) {
+      return const SizedBox.shrink();
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -103,39 +138,84 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
               )
             : Text(goal.title, overflow: TextOverflow.ellipsis),
         actions: [
-          // Completed goals are locked from editing — keeps the user from
-          // accidentally re-opening planning on a finished goal.
-          if (!isCompleted)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Edit goal',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => GoalPlanningScreen(
-                    goalId: goal.goalId,
-                    isEditingActive: true,
+          PopupMenuButton<_GoalAction>(
+            onSelected: (action) => _handleAction(context, goal, action),
+            itemBuilder: (_) => [
+              if (!isCompleted) ...[
+                const PopupMenuItem(
+                  value: _GoalAction.plan,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_note_outlined),
+                    title: Text('Plan'),
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
-              ),
-            ),
+                const PopupMenuItem(
+                  value: _GoalAction.archive,
+                  child: ListTile(
+                    leading: Icon(Icons.archive_outlined),
+                    title: Text('Archive'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+              if (isCompleted)
+                const PopupMenuItem(
+                  value: _GoalAction.sendToPlanning,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_note_outlined),
+                    title: Text('Send to Planning'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ProgressHeader(goal: goal),
-          Expanded(child: _SubtaskList(goal: goal)),
+          _GoalHeader(goal: goal),
+          if (isCompleted)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                'Read-only — send to Planning to re-queue',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.muted,
+                    ),
+              ),
+            ),
+          Expanded(child: _SubtaskList(goal: goal, readOnly: isCompleted)),
         ],
       ),
     );
   }
 }
 
-class _ProgressHeader extends StatelessWidget {
+class _GoalHeader extends StatelessWidget {
   final Goal goal;
 
-  const _ProgressHeader({required this.goal});
+  const _GoalHeader({required this.goal});
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _formatDueDate(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(d.year, d.month, d.day);
+    final diff = date.difference(today).inDays;
+    if (diff == 0) return 'Due today';
+    if (diff == 1) return 'Due tomorrow';
+    if (diff == -1) return 'Due yesterday';
+    if (diff < 0) return '${diff.abs()}d overdue';
+    if (diff <= 7) return 'Due in ${diff}d';
+    final label = '${_months[d.month - 1]} ${d.day}';
+    return 'Due ${d.year == now.year ? label : '$label ${d.year}'}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +226,29 @@ class _ProgressHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (goal.notes.isNotEmpty) ...[
+            Text(goal.notes, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+          ],
+          if (goal.dueDate != null) ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.calendar_today_outlined,
+                  size: 14,
+                  color: AppColors.muted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _formatDueDate(goal.dueDate!),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.muted,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: [
               Expanded(
@@ -178,8 +281,9 @@ class _ProgressHeader extends StatelessWidget {
 
 class _SubtaskList extends StatelessWidget {
   final Goal goal;
+  final bool readOnly;
 
-  const _SubtaskList({required this.goal});
+  const _SubtaskList({required this.goal, this.readOnly = false});
 
   @override
   Widget build(BuildContext context) {
@@ -188,13 +292,29 @@ class _SubtaskList extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No subtasks. Tap edit to plan this goal.',
+            'No subtasks. Use the menu to plan this goal.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppColors.muted),
           ),
         ),
       );
     }
+
+    if (readOnly) {
+      return ListView.builder(
+        itemCount: goal.subtasks.length,
+        itemBuilder: (context, index) {
+          final subtask = goal.subtasks[index];
+          return SubTaskTile(
+            key: ValueKey(subtask.subtaskId),
+            subtask: subtask,
+            goal: goal,
+            showCompletion: false,
+          );
+        },
+      );
+    }
+
     return CustomScrollView(
       slivers: [
         SliverReorderableList(
