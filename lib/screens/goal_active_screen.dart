@@ -189,6 +189,7 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
           Expanded(child: _SubtaskList(goal: goal, readOnly: isCompleted)),
         ],
       ),
+      bottomNavigationBar: isCompleted ? null : _FocusBar(goal: goal),
     );
   }
 }
@@ -274,6 +275,44 @@ class _GoalHeader extends StatelessWidget {
                 ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Sticky bottom bar that lets the user toggle this goal in/out of today's
+// focus queue. Mirrors the planning screen's "Queue Goal" bar in placement
+// and sizing, but stays visible for the lifetime of the active-goal view.
+class _FocusBar extends StatelessWidget {
+  final Goal goal;
+
+  const _FocusBar({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final isFocused = goal.isFocusedToday;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: isFocused
+            ? OutlinedButton.icon(
+                icon: const Icon(Icons.star_rounded),
+                label: const Text('In today\'s focus — tap to remove'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () =>
+                    context.read<GoalService>().toggleFocusToday(goal),
+              )
+            : FilledButton.icon(
+                icon: const Icon(Icons.star_outline_rounded),
+                label: const Text('Schedule for today\'s focus'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () =>
+                    context.read<GoalService>().toggleFocusToday(goal),
+              ),
       ),
     );
   }
