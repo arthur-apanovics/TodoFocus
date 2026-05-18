@@ -147,7 +147,7 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
           ),
-          icon: const Icon(Icons.tune, size: 18),
+          icon: const Icon(Icons.format_list_numbered_outlined, size: 18),
           label: const Text('Plan'),
         ),
       ],

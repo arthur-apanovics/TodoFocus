@@ -438,21 +438,10 @@ class _GoalTile extends StatelessWidget {
           : isDecomposing
           ? const _SpinnerLeading()
           : _StatusBadge(status: goal.status, emoji: goal.emoji),
-      title: goal.dueDate != null
-          ? Row(
-              children: [
-                Expanded(child: Text(goal.title)),
-                const SizedBox(width: 8),
-                Text(
-                  _formatDueDate(goal.dueDate!),
-                  style: TextStyle(fontSize: 12, color: AppColors.muted),
-                ),
-              ],
-            )
-          : Text(goal.title),
-      subtitle: Text(
-        isDecomposing ? 'Generating subtasks…' : _subtitleFor(goal),
-      ),
+      title: Text(goal.title),
+      subtitle: isDecomposing
+          ? const Text('Generating subtasks…')
+          : _buildSubtitle(context),
       trailing: selectMode
           ? null
           : Row(
@@ -494,9 +483,36 @@ class _GoalTile extends StatelessWidget {
     return date.year == now.year ? label : '$label ${date.year}';
   }
 
-  String _subtitleFor(Goal goal) {
-    if (goal.subtasks.isEmpty) return 'No subtasks yet';
-    return '${goal.completedSubtaskCount} of ${goal.subtasks.length} complete';
+  Widget _buildSubtitle(BuildContext context) {
+    final hasTasks = goal.subtasks.isNotEmpty;
+    final dueDate = goal.dueDate;
+
+    // No tasks and no due date — plain label, no Row needed.
+    if (!hasTasks && dueDate == null) {
+      return const Text('No subtasks yet');
+    }
+
+    return Row(
+      children: [
+        if (hasTasks)
+          SizedBox(
+            width: 80,
+            child: LinearProgressIndicator(
+              value: goal.progressPercent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          )
+        else
+          const Text('No subtasks yet'),
+        if (dueDate != null) ...[
+          const Spacer(),
+          Text(
+            _formatDueDate(dueDate),
+            style: TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
+        ],
+      ],
+    );
   }
 }
 
