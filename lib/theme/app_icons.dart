@@ -21,6 +21,10 @@ class AppIcons {
   /// Used on the current subtask in both Focus and Goal Detail screens.
   static const IconData complete = Icons.radio_button_unchecked;
 
+
+  /// Points to the current subtask in a list.
+  static const IconData currentSubtask = Icons.arrow_right_outlined;
+
   /// "Revert a completed subtask back to pending." The rewind glyph reads
   /// as "undo a state change" — less ambiguous than `Icons.undo`, which
   /// many users parse as a navigation back-button.

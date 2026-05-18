@@ -15,7 +15,6 @@ class DailyResetService extends ChangeNotifier {
   static const _morningPromptHourKey = 'morning_prompt_hour';
   static const _morningPromptMinuteKey = 'morning_prompt_minute';
   static const _urgencyDaysKey = 'urgency_days';
-  static const _sortOrderKey = 'goal_sort_order';
 
   final Box<String> _box;
   final GoalRepository _repo;
@@ -29,8 +28,6 @@ class DailyResetService extends ChangeNotifier {
   int _morningPromptHour;
   int _morningPromptMinute;
   int _urgencyDays;
-  GoalSortOrder _sortOrder;
-
   DailyResetService._({
     required Box<String> box,
     required GoalRepository repo,
@@ -43,7 +40,6 @@ class DailyResetService extends ChangeNotifier {
     required int morningPromptHour,
     required int morningPromptMinute,
     required int urgencyDays,
-    required GoalSortOrder sortOrder,
   })  : _box = box,
         _repo = repo,
         _resetEnabled = resetEnabled,
@@ -54,8 +50,7 @@ class DailyResetService extends ChangeNotifier {
         _morningPromptEnabled = morningPromptEnabled,
         _morningPromptHour = morningPromptHour,
         _morningPromptMinute = morningPromptMinute,
-        _urgencyDays = urgencyDays,
-        _sortOrder = sortOrder;
+        _urgencyDays = urgencyDays;
 
   bool get resetEnabled => _resetEnabled;
   TimeOfDay get resetTime => TimeOfDay(hour: _resetHour, minute: _resetMinute);
@@ -63,7 +58,6 @@ class DailyResetService extends ChangeNotifier {
   TimeOfDay get morningPromptTime =>
       TimeOfDay(hour: _morningPromptHour, minute: _morningPromptMinute);
   int get urgencyDays => _urgencyDays;
-  GoalSortOrder get sortOrder => _sortOrder;
   List<String> get previouslyAssigned => List.unmodifiable(_previouslyAssigned);
 
   Future<void> setResetEnabled(bool value) async {
@@ -97,12 +91,6 @@ class DailyResetService extends ChangeNotifier {
   Future<void> setUrgencyDays(int days) async {
     _urgencyDays = days;
     await _box.put(_urgencyDaysKey, days.toString());
-    notifyListeners();
-  }
-
-  Future<void> setSortOrder(GoalSortOrder order) async {
-    _sortOrder = order;
-    await _box.put(_sortOrderKey, order.name);
     notifyListeners();
   }
 
@@ -182,14 +170,6 @@ class DailyResetService extends ChangeNotifier {
         ? <String>[]
         : rawPrev.split(',').where((s) => s.isNotEmpty).toList();
 
-    final sortOrderName = box.get(_sortOrderKey);
-    final sortOrder = sortOrderName != null
-        ? GoalSortOrder.values.firstWhere(
-            (e) => e.name == sortOrderName,
-            orElse: () => GoalSortOrder.smart,
-          )
-        : GoalSortOrder.smart;
-
     return DailyResetService._(
       box: box,
       repo: repo,
@@ -203,7 +183,6 @@ class DailyResetService extends ChangeNotifier {
       morningPromptMinute:
           int.tryParse(box.get(_morningPromptMinuteKey) ?? '') ?? 0,
       urgencyDays: int.tryParse(box.get(_urgencyDaysKey) ?? '') ?? 3,
-      sortOrder: sortOrder,
     );
   }
 }

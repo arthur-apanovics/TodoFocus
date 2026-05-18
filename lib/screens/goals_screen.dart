@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/goal.dart';
 import '../models/enums.dart';
+import '../models/goal.dart';
+import '../models/sub_task.dart';
 import '../services/daily_reset_service.dart';
 import '../services/decomposition_state.dart';
+import '../services/display_preferences.dart';
 import '../services/draft_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import 'goal_active_screen.dart';
 import 'widgets/goal_symbol.dart';
 
@@ -143,11 +146,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
   Widget build(BuildContext context) {
     final queries = context.watch<GoalQueries>();
     final resetService = context.watch<DailyResetService>();
+    final displayPrefs = context.watch<DisplayPreferences>();
 
     final showCompleted = widget.showCompletedNotifier.value;
     final goals = showCompleted
         ? queries.completedGoals
-        : resetService.sortGoals(queries.goals, resetService.sortOrder);
+        : resetService.sortGoals(queries.goals, displayPrefs.sortOrder);
 
     final activeSelectedCount = goals
         .where(
@@ -421,9 +425,9 @@ class _GoalTile extends StatelessWidget {
     final isDecomposing = context.watch<DecompositionState>().isDecomposing(
       goal.goalId,
     );
+    final layout = context.watch<DisplayPreferences>().layout;
 
-    return ListTile(
-      key: ValueKey(goal.goalId),
+    final tile = ListTile(
       onTap: selectMode
           ? onToggleSelect
           : () => Navigator.push(
@@ -464,6 +468,27 @@ class _GoalTile extends StatelessWidget {
               ],
             ),
     );
+
+    // In non-compact layouts, append an inline strip of upcoming subtasks.
+    final subtasks = !isDecomposing && layout != GoalListLayout.compact
+        ? _visibleSubtasks(goal, layout)
+        : const <SubTask>[];
+
+    if (subtasks.isEmpty) {
+      return KeyedSubtree(key: ValueKey(goal.goalId), child: tile);
+    }
+
+    return Column(
+      key: ValueKey(goal.goalId),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        tile,
+        _SubtaskStrip(
+          subtasks: subtasks,
+          currentSubtaskId: goal.currentSubTask?.subtaskId,
+        ),
+      ],
+    );
   }
 
   String _formatDueDate(DateTime date) {
@@ -481,6 +506,32 @@ class _GoalTile extends StatelessWidget {
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
     final label = '${months[date.month - 1]} ${date.day}';
     return date.year == now.year ? label : '$label ${date.year}';
+  }
+
+  /// Returns the subtasks that should be shown inline for the given [layout].
+  /// Always starts with the current (first pending) subtask, then adds up to N
+  /// further pending subtasks in order. Returns empty if no current subtask.
+  List<SubTask> _visibleSubtasks(Goal goal, GoalListLayout layout) {
+    final current = goal.currentSubTask;
+    if (current == null) return const [];
+
+    final extra = switch (layout) {
+      GoalListLayout.compact      => 0,
+      GoalListLayout.current      => 0,
+      GoalListLayout.currentPlus2 => 2,
+      GoalListLayout.currentPlus4 => 4,
+    };
+
+    final result = <SubTask>[current];
+    final currentIdx = goal.subtasks.indexOf(current);
+    var added = 0;
+    for (var i = currentIdx + 1; i < goal.subtasks.length && added < extra; i++) {
+      if (goal.subtasks[i].state == SubTaskState.pending) {
+        result.add(goal.subtasks[i]);
+        added++;
+      }
+    }
+    return result;
   }
 
   Widget _buildSubtitle(BuildContext context) {
@@ -554,4 +605,58 @@ class _StatusBadge extends StatelessWidget {
     GoalStatus.completed => AppColors.success,
     GoalStatus.archived => AppColors.muted,
   };
+}
+
+// Compact inline list of pending subtasks rendered beneath a goal tile.
+// The current step uses a hollow-circle icon (mirrors the execution screen);
+// subsequent queued steps use the nextInQueue arrow to signal ordering.
+class _SubtaskStrip extends StatelessWidget {
+  final List<SubTask> subtasks;
+  final String? currentSubtaskId;
+
+  const _SubtaskStrip({
+    required this.subtasks,
+    required this.currentSubtaskId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // Align with ListTile content
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 0, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: subtasks.map((subtask) {
+          final isCurrent = subtask.subtaskId == currentSubtaskId;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Icon(
+                  isCurrent ? AppIcons.currentSubtask : AppIcons.nextInQueue,
+                  size: 14,
+                  color: isCurrent ? cs.onSurface : AppColors.muted,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    subtask.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isCurrent ? cs.onSurface : AppColors.muted,
+                          fontWeight: isCurrent
+                              ? FontWeight.w500
+                              : FontWeight.normal,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 }

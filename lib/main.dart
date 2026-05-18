@@ -13,6 +13,7 @@ import 'models/enums.dart';
 import 'services/backup_service.dart';
 import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
+import 'services/display_preferences.dart';
 import 'services/draft_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
@@ -28,6 +29,7 @@ void main() async {
   final goalRepository = await HiveGoalRepository.init();
   final llmSettingsService = await LlmSettingsService.init();
   final dailyResetService = await DailyResetService.init(goalRepository);
+  final displayPreferences = await DisplayPreferences.init();
 
   final tabNotifier = ValueNotifier<int>(0);
   final goalNavNotifier =
@@ -52,29 +54,35 @@ void main() async {
   // Show initial state on startup (covers app restart with focused goals).
   notificationService.update(GoalQueries(goalRepository).todayQueue);
 
-  runApp(TodoApp(
-    goalRepository: goalRepository,
-    llmSettingsService: llmSettingsService,
-    dailyResetService: dailyResetService,
-    notificationService: notificationService,
-    tabNotifier: tabNotifier,
-    goalNavNotifier: goalNavNotifier,
-  ));
+  runApp(
+    TodoApp(
+      goalRepository: goalRepository,
+      llmSettingsService: llmSettingsService,
+      dailyResetService: dailyResetService,
+      displayPreferences: displayPreferences,
+      notificationService: notificationService,
+      tabNotifier: tabNotifier,
+      goalNavNotifier: goalNavNotifier,
+    ),
+  );
 }
 
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
   final LlmSettingsService llmSettingsService;
   final DailyResetService dailyResetService;
+  final DisplayPreferences displayPreferences;
   final NotificationService notificationService;
   final ValueNotifier<int> tabNotifier;
-  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?>
+  goalNavNotifier;
 
   const TodoApp({
     super.key,
     required this.goalRepository,
     required this.llmSettingsService,
     required this.dailyResetService,
+    required this.displayPreferences,
     required this.notificationService,
     required this.tabNotifier,
     required this.goalNavNotifier,
@@ -108,6 +116,9 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<DailyResetService>.value(
           value: dailyResetService,
         ),
+        ChangeNotifierProvider<DisplayPreferences>.value(
+          value: displayPreferences,
+        ),
         ProxyProvider2<GoalRepository, LlmSettingsService, BackupService>(
           update: (_, goals, settings, _) =>
               BackupService(goals: goals, settings: settings),
@@ -121,7 +132,10 @@ class TodoApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
           useMaterial3: true,
         ),
-        home: AppShell(tabNotifier: tabNotifier, goalNavNotifier: goalNavNotifier),
+        home: AppShell(
+          tabNotifier: tabNotifier,
+          goalNavNotifier: goalNavNotifier,
+        ),
       ),
     );
   }
@@ -129,7 +143,8 @@ class TodoApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   final ValueNotifier<int> tabNotifier;
-  final ValueNotifier<({String goalId, int seq, bool breakdown})?> goalNavNotifier;
+  final ValueNotifier<({String goalId, int seq, bool breakdown})?>
+  goalNavNotifier;
 
   const AppShell({
     super.key,
@@ -165,7 +180,8 @@ class _AppShellState extends State<AppShell>
     final pending = widget.goalNavNotifier.value;
     if (pending != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _navigateToGoal(pending.goalId, breakdown: pending.breakdown);
+        if (mounted)
+          _navigateToGoal(pending.goalId, breakdown: pending.breakdown);
       });
     }
   }
@@ -223,7 +239,8 @@ class _AppShellState extends State<AppShell>
     final request = widget.goalNavNotifier.value;
     if (!mounted || request == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _navigateToGoal(request.goalId, breakdown: request.breakdown);
+      if (mounted)
+        _navigateToGoal(request.goalId, breakdown: request.breakdown);
     });
   }
 
@@ -235,10 +252,8 @@ class _AppShellState extends State<AppShell>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GoalActiveScreen(
-          goalId: goalId,
-          triggerBreakdown: breakdown,
-        ),
+        builder: (_) =>
+            GoalActiveScreen(goalId: goalId, triggerBreakdown: breakdown),
       ),
     );
   }
@@ -299,6 +314,7 @@ class _AppShellState extends State<AppShell>
                 onChanged: (v) => _goalsShowCompleted.value = v,
               ),
               _SortButton(),
+              _LayoutButton(),
             ],
             IconButton(
               icon: const Icon(Icons.settings_outlined),
@@ -391,7 +407,7 @@ class _GoalsFilterButton extends StatelessWidget {
 class _SortButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final order = context.watch<DailyResetService>().sortOrder;
+    final order = context.watch<DisplayPreferences>().sortOrder;
     return IconButton(
       icon: const Icon(Icons.sort),
       tooltip: 'Sort goals',
@@ -399,7 +415,7 @@ class _SortButton extends StatelessWidget {
         context: context,
         builder: (_) => _SortSheet(
           current: order,
-          onSelected: context.read<DailyResetService>().setSortOrder,
+          onSelected: context.read<DisplayPreferences>().setSortOrder,
         ),
       ),
     );
@@ -481,16 +497,64 @@ class _SortTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon,
-          color: selected ? Theme.of(context).colorScheme.primary : null),
-      title: Text(label,
-          style: selected
-              ? TextStyle(color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w600)
-              : null),
+      leading: Icon(
+        icon,
+        color: selected ? Theme.of(context).colorScheme.primary : null,
+      ),
+      title: Text(
+        label,
+        style: selected
+            ? TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              )
+            : null,
+      ),
       subtitle: Text(subtitle),
       trailing: selected ? const Icon(Icons.check) : null,
       onTap: onTap,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Layout button — toggles how many subtask steps are shown inline per goal
+// ---------------------------------------------------------------------------
+
+class _LayoutButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final layout = context.watch<DisplayPreferences>().layout;
+    final setLayout = context.read<DisplayPreferences>().setLayout;
+    return PopupMenuButton<GoalListLayout>(
+      icon: Icon(Icons.view_list_outlined),
+      tooltip: 'List layout',
+      onSelected: setLayout,
+      itemBuilder: (_) => [
+        _item(GoalListLayout.compact, 'Compact', layout),
+        _item(GoalListLayout.current, 'Current step', layout),
+        _item(GoalListLayout.currentPlus2, 'Current + 2 next', layout),
+        _item(GoalListLayout.currentPlus4, 'Current + 4 next', layout),
+      ],
+    );
+  }
+
+  PopupMenuItem<GoalListLayout> _item(
+    GoalListLayout value,
+    String label,
+    // IconData icon,
+    GoalListLayout current,
+  ) {
+    return PopupMenuItem(
+      value: value,
+      child: ListTile(
+        // leading: Icon(icon),
+        title: Text(label),
+        trailing: current == value ? const Icon(Icons.check, size: 18) : null,
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        minLeadingWidth: 24,
+      ),
     );
   }
 }
