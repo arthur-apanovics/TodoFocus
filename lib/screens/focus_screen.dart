@@ -187,7 +187,6 @@ class _GroupCard extends StatelessWidget {
     final goal = resolved.goal;
     return Material(
       color: cs.surface,
-      borderRadius: BorderRadius.circular(14),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(color: cs.outlineVariant),
