@@ -7,7 +7,7 @@ import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
 import '../services/draft_service.dart';
-import '../services/focus_list_service.dart';
+import '../services/focus_list_service.dart' show FocusListService;
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -18,25 +18,26 @@ import 'widgets/app_bottom_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 
+// Unified goal screen — handles inbox, active, and completed goals. Replaces
+// the separate active/planning split with a single screen whose bottom bar,
+// generation card visibility, completion controls, and overflow menu vary by
+// goal.status. The triggerBreakdown flag fires an LLM breakdown on arrival
+// (used by the "Break it down" notification action).
 class GoalPlanningScreen extends StatefulWidget {
   final String goalId;
   final bool triggerBreakdown;
-
-  // When true the screen is being used to edit an already-active goal
-  // (entered via the "Edit" button on GoalActiveScreen). The "Queue Goal"
-  // button is hidden because the goal is already queued.
-  final bool isEditingActive;
 
   const GoalPlanningScreen({
     super.key,
     required this.goalId,
     this.triggerBreakdown = false,
-    this.isEditingActive = false,
   });
 
   @override
   State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
+
+enum _GoalAction { archive, sendToPlanning }
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
@@ -50,6 +51,13 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   final List<String> _undoStack = [];
   String? _lastSeenJson;
 
+  // Goal-completion celebration: when the goal transitions from active to
+  // completed while the user is on this screen (final subtask ticked off
+  // here), pop back with a snackbar. Don't celebrate if the user navigated
+  // *into* an already-completed goal — that should render normally.
+  bool _wasActive = false;
+  bool _completionAnnounced = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +68,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     final goal = _repo.findById(widget.goalId);
     if (goal != null) {
       _lastSeenJson = jsonEncode(goal.toJson());
+      _wasActive = goal.status == GoalStatus.active;
     }
     _repo.addListener(_onRepoChanged);
 
@@ -278,50 +287,82 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     final llmEnabled =
         context.watch<LlmSettingsService>().buildClient() != null;
 
+    final isInbox = goal.status == GoalStatus.inbox;
+    final isActive = goal.status == GoalStatus.active;
+    final isCompleted = goal.status == GoalStatus.completed;
+    final isEditable = !isCompleted;
+
+    // Goal just transitioned to completed while on this screen — celebrate
+    // and pop back once. The _wasActive guard prevents the snackbar from
+    // firing when the user navigates *into* an already-completed goal.
+    if (isCompleted && _wasActive && !_completionAnnounced) {
+      _completionAnnounced = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Goal complete!')),
+        );
+        Navigator.pop(context);
+      });
+    }
+    if (isCompleted && _wasActive && _completionAnnounced) {
+      // Suppress rendering during the async pop frame to avoid a flash.
+      return const SizedBox.shrink();
+    }
+
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
         // Tapping the title opens the edit sheet, mirroring the tappable
-        // description below. Tooltip surfaces the affordance on long-press.
-        title: Tooltip(
-          message: 'Tap to edit title',
-          child: GestureDetector(
-            onTap: () => _showEditGoalSheet(context, goal),
-            child: goal.emoji != null
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GoalSymbol(name: goal.emoji, size: 20),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          goal.title,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  )
-                : Text(goal.title, overflow: TextOverflow.ellipsis),
-          ),
-        ),
+        // description below. Read-only when the goal is completed.
+        title: isEditable
+            ? Tooltip(
+                message: 'Tap to edit title',
+                child: GestureDetector(
+                  onTap: () => _showEditGoalSheet(context, goal),
+                  child: _AppBarTitle(goal: goal),
+                ),
+              )
+            : _AppBarTitle(goal: goal),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.undo),
-            // Tooltip includes the depth so the user has some idea how far
-            // back undo will go without surfacing a full history UI.
-            tooltip: _undoStack.isEmpty
-                ? 'Nothing to undo'
-                : 'Undo (${_undoStack.length})',
-            onPressed: _undoStack.isEmpty ? null : _undo,
-          ),
-          IconButton(
-            icon: const Icon(Icons.archive_outlined),
-            tooltip: 'Archive goal',
-            onPressed: () {
-              final service = context.read<GoalService>();
-              _confirmArchive(context, service);
-            },
-          ),
+          if (isEditable)
+            IconButton(
+              icon: const Icon(Icons.undo),
+              // Tooltip includes the depth so the user has some idea how far
+              // back undo will go without surfacing a full history UI.
+              tooltip: _undoStack.isEmpty
+                  ? 'Nothing to undo'
+                  : 'Undo (${_undoStack.length})',
+              onPressed: _undoStack.isEmpty ? null : _undo,
+            ),
+          if (isInbox || isActive)
+            PopupMenuButton<_GoalAction>(
+              onSelected: (a) => _handleMenuAction(context, goal, a),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _GoalAction.archive,
+                  child: ListTile(
+                    leading: Icon(Icons.archive_outlined),
+                    title: Text('Archive'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          if (isCompleted)
+            PopupMenuButton<_GoalAction>(
+              onSelected: (a) => _handleMenuAction(context, goal, a),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _GoalAction.sendToPlanning,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_note_outlined),
+                    title: Text('Send to Planning'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       body: CustomScrollView(
@@ -329,11 +370,16 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           SliverToBoxAdapter(
             child: _GoalDescriptionCard(
               goal: goal,
-              onEdit: () =>
-                  _showEditGoalSheet(context, goal, autofocusDescription: true),
+              onEdit: isEditable
+                  ? () => _showEditGoalSheet(
+                        context,
+                        goal,
+                        autofocusDescription: true,
+                      )
+                  : null,
             ),
           ),
-          if (llmEnabled)
+          if (llmEnabled && isEditable)
             SliverToBoxAdapter(
               child: _GenerationCard(
                 goal: goal,
@@ -352,7 +398,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
           if (isGenerating)
             const SliverToBoxAdapter(child: _DecomposingState())
-          else if (goal.status == GoalStatus.inbox && goal.subtasks.isEmpty)
+          else if (isInbox && goal.subtasks.isEmpty)
             SliverToBoxAdapter(child: _InboxReadyState(goal: goal))
           else if (goal.subtasks.isEmpty)
             const SliverToBoxAdapter(child: _EmptySubtaskState())
@@ -365,22 +411,30 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
               },
               itemBuilder: (context, index) {
                 final subtask = goal.subtasks[index];
+                // Pending subtasks of editable goals are draggable. Completed
+                // subtasks never are; completed goals are fully read-only.
+                final draggable = isEditable &&
+                    subtask.state == SubTaskState.pending;
                 return ReorderableDelayedDragStartListener(
                   key: ValueKey(subtask.subtaskId),
                   index: index,
-                  enabled: subtask.state == SubTaskState.pending,
+                  enabled: draggable,
                   child: SubTaskTile(
                     subtask: subtask,
                     goal: goal,
-                    showCompletion: false,
+                    // Active goals → full completion controls. Inbox →
+                    // breakdown only (no completion in planning mode).
+                    // Completed → read-only, no completion or breakdown.
+                    showCompletion: isActive,
+                    readOnly: isCompleted,
                   ),
                 );
               },
             ),
         ],
       ),
-      bottomNavigationBar: _buildQueueBar(context, goal),
-      floatingActionButton: isGenerating
+      bottomNavigationBar: _buildBottomBar(context, goal),
+      floatingActionButton: !isEditable || isGenerating
           ? null
           : llmEnabled
               ? _SpeedDial(
@@ -395,31 +449,35 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
   }
 
-  // Renders the "Queue Goal" bottom bar for inbox goals being planned.
-  // Hidden entirely when editing an active goal or for non-inbox statuses.
-  // Disabled until at least one subtask has been added.
-  Widget? _buildQueueBar(BuildContext context, Goal goal) {
-    if (widget.isEditingActive) return null;
-    if (goal.status != GoalStatus.inbox) return null;
-    final canQueue = goal.subtasks.isNotEmpty;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            icon: const Icon(Icons.playlist_add_check),
-            label: const Text('Queue Goal'),
-            onPressed: canQueue
-                ? () {
-                    context.read<GoalService>().queueGoal(widget.goalId);
-                    Navigator.pop(context);
-                  }
-                : null,
-          ),
-        ),
-      ),
-    );
+  void _handleMenuAction(
+    BuildContext context,
+    Goal goal,
+    _GoalAction action,
+  ) {
+    final service = context.read<GoalService>();
+    switch (action) {
+      case _GoalAction.archive:
+        _confirmArchive(context, service);
+      case _GoalAction.sendToPlanning:
+        service.sendToPlanning(goal.goalId);
+        Navigator.pop(context);
+    }
+  }
+
+  /// Bottom bar varies by goal status:
+  ///   • inbox     → "Queue Goal" (commits the plan, moves to active)
+  ///   • active    → focus-bar (toggle the whole goal in/out of today)
+  ///   • completed → no bar (goal is done, no actions)
+  Widget? _buildBottomBar(BuildContext context, Goal goal) {
+    switch (goal.status) {
+      case GoalStatus.inbox:
+        return _QueueGoalBar(goal: goal);
+      case GoalStatus.active:
+        return _FocusBar(goal: goal);
+      case GoalStatus.completed:
+      case GoalStatus.archived:
+        return null;
+    }
   }
 
   void _showEditGoalSheet(
@@ -1072,9 +1130,11 @@ class _PromptSheetState extends State<_PromptSheet> {
 
 class _GoalDescriptionCard extends StatelessWidget {
   final Goal goal;
-  final VoidCallback onEdit;
+  // Null when the goal is read-only (completed) — the description still
+  // renders, but tapping doesn't open the edit sheet.
+  final VoidCallback? onEdit;
 
-  const _GoalDescriptionCard({required this.goal, required this.onEdit});
+  const _GoalDescriptionCard({required this.goal, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -1090,25 +1150,30 @@ class _GoalDescriptionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Notes / description (tap to edit)
-                GestureDetector(
-                  onTap: onEdit,
-                  child: goal.notes.isNotEmpty
-                      ? Text(
-                          goal.notes,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        )
-                      : Text(
-                          'Tap to add a description…',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontStyle: FontStyle.italic,
-                              ),
-                        ),
-                ),
+                // Notes / description (tap to edit). The placeholder only
+                // shows for editable goals — completed goals with no notes
+                // render nothing rather than offering a stale "tap to add".
+                if (goal.notes.isNotEmpty)
+                  GestureDetector(
+                    onTap: onEdit,
+                    child: Text(
+                      goal.notes,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  )
+                else if (onEdit != null)
+                  GestureDetector(
+                    onTap: onEdit,
+                    child: Text(
+                      'Tap to add a description…',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontStyle: FontStyle.italic,
+                          ),
+                    ),
+                  ),
                 if (goal.subtasks.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Row(
@@ -1425,16 +1490,21 @@ class _DueDateChip extends StatelessWidget {
 class SubTaskTile extends StatefulWidget {
   final SubTask subtask;
   final Goal goal; // need the parent goal to check isCurrentSubTask
-  // When false, the trailing complete/uncomplete/queued icons are hidden so
-  // the tile reads as planning-only (split + slide-to-delete remain). The
-  // planning screen passes false; GoalActiveScreen passes true.
+  // When false, the trailing complete/uncomplete icons are hidden so the
+  // tile reads as planning-only (split + slide-to-delete remain).
+  //   • inbox  → showCompletion: false (no completion in planning)
+  //   • active → showCompletion: true  (current step has complete circle)
   final bool showCompletion;
+  // When true, the tile is fully read-only: no edit-tap, no swipe-delete,
+  // no breakdown, no completion controls. Set for completed goals.
+  final bool readOnly;
 
   const SubTaskTile({
     super.key,
     required this.subtask,
     required this.goal,
     this.showCompletion = true,
+    this.readOnly = false,
   });
 
   @override
@@ -1464,6 +1534,59 @@ class _SubTaskTileState extends State<SubTaskTile> {
     //    IconButton's tap recogniser actually wins the gesture arena
     //    instead of being swallowed by a horizontal-pan recogniser
     //    watching the whole tile.
+    final readOnly = widget.readOnly;
+
+    final tile = Opacity(
+      opacity: _isBreakingDown ? 0.6 : 1.0,
+      child: ListTile(
+        // Compact leading star toggles individual focus for this subtask.
+        // Filled when in today's focus, outlined otherwise. Hidden in read-
+        // only mode since focus only makes sense for editable goals.
+        leading: readOnly ? null : _SubtaskFocusStar(goal: goal, subtask: subtask),
+        title: GestureDetector(
+          onTap: (isPending && !_isBreakingDown && !readOnly)
+              ? () => _showEditSheet(context, service)
+              : null,
+          child: Text(
+            subtask.description,
+            style: isCompleted
+                ? TextStyle(
+                    decoration: TextDecoration.lineThrough,
+                    color: AppColors.muted,
+                  )
+                : isCurrent
+                    ? TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.strong,
+                      )
+                    : null,
+          ),
+        ),
+        subtitle: _isBreakingDown
+            ? const Text('Breaking down…')
+            : isCompleted
+                ? const Text('Completed')
+                : null,
+        trailing: readOnly
+            ? null
+            : _buildTrailingAction(
+                context,
+                service,
+                isCurrent,
+                isCompleted,
+              ),
+      ),
+    );
+
+    if (readOnly) {
+      // No swipe-to-delete on completed goals — the work is done, the plan
+      // is frozen for posterity.
+      return Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: tile,
+      );
+    }
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: Slidable(
@@ -1486,44 +1609,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
             ),
           ],
         ),
-        child: Opacity(
-          opacity: _isBreakingDown ? 0.6 : 1.0,
-          child: ListTile(
-            // Compact leading star toggles individual focus for this subtask.
-            // Filled when in today's focus, outlined otherwise.
-            leading: _SubtaskFocusStar(goal: goal, subtask: subtask),
-            title: GestureDetector(
-              onTap: (isPending && !_isBreakingDown)
-                  ? () => _showEditSheet(context, service)
-                  : null,
-              child: Text(
-                subtask.description,
-                style: isCompleted
-                    ? TextStyle(
-                        decoration: TextDecoration.lineThrough,
-                        color: AppColors.muted,
-                      )
-                    : isCurrent
-                    ? TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.strong,
-                      )
-                    : null,
-              ),
-            ),
-            subtitle: _isBreakingDown
-                ? const Text('Breaking down…')
-                : isCompleted
-                ? const Text('Completed')
-                : null,
-            trailing: _buildTrailingAction(
-              context,
-              service,
-              isCurrent,
-              isCompleted,
-            ),
-          ),
-        ),
+        child: tile,
       ),
     );
   }
@@ -2167,6 +2253,109 @@ class _SubtaskFocusStar extends StatelessWidget {
           f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
         }
       },
+    );
+  }
+}
+
+// --- AppBar title (emoji + truncated text) ---
+
+class _AppBarTitle extends StatelessWidget {
+  final Goal goal;
+  const _AppBarTitle({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    if (goal.emoji == null) {
+      return Text(goal.title, overflow: TextOverflow.ellipsis);
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GoalSymbol(name: goal.emoji, size: 20),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(goal.title, overflow: TextOverflow.ellipsis),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Bottom bar variants ---
+
+/// "Queue Goal" bar shown for inbox goals. Commits the plan and pops back.
+/// Disabled until at least one subtask has been added so an empty goal can't
+/// be queued by accident.
+class _QueueGoalBar extends StatelessWidget {
+  final Goal goal;
+  const _QueueGoalBar({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final canQueue = goal.subtasks.isNotEmpty;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.playlist_add_check),
+            label: const Text('Queue Goal'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+            onPressed: canQueue
+                ? () {
+                    context.read<GoalService>().queueGoal(goal.goalId);
+                    Navigator.pop(context);
+                  }
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Sticky bottom bar shown for active goals. Toggles the whole goal in/out
+/// of today's focus. When active, every currently-pending subtask is added
+/// AND the goal is marked "fully focused" so future subtasks auto-join.
+class _FocusBar extends StatelessWidget {
+  final Goal goal;
+  const _FocusBar({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final focus = context.watch<FocusListService>();
+    final fullyFocused = focus.isGoalFullyFocused(goal.goalId);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: fullyFocused
+            ? OutlinedButton.icon(
+                icon: const Icon(Icons.star_rounded),
+                label: const Text('Goal in focus — tap to remove'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () => context
+                    .read<FocusListService>()
+                    .unfocusGoalFully(goal.goalId),
+              )
+            : FilledButton.icon(
+                icon: const Icon(Icons.star_outline_rounded),
+                label: const Text('Add all pending to today\'s focus'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () => context
+                    .read<FocusListService>()
+                    .focusGoalFully(
+                      goal.goalId,
+                      context.read<GoalRepository>(),
+                    ),
+              ),
+      ),
     );
   }
 }

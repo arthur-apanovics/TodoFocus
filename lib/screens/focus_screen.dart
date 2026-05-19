@@ -9,7 +9,7 @@ import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
-import 'goal_active_screen.dart';
+import 'goal_planning_screen.dart';
 import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 
@@ -222,16 +222,15 @@ class _GroupHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final goal = resolved.goal;
-    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => GoalActiveScreen(goalId: goal.goalId),
+          builder: (_) => GoalPlanningScreen(goalId: goal.goalId),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
         child: Row(
           children: [
             if (goal.emoji != null) ...[
@@ -264,16 +263,6 @@ class _GroupHeader extends StatelessWidget {
                     ),
                   ),
                 ],
-              ),
-            ),
-            // Drag hint — purely visual; the whole card is the drag handle
-            // (long-press), but a glyph helps signal "this is reorderable".
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Icon(
-                Icons.drag_indicator,
-                size: 20,
-                color: cs.outlineVariant,
               ),
             ),
           ],

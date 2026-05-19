@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/screens/focus_screen.dart';
-import 'package:todo_app/screens/goal_active_screen.dart';
 import 'package:todo_app/screens/goal_planning_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
 import 'package:todo_app/screens/inbox_screen.dart';
@@ -270,7 +269,7 @@ class _AppShellState extends State<AppShell>
       context,
       MaterialPageRoute(
         builder: (_) =>
-            GoalActiveScreen(goalId: goalId, triggerBreakdown: breakdown),
+            GoalPlanningScreen(goalId: goalId, triggerBreakdown: breakdown),
       ),
     );
   }

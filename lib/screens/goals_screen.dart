@@ -15,7 +15,7 @@ import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
-import 'goal_active_screen.dart';
+import 'goal_planning_screen.dart';
 import 'widgets/goal_symbol.dart';
 
 class GoalsScreen extends StatefulWidget {
@@ -448,7 +448,7 @@ class _GoalTile extends StatelessWidget {
           : () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => GoalActiveScreen(goalId: goal.goalId),
+                builder: (_) => GoalPlanningScreen(goalId: goal.goalId),
               ),
             ),
       onLongPress: selectMode ? null : onLongPress,
