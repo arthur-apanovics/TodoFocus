@@ -64,7 +64,24 @@ class _GoalActiveScreenState extends State<GoalActiveScreen> {
     final service = context.read<GoalService>();
     if (!decomp.canAutoBreakdown) return;
 
-    final descriptions = await decomp.breakdownSubtask(subtask.description);
+    final completedSteps = goal.subtasks
+        .where((s) => s.isCompleted)
+        .map((s) => s.description)
+        .toList();
+    final otherPendingSteps = goal.subtasks
+        .where((s) => !s.isCompleted && s.subtaskId != subtask.subtaskId)
+        .map((s) => s.description)
+        .toList();
+
+    final descriptions = await decomp.breakdownSubtask(
+      subtask.description,
+      goalTitle: goal.title,
+      goalDescription: goal.notes.isNotEmpty ? goal.notes : null,
+      difficulty: goal.difficulty,
+      completedSteps: completedSteps.isNotEmpty ? completedSteps : null,
+      otherPendingSteps:
+          otherPendingSteps.isNotEmpty ? otherPendingSteps : null,
+    );
     if (!mounted || descriptions == null) return;
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
   }

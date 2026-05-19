@@ -89,7 +89,24 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       return;
     }
 
-    final descriptions = await decomp.breakdownSubtask(subtask.description);
+    final completedSteps = goal.subtasks
+        .where((s) => s.isCompleted)
+        .map((s) => s.description)
+        .toList();
+    final otherPendingSteps = goal.subtasks
+        .where((s) => !s.isCompleted && s.subtaskId != subtask.subtaskId)
+        .map((s) => s.description)
+        .toList();
+
+    final descriptions = await decomp.breakdownSubtask(
+      subtask.description,
+      goalTitle: goal.title,
+      goalDescription: goal.notes.isNotEmpty ? goal.notes : null,
+      difficulty: goal.difficulty,
+      completedSteps: completedSteps.isNotEmpty ? completedSteps : null,
+      otherPendingSteps:
+          otherPendingSteps.isNotEmpty ? otherPendingSteps : null,
+    );
     if (!mounted) return;
 
     if (descriptions == null) {
@@ -98,6 +115,51 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     }
 
     service.splitSubTask(widget.goalId, subtask.subtaskId, descriptions);
+  }
+
+  Future<void> _modifySubtasks(Goal goal, {String? instructions}) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final decompState = context.read<DecompositionState>();
+    final service = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
+
+    final pendingSteps = goal.subtasks
+        .where((t) => t.state == SubTaskState.pending)
+        .map((t) => t.description)
+        .toList();
+
+    final completedSteps = goal.subtasks
+        .where((t) => t.state == SubTaskState.completed)
+        .map((t) => t.description)
+        .toList();
+
+    Object? llmError;
+    decompState.begin(goal.goalId);
+    try {
+      final descriptions = await decomp.modifySubtasks(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
+        additionalInstructions: instructions,
+        difficulty: goal.difficulty,
+        pendingSteps: pendingSteps,
+        completedSteps: completedSteps.isEmpty ? null : completedSteps,
+        onError: (e) => llmError = e,
+      );
+      if (!mounted) return;
+      if (descriptions == null) {
+        messenger.showSnackBar(SnackBar(
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : "Couldn't modify subtasks"),
+        ));
+        return;
+      }
+      // Modify never touches completed steps — replace only pending ones.
+      service.replacePendingSubTasks(goal.goalId, descriptions);
+    } finally {
+      if (mounted) decompState.end(goal.goalId);
+    }
   }
 
   Future<void> _generateSubtasks(
@@ -109,6 +171,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     final decompState = context.read<DecompositionState>();
     final service = context.read<GoalService>();
     final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
 
     final completedSteps = goal.subtasks
         .where((t) => t.state == SubTaskState.completed)
@@ -116,6 +179,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         .toList();
     final preserveCompleted = !regenerateAll && completedSteps.isNotEmpty;
 
+    Object? llmError;
     decompState.begin(goal.goalId);
     try {
       final descriptions = await decomp.redecomposeSubtasks(
@@ -124,18 +188,17 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         additionalInstructions: instructions,
         difficulty: goal.difficulty,
         completedSteps: preserveCompleted ? completedSteps : null,
+        onError: (e) => llmError = e,
       );
       if (!mounted) return;
       if (descriptions == null) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              goal.subtasks.isEmpty
+        messenger.showSnackBar(SnackBar(
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : goal.subtasks.isEmpty
                   ? "Couldn't generate subtasks"
-                  : "Couldn't regenerate subtasks",
-            ),
-          ),
-        );
+                  : "Couldn't regenerate subtasks"),
+        ));
         return;
       }
       if (preserveCompleted) {
@@ -230,7 +293,9 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
               child: _GenerationCard(
                 goal: goal,
                 isGenerating: isGenerating,
-                onGenerate: ({instructions, regenerateAll = false}) =>
+                onModify: ({instructions}) =>
+                    _modifySubtasks(goal, instructions: instructions),
+                onRegenerate: ({instructions, regenerateAll = false}) =>
                     _generateSubtasks(
                       goal,
                       instructions: instructions,
@@ -272,11 +337,16 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       bottomNavigationBar: _buildQueueBar(context, goal),
       floatingActionButton: isGenerating
           ? null
-          : FloatingActionButton(
-              onPressed: () => _showAddSubTaskSheet(context),
-              tooltip: 'Add subtask',
-              child: const Icon(AppIcons.addSubtask),
-            ),
+          : llmEnabled
+              ? _SpeedDial(
+                  onAddManual: () => _showAddSubTaskSheet(context),
+                  onAddWithAI: () => _showAddWithAISheet(context),
+                )
+              : FloatingActionButton(
+                  onPressed: () => _showAddSubTaskSheet(context),
+                  tooltip: 'Add subtask',
+                  child: const Icon(AppIcons.addSubtask),
+                ),
     );
   }
 
@@ -336,6 +406,75 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
   }
 
+  Future<void> _showAddWithAISheet(BuildContext context) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const _PromptSheet(
+        title: 'Add steps with AI',
+        hint: 'e.g. add a step to review my notes',
+        confirmLabel: 'Add steps',
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final repo = context.read<GoalRepository>();
+    final goal = repo.findById(widget.goalId);
+    if (goal == null) return;
+
+    // ignore: use_build_context_synchronously
+    await _handleAddWithAI(this.context, goal, prompt: result.isEmpty ? null : result);
+  }
+
+  Future<void> _handleAddWithAI(
+    BuildContext context,
+    Goal goal, {
+    String? prompt,
+  }) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final service = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
+    final decompState = context.read<DecompositionState>();
+
+    final existingPending = goal.subtasks
+        .where((t) => t.state == SubTaskState.pending)
+        .map((t) => t.description)
+        .toList();
+    final existingCompleted = goal.subtasks
+        .where((t) => t.state == SubTaskState.completed)
+        .map((t) => t.description)
+        .toList();
+
+    Object? llmError;
+    decompState.begin(goal.goalId);
+    try {
+      final descriptions = await decomp.addSubtasksFromPrompt(
+        goal.title,
+        description: goal.notes.isEmpty ? null : goal.notes,
+        userPrompt: prompt,
+        difficulty: goal.difficulty,
+        existingPendingSteps: existingPending.isNotEmpty ? existingPending : null,
+        existingCompletedSteps:
+            existingCompleted.isNotEmpty ? existingCompleted : null,
+        onError: (e) => llmError = e,
+      );
+      if (!mounted) return;
+      if (descriptions == null) {
+        messenger.showSnackBar(SnackBar(
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : "Couldn't generate new steps"),
+        ));
+        return;
+      }
+      service.appendSubTasks(goal.goalId, descriptions);
+    } finally {
+      if (mounted) decompState.end(goal.goalId);
+    }
+  }
+
   Future<void> _confirmArchive(
     BuildContext context,
     GoalService service,
@@ -375,13 +514,15 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
 class _GenerationCard extends StatefulWidget {
   final Goal goal;
   final bool isGenerating;
+  final Future<void> Function({String? instructions}) onModify;
   final Future<void> Function({String? instructions, bool regenerateAll})
-  onGenerate;
+  onRegenerate;
 
   const _GenerationCard({
     required this.goal,
     required this.isGenerating,
-    required this.onGenerate,
+    required this.onModify,
+    required this.onRegenerate,
   });
 
   @override
@@ -392,6 +533,7 @@ class _GenerationCardState extends State<_GenerationCard> {
   final _expansionController = ExpansibleController();
   late final DraftService _draftService;
   late final TextEditingController _instructionsController;
+  // Only relevant for regenerate when there are completed steps.
   bool _regenerateAll = false;
 
   bool get _isEmpty => widget.goal.subtasks.isEmpty;
@@ -403,13 +545,11 @@ class _GenerationCardState extends State<_GenerationCard> {
   @override
   void initState() {
     super.initState();
-    // Capture DraftService here — safe to use in dispose() without context.
     _draftService = context.read<DraftService>();
     _instructionsController = TextEditingController(
       text: _draftService.redecomposeInstructions(widget.goal.goalId),
     );
-    // Persist on every keystroke so the draft survives regardless of when or
-    // how this widget is disposed (navigation, parent rebuild, hot-restart, etc.)
+    // Persist on every keystroke — draft survives navigation and widget rebuilds.
     _instructionsController.addListener(_saveInstructionsDraft);
   }
 
@@ -426,33 +566,28 @@ class _GenerationCardState extends State<_GenerationCard> {
     super.dispose();
   }
 
-  Future<void> _handleGenerate() async {
-    // Collapse first so the subtask list is visible during generation.
+  String? get _instructions {
+    final t = _instructionsController.text.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  Future<void> _handleModify() async {
     _expansionController.collapse();
+    await widget.onModify(instructions: _instructions);
+  }
 
-    final instructions = _instructionsController.text.trim();
-    // Clear the field — dispose() will persist the empty string, so the next
-    // visit starts fresh after a generation.
-    _instructionsController.clear();
-
-    await widget.onGenerate(
-      instructions: instructions.isEmpty ? null : instructions,
+  Future<void> _handleRegenerate() async {
+    _expansionController.collapse();
+    await widget.onRegenerate(
+      instructions: _instructions,
       regenerateAll: _regenerateAll,
     );
-
     if (mounted) setState(() => _regenerateAll = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final completedCount = _completedCount;
-    final stepWord = completedCount == 1 ? 'step' : 'steps';
-    final hasCompleted = completedCount > 0;
-    final buttonLabel = widget.isGenerating
-        ? 'Generating…'
-        : _isEmpty
-        ? 'Generate steps'
-        : 'Regenerate steps';
+    final hasCompleted = _completedCount > 0;
 
     // Same surface colour as the AppBar and _GoalDescriptionCard so this
     // reads as one continuous block. The border on the ExpansionTile is
@@ -498,34 +633,63 @@ class _GenerationCardState extends State<_GenerationCard> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                // Compact "regenerate everything" checkbox — only shown when
+                // there are completed steps and subtasks already exist.
                 if (!_isEmpty && hasCompleted) ...[
                   const SizedBox(height: 4),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      'Replace all (including $completedCount completed $stepWord)',
-                    ),
-                    value: _regenerateAll,
-                    onChanged: widget.isGenerating
-                        ? null
-                        : (v) => setState(() => _regenerateAll = v ?? false),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: _regenerateAll,
+                          visualDensity: VisualDensity.compact,
+                          onChanged: widget.isGenerating
+                              ? null
+                              : (v) =>
+                                  setState(() => _regenerateAll = v ?? false),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: widget.isGenerating
+                            ? null
+                            : () => setState(
+                                () => _regenerateAll = !_regenerateAll),
+                        child: Text(
+                          'Replace completed steps too',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: widget.isGenerating ? null : _handleGenerate,
-                    icon: widget.isGenerating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(AppIcons.aiGenerate),
-                    label: Text(buttonLabel),
+                if (_isEmpty)
+                  // No subtasks yet — single "Generate" button.
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed:
+                          widget.isGenerating ? null : _handleRegenerate,
+                      icon: widget.isGenerating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(AppIcons.aiGenerate),
+                      label: const Text('Generate steps'),
+                    ),
+                  )
+                else
+                  // Subtasks exist — split button: Modify (left) + Regenerate (right).
+                  _SplitModifyButton(
+                    isGenerating: widget.isGenerating,
+                    onModify: _handleModify,
+                    onRegenerate: _handleRegenerate,
                   ),
-                ),
               ],
             ),
           ),
@@ -534,6 +698,308 @@ class _GenerationCardState extends State<_GenerationCard> {
           const Divider(height: 1, thickness: 1),
         ],
       ),
+    );
+  }
+}
+
+// --- Split modify / regenerate button ---
+//
+// Left half  → Modify     (edits the existing pending steps in-place)
+// Right half → Regenerate (starts fresh — always visible so both actions are
+//                          discoverable without requiring a long press)
+//
+// The two halves share the primary fill colour and are separated by a 1 px
+// tinted divider, rendering as a single visual unit (standard split-button
+// pattern). A tooltip on the regenerate half labels the icon for new users.
+
+class _SplitModifyButton extends StatelessWidget {
+  final bool isGenerating;
+  final VoidCallback onModify;
+  final VoidCallback onRegenerate;
+
+  const _SplitModifyButton({
+    required this.isGenerating,
+    required this.onModify,
+    required this.onRegenerate,
+  });
+
+  static const _height = 44.0;
+  static const _innerRadius = Radius.zero;
+  static const _outerRadius = Radius.circular(12);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: _height,
+      child: Row(
+        children: [
+          // ── Primary action ───────────────────────────────────────────────
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(
+                    left: _outerRadius,
+                    right: _innerRadius,
+                  ),
+                ),
+                minimumSize: const Size(0, _height),
+              ),
+              onPressed: isGenerating ? null : onModify,
+              icon: isGenerating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(AppIcons.aiGenerate, size: 18),
+              label: const Text('Modify'),
+            ),
+          ),
+          // ── Separator ────────────────────────────────────────────────────
+          // Sits between two same-colour surfaces, reads as an inset rule.
+          Container(
+            width: 1,
+            color: cs.onPrimary.withValues(alpha: 0.30),
+          ),
+          // ── Secondary action ─────────────────────────────────────────────
+          Tooltip(
+            message: 'Regenerate steps',
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(
+                    left: _innerRadius,
+                    right: _outerRadius,
+                  ),
+                ),
+                minimumSize: const Size(52, _height),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: isGenerating ? null : onRegenerate,
+              child: const Icon(Icons.autorenew, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Speed dial FAB ---
+//
+// Shown on the planning screen when an LLM is configured. Tapping the main
+// button reveals two labelled mini-FABs:
+//   • Add with AI  — user types a prompt; AI appends matching steps
+//   • Add manually — existing manual subtask entry sheet
+//
+// When no LLM is configured the speed dial is not used and the plain FAB
+// is rendered instead.
+
+class _SpeedDial extends StatefulWidget {
+  final VoidCallback onAddManual;
+  final VoidCallback onAddWithAI;
+
+  const _SpeedDial({required this.onAddManual, required this.onAddWithAI});
+
+  @override
+  State<_SpeedDial> createState() => _SpeedDialState();
+}
+
+class _SpeedDialState extends State<_SpeedDial> {
+  bool _open = false;
+
+  void _toggle() => setState(() => _open = !_open);
+
+  void _closeAndRun(VoidCallback action) {
+    setState(() => _open = false);
+    action();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // IntrinsicWidth forces the Column to be exactly as wide as its widest
+    // child (the label+mini-FAB rows) rather than expanding to screen width,
+    // which is what happens in the FAB slot's unbounded layout environment.
+    return IntrinsicWidth(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // AnimatedSize shrinks/grows from the bottom-right so items slide
+          // in from just above the FAB rather than from the top of the screen.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            alignment: Alignment.bottomRight,
+            child: AnimatedOpacity(
+              opacity: _open ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child: _open
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _SpeedDialItem(
+                          icon: const Icon(AppIcons.aiGenerate),
+                          label: 'Add with AI',
+                          heroTag: 'speed_dial_ai',
+                          onTap: () => _closeAndRun(widget.onAddWithAI),
+                        ),
+                        const SizedBox(height: 12),
+                        _SpeedDialItem(
+                          icon: const Icon(AppIcons.addSubtask),
+                          label: 'Add manually',
+                          heroTag: 'speed_dial_manual',
+                          onTap: () => _closeAndRun(widget.onAddManual),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+          FloatingActionButton(
+            onPressed: _toggle,
+            tooltip: _open ? 'Close' : 'Add subtask',
+            child: AnimatedRotation(
+              turns: _open ? 0.125 : 0,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: const Icon(Icons.add),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpeedDialItem extends StatelessWidget {
+  final Widget icon;
+  final String label;
+  final String heroTag;
+  final VoidCallback onTap;
+
+  const _SpeedDialItem({
+    required this.icon,
+    required this.label,
+    required this.heroTag,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: cs.secondaryContainer,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: cs.onSecondaryContainer,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        FloatingActionButton.small(
+          heroTag: heroTag,
+          onPressed: onTap,
+          child: icon,
+        ),
+      ],
+    );
+  }
+}
+
+// --- Simple prompt sheet ---
+//
+// A minimal text-input bottom sheet that returns the trimmed user input.
+// Used by the "Add with AI" flow where no granularity control is needed —
+// the user describes what to add and the LLM decides on count.
+
+class _PromptSheet extends StatefulWidget {
+  final String title;
+  final String hint;
+  final String confirmLabel;
+
+  const _PromptSheet({
+    required this.title,
+    required this.hint,
+    required this.confirmLabel,
+  });
+
+  @override
+  State<_PromptSheet> createState() => _PromptSheetState();
+}
+
+class _PromptSheetState extends State<_PromptSheet> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _controller.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasText = _controller.text.trim().isNotEmpty;
+    return AppBottomSheet(
+      title: widget.title,
+      children: [
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.done,
+          onSubmitted: hasText
+              ? (_) => Navigator.pop(context, _controller.text.trim())
+              : null,
+          decoration: InputDecoration(
+            hintText: widget.hint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: hasText
+              ? () => Navigator.pop(context, _controller.text.trim())
+              : null,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+          ),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
     );
   }
 }
@@ -1028,16 +1494,12 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Split button — shown on all non-completed subtasks (planning or active).
-    // Tap: auto-breakdown. Long press: opens an instructions sheet first.
-    // No tooltip — Tooltip's long-press recognizer wins the gesture arena
-    // over the outer GestureDetector, so we omit it here.
-    final splitButton = GestureDetector(
-      onLongPress: () => _showSplitWithInstructions(context, service),
-      child: IconButton(
-        icon: const Icon(AppIcons.breakdown, size: 20),
-        onPressed: () => _handleSplit(context, service),
-      ),
+    // Breakdown button — tapping opens a choice sheet so all paths are
+    // discoverable without requiring a long press.
+    final splitButton = IconButton(
+      icon: const Icon(AppIcons.breakdown, size: 20),
+      tooltip: 'Break down subtask',
+      onPressed: () => _showBreakdownChoiceSheet(context, service),
     );
 
     if (!widget.showCompletion) {
@@ -1078,6 +1540,52 @@ class _SubTaskTileState extends State<SubTaskTile> {
   // so the user can't edit/swipe/drag/complete the row out from under the
   // result. On failure or when no provider is configured, falls back to the
   // manual entry sheet.
+  // Opens a titled choice sheet so all breakdown paths are visible at once.
+  // Falls through directly to manual split when no LLM is configured.
+  void _showBreakdownChoiceSheet(BuildContext context, GoalService service) {
+    final decomp = context.read<GoalDecompositionService>();
+    if (!decomp.canAutoBreakdown) {
+      _showManualSplitSheet(context, service);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetCtx) => AppBottomSheet(
+        title: 'Break down subtask',
+        children: [
+          ListTile(
+            leading: const Icon(AppIcons.aiGenerate),
+            title: const Text('Auto-break down'),
+            subtitle: const Text('AI generates smaller steps immediately'),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              _handleSplit(context, service);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.tune_outlined),
+            title: const Text('Break down with instructions'),
+            subtitle: const Text('Guide the AI before it runs'),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              _showSplitWithInstructions(context, service);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('Split manually'),
+            subtitle: const Text('Add the smaller steps yourself'),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              _showManualSplitSheet(context, service);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showSplitWithInstructions(
     BuildContext context,
     GoalService service,
@@ -1130,15 +1638,32 @@ class _SubTaskTileState extends State<SubTaskTile> {
       return;
     }
 
-    // Capture messenger before the await so we don't reach through context
-    // after the widget is potentially disposed.
+    // Capture messenger and debug flag before the await so we don't reach
+    // through context after the widget is potentially disposed.
     final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
     setState(() => _isBreakingDown = true);
 
+    final completedSteps = goal.subtasks
+        .where((s) => s.isCompleted)
+        .map((s) => s.description)
+        .toList();
+    final otherPendingSteps = goal.subtasks
+        .where((s) => !s.isCompleted && s.subtaskId != subtask.subtaskId)
+        .map((s) => s.description)
+        .toList();
+
+    Object? llmError;
     final descriptions = await decomp.breakdownSubtask(
       subtask.description,
       additionalInstructions: additionalInstructions,
-      difficulty: difficulty,
+      difficulty: difficulty ?? goal.difficulty,
+      goalTitle: goal.title,
+      goalDescription: goal.notes.isNotEmpty ? goal.notes : null,
+      completedSteps: completedSteps.isNotEmpty ? completedSteps : null,
+      otherPendingSteps:
+          otherPendingSteps.isNotEmpty ? otherPendingSteps : null,
+      onError: (e) => llmError = e,
     );
 
     // If the widget was disposed mid-await (e.g. the goal got deleted),
@@ -1149,13 +1674,17 @@ class _SubTaskTileState extends State<SubTaskTile> {
       setState(() => _isBreakingDown = false);
       messenger.showSnackBar(
         SnackBar(
-          content: const Text("Couldn't break this down automatically"),
-          action: SnackBarAction(
-            label: 'Edit manually',
-            onPressed: () {
-              if (mounted) _showManualSplitSheet(this.context, service);
-            },
-          ),
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : "Couldn't break this down automatically"),
+          action: debugMode && llmError != null
+              ? null
+              : SnackBarAction(
+                  label: 'Edit manually',
+                  onPressed: () {
+                    if (mounted) _showManualSplitSheet(this.context, service);
+                  },
+                ),
         ),
       );
       return;

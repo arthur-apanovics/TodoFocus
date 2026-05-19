@@ -7,20 +7,17 @@ import 'llm_client.dart';
 // JSON schema constraint, and output parsing. Extracted from GoalDecompositionService
 // so the service stays provider-agnostic.
 class OpenAiDecompositionClient implements DecompositionClient {
-  // Default system prompt — count range is appended dynamically at call time
-  // based on the goal's difficulty and the configured min/max values.
+  // Single style-only system prompt — all per-operation instructions are
+  // injected into the user message so this stays stable across calls and
+  // benefits from provider-side prompt caching.
   static const defaultSystemPrompt =
-      'Break the goal into short, concrete, ADHD friendly, actionable steps. '
-      'Each step must be a single sentence that is very easy to action.';
-
-  static const defaultBreakdownPrompt =
-      'The user has ADHD and is feeling stuck on a subtask because it still feels too big. '
-      'Break it down further into 1–3 even smaller, more concrete, immediately actionable steps. '
-      'Each step must be a single sentence that requires almost no decision-making to start.';
+      'You are a task planning assistant for people with ADHD. '
+      'Generate short, concrete, immediately actionable steps. '
+      'Each step is a single sentence requiring almost no decision-making to start. '
+      'Always respond with a JSON array of strings, nothing else.';
 
   final LlmClient _llm;
   final String systemPrompt;
-  final String breakdownPrompt;
 
   // Per-difficulty subtask count bounds — configurable in LLM settings.
   final int easyMin;
@@ -33,7 +30,6 @@ class OpenAiDecompositionClient implements DecompositionClient {
   OpenAiDecompositionClient(
     this._llm, {
     this.systemPrompt = defaultSystemPrompt,
-    this.breakdownPrompt = defaultBreakdownPrompt,
     this.easyMin = 3,
     this.easyMax = 6,
     this.hardMin = 10,
@@ -43,12 +39,12 @@ class OpenAiDecompositionClient implements DecompositionClient {
   });
 
   // Tighter bounds than decompose — breakdown turns one overwhelming subtask
-  // into 1–3 even smaller steps. More than 3 defeats the purpose.
+  // into a handful of even smaller steps. More than 5 defeats the purpose.
   static const _breakdownSchema = {
     'type': 'array',
     'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
     'minItems': 1,
-    'maxItems': 3,
+    'maxItems': 5,
   };
 
   (int, int) _rangesFor(GoalDifficulty? difficulty) => switch (difficulty) {
@@ -73,26 +69,71 @@ class OpenAiDecompositionClient implements DecompositionClient {
     List<String>? completedSteps,
   }) async {
     final (min, max) = _rangesFor(difficulty);
-    final effectiveSystem =
-        '$systemPrompt\n\nGenerate between $min and $max steps.';
-    var user = description?.isNotEmpty == true
-        ? 'Goal: "$title". Context: $description'
-        : 'Goal: "$title"';
+    final parts = <String>[
+      'Generate between $min and $max steps for this goal: "$title"',
+    ];
+    if (description?.isNotEmpty == true) {
+      parts.add('Context: $description');
+    }
     if (completedSteps?.isNotEmpty == true) {
       final numbered = completedSteps!
           .asMap()
           .entries
           .map((e) => '${e.key + 1}. ${e.value}')
           .join('\n');
-      user =
-          '$user\n\nSteps already completed (do not repeat these, generate only the remaining steps):\n$numbered';
+      parts.add(
+          'Steps already completed (do not repeat these, generate only the remaining steps):\n$numbered');
     }
     if (additionalInstructions?.isNotEmpty == true) {
-      user = '$user\n\nAdditional instructions: $additionalInstructions';
+      parts.add('Additional instructions: $additionalInstructions');
     }
     final raw = await _llm.complete(
-      effectiveSystem,
-      user,
+      systemPrompt,
+      parts.join('\n\n'),
+      responseSchema: _schemaFor(min, max),
+    );
+    return _parseJsonArray(raw);
+  }
+
+  @override
+  Future<List<String>> modify(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+    required List<String> pendingSteps,
+    List<String>? completedSteps,
+  }) async {
+    final (min, max) = _rangesFor(difficulty);
+    final parts = <String>[
+      'Modify the pending steps for this goal: "$title".\n'
+          'Add, remove, split, rephrase, or reorder them as needed. '
+          'Return only the updated pending steps — do not include completed steps.',
+    ];
+    if (description?.isNotEmpty == true) {
+      parts.add('Context: $description');
+    }
+    if (completedSteps?.isNotEmpty == true) {
+      final numbered = completedSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      parts.add(
+          'Already completed (for context only — do not include these in your response):\n$numbered');
+    }
+    final pendingNumbered = pendingSteps
+        .asMap()
+        .entries
+        .map((e) => '${e.key + 1}. ${e.value}')
+        .join('\n');
+    parts.add('Current pending steps to modify:\n$pendingNumbered');
+    if (additionalInstructions?.isNotEmpty == true) {
+      parts.add('Instructions: $additionalInstructions');
+    }
+    final raw = await _llm.complete(
+      systemPrompt,
+      parts.join('\n\n'),
       responseSchema: _schemaFor(min, max),
     );
     return _parseJsonArray(raw);
@@ -103,24 +144,115 @@ class OpenAiDecompositionClient implements DecompositionClient {
     String subtaskDescription, {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    String? goalTitle,
+    String? goalDescription,
+    List<String>? completedSteps,
+    List<String>? otherPendingSteps,
   }) async {
-    var user = 'Subtask: "$subtaskDescription"';
-    if (additionalInstructions?.isNotEmpty == true) {
-      user = '$user\n\nAdditional instructions: $additionalInstructions';
-    }
     // When difficulty is provided, use the configured count ranges so the user
     // gets more granular steps for hard/impossible tasks.
     final Map<String, dynamic> schema;
+    final int min;
+    final int max;
     if (difficulty != null) {
-      final (min, max) = _rangesFor(difficulty);
+      (min, max) = _rangesFor(difficulty);
       schema = _schemaFor(min, max);
     } else {
+      min = 1;
+      max = 5;
       schema = _breakdownSchema;
     }
+
+    final parts = <String>[
+      'Break this subtask into $min–$max smaller, more concrete, immediately actionable steps. '
+          'The user is stuck because the step feels too big.',
+    ];
+    if (goalTitle?.isNotEmpty == true) {
+      final goalLine = goalDescription?.isNotEmpty == true
+          ? 'Goal: "$goalTitle" — $goalDescription'
+          : 'Goal: "$goalTitle"';
+      parts.add(goalLine);
+    }
+    if (completedSteps?.isNotEmpty == true) {
+      final numbered = completedSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      parts.add('Already completed:\n$numbered');
+    }
+    if (otherPendingSteps?.isNotEmpty == true) {
+      final numbered = otherPendingSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      parts.add('Other upcoming steps (for context, do not repeat):\n$numbered');
+    }
+    parts.add('Subtask to break down: "$subtaskDescription"');
+    if (additionalInstructions?.isNotEmpty == true) {
+      parts.add('Additional instructions: $additionalInstructions');
+    }
+
     final raw = await _llm.complete(
-      breakdownPrompt,
-      user,
+      systemPrompt,
+      parts.join('\n\n'),
       responseSchema: schema,
+    );
+    return _parseJsonArray(raw);
+  }
+
+  // Fixed schema for addSteps — always 1–5 new steps regardless of difficulty.
+  // The user is adding specific things, not decomposing an entire goal.
+  static const _addStepsSchema = {
+    'type': 'array',
+    'items': {'type': 'string', 'minLength': 3, 'maxLength': 120},
+    'minItems': 1,
+    'maxItems': 5,
+  };
+
+  @override
+  Future<List<String>> addSteps(
+    String title, {
+    String? description,
+    String? userPrompt,
+    GoalDifficulty? difficulty,
+    List<String>? existingPendingSteps,
+    List<String>? existingCompletedSteps,
+  }) async {
+    final parts = <String>[
+      'Generate 1–5 new steps to ADD to this goal\'s existing plan. '
+          'Do not repeat, rephrase, or include any existing steps. '
+          'Generate only the new additions requested.',
+    ];
+    if (description?.isNotEmpty == true) {
+      parts.add('Goal: "$title" — $description');
+    } else {
+      parts.add('Goal: "$title"');
+    }
+    if (existingCompletedSteps?.isNotEmpty == true) {
+      final numbered = existingCompletedSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      parts.add('Already completed:\n$numbered');
+    }
+    if (existingPendingSteps?.isNotEmpty == true) {
+      final numbered = existingPendingSteps!
+          .asMap()
+          .entries
+          .map((e) => '${e.key + 1}. ${e.value}')
+          .join('\n');
+      parts.add('Existing pending steps (do not repeat these):\n$numbered');
+    }
+    if (userPrompt?.isNotEmpty == true) {
+      parts.add('Add steps for: $userPrompt');
+    }
+    final raw = await _llm.complete(
+      systemPrompt,
+      parts.join('\n\n'),
+      responseSchema: _addStepsSchema,
     );
     return _parseJsonArray(raw);
   }

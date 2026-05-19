@@ -133,24 +133,74 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
           ),
         ),
         const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: () => _save(context),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
-          ),
-          icon: const Icon(Icons.inbox_outlined, size: 18),
-          label: const Text('Save'),
-        ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: () => _plan(context),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
-          ),
-          icon: const Icon(Icons.format_list_numbered_outlined, size: 18),
-          label: const Text('Plan'),
+        _SplitSubmitButton(
+          onPlan: () => _plan(context),
+          onSave: () => _save(context),
         ),
       ],
+    );
+  }
+}
+
+// Split button — left half is the primary "Plan" action (opens the planning
+// screen), right half is the quick "Save to inbox" icon for users who just
+// want to capture without planning right now.
+class _SplitSubmitButton extends StatelessWidget {
+  final VoidCallback onPlan;
+  final VoidCallback onSave;
+
+  const _SplitSubmitButton({required this.onPlan, required this.onSave});
+
+  static const _height = 48.0;
+  static const _outerRadius = Radius.circular(12);
+  static const _innerRadius = Radius.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: _height,
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(
+                    left: _outerRadius,
+                    right: _innerRadius,
+                  ),
+                ),
+                minimumSize: const Size(0, _height),
+              ),
+              onPressed: onPlan,
+              icon: const Icon(Icons.format_list_numbered_outlined, size: 18),
+              label: const Text('Plan'),
+            ),
+          ),
+          Container(
+            width: 1,
+            color: cs.onPrimary.withValues(alpha: 0.30),
+          ),
+          Tooltip(
+            message: 'Save to inbox',
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(
+                    left: _innerRadius,
+                    right: _outerRadius,
+                  ),
+                ),
+                minimumSize: const Size(52, _height),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: onSave,
+              child: const Icon(Icons.inbox_outlined, size: 20),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

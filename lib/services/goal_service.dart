@@ -166,6 +166,19 @@ class GoalService {
     _repository.save(goal);
   }
 
+  // Appends multiple new subtasks to the end of the pending list.
+  // Used by the AI "add steps" flow when the user asks for specific additions
+  // rather than a full re-decomposition.
+  void appendSubTasks(String goalId, List<String> descriptions) {
+    if (descriptions.isEmpty) return;
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    for (final desc in descriptions) {
+      goal.addSubTask(SubTask(subtaskId: _uuid.v4(), description: desc));
+    }
+    _repository.save(goal);
+  }
+
   // Replaces all subtasks on a goal with a fresh set of descriptions.
   // Used by the re-decompose flow to swap in AI-generated steps.
   void replaceAllSubTasks(String goalId, List<String> descriptions) {

@@ -40,8 +40,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   static const String typeKey = 'openai_compatible';
   static const String defaultSystemPrompt =
       OpenAiDecompositionClient.defaultSystemPrompt;
-  static const String defaultBreakdownPrompt =
-      OpenAiDecompositionClient.defaultBreakdownPrompt;
 
   static const Duration defaultTimeout = Duration(seconds: 60);
 
@@ -51,7 +49,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
   final double temperature;
   final Duration timeout;
   final String systemPrompt;
-  final String breakdownPrompt;
 
   // Subtask count bounds per difficulty level — configurable in LLM settings.
   final int easyMin;
@@ -68,7 +65,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     this.temperature = 0.3,
     this.timeout = defaultTimeout,
     this.systemPrompt = defaultSystemPrompt,
-    this.breakdownPrompt = defaultBreakdownPrompt,
     this.easyMin = 3,
     this.easyMax = 6,
     this.hardMin = 10,
@@ -89,8 +85,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     'temperature': temperature,
     if (timeout != defaultTimeout) 'timeoutSeconds': timeout.inSeconds,
     if (systemPrompt != defaultSystemPrompt) 'systemPrompt': systemPrompt,
-    if (breakdownPrompt != defaultBreakdownPrompt)
-      'breakdownPrompt': breakdownPrompt,
     'easyMin': easyMin,
     'easyMax': easyMax,
     'hardMin': hardMin,
@@ -109,8 +103,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
           ? Duration(seconds: json['timeoutSeconds'] as int)
           : defaultTimeout,
       systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
-      breakdownPrompt:
-          json['breakdownPrompt'] as String? ?? defaultBreakdownPrompt,
       easyMin: json['easyMin'] as int? ?? 3,
       easyMax: json['easyMax'] as int? ?? 6,
       hardMin: json['hardMin'] as int? ?? 10,
@@ -127,7 +119,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
     double? temperature,
     Duration? timeout,
     String? systemPrompt,
-    String? breakdownPrompt,
     int? easyMin,
     int? easyMax,
     int? hardMin,
@@ -142,7 +133,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
       temperature: temperature ?? this.temperature,
       timeout: timeout ?? this.timeout,
       systemPrompt: systemPrompt ?? this.systemPrompt,
-      breakdownPrompt: breakdownPrompt ?? this.breakdownPrompt,
       easyMin: easyMin ?? this.easyMin,
       easyMax: easyMax ?? this.easyMax,
       hardMin: hardMin ?? this.hardMin,
@@ -163,7 +153,6 @@ final class OpenAiCompatibleProfile extends LlmProfile {
         timeout: timeout,
       )),
       systemPrompt: systemPrompt,
-      breakdownPrompt: breakdownPrompt,
       easyMin: easyMin,
       easyMax: easyMax,
       hardMin: hardMin,

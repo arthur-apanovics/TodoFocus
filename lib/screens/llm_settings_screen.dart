@@ -350,7 +350,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _promptController;
-  late final TextEditingController _breakdownPromptController;
   bool _apiKeyVisible = false;
 
   // OpenRouter model list state
@@ -368,9 +367,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     );
     _promptController = TextEditingController(
       text: widget.profile.systemPrompt,
-    );
-    _breakdownPromptController = TextEditingController(
-      text: widget.profile.breakdownPrompt,
     );
     if (widget.isOpenRouter) _loadOrModels();
   }
@@ -395,7 +391,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _modelController.dispose();
     _apiKeyController.dispose();
     _promptController.dispose();
-    _breakdownPromptController.dispose();
     super.dispose();
   }
 
@@ -474,7 +469,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
             ? null
             : _apiKeyController.text.trim(),
         systemPrompt: _promptController.text,
-        breakdownPrompt: _breakdownPromptController.text,
       ),
     );
   }
@@ -484,16 +478,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     widget.onChanged(
       widget.profile.copyWith(
         systemPrompt: OpenAiCompatibleProfile.defaultSystemPrompt,
-      ),
-    );
-  }
-
-  void _restoreDefaultBreakdownPrompt() {
-    _breakdownPromptController.text =
-        OpenAiCompatibleProfile.defaultBreakdownPrompt;
-    widget.onChanged(
-      widget.profile.copyWith(
-        breakdownPrompt: OpenAiCompatibleProfile.defaultBreakdownPrompt,
       ),
     );
   }
@@ -676,17 +660,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
               widget.profile.systemPrompt ==
               OpenAiCompatibleProfile.defaultSystemPrompt,
           onRestore: _restoreDefaultPrompt,
-          onChanged: _notifyFields,
-        ),
-        _PromptSection(
-          label: 'Subtask breakdown prompt',
-          helper:
-              'Used when an existing subtask is broken down into smaller steps.',
-          controller: _breakdownPromptController,
-          isDefault:
-              widget.profile.breakdownPrompt ==
-              OpenAiCompatibleProfile.defaultBreakdownPrompt,
-          onRestore: _restoreDefaultBreakdownPrompt,
           onChanged: _notifyFields,
         ),
         _DifficultyRangesSection(

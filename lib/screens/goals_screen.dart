@@ -103,6 +103,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final decompositionService = context.read<GoalDecompositionService>();
     final decompositionState = context.read<DecompositionState>();
     final goalService = context.read<GoalService>();
+    final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
     final trimmed = instructions.trim().isEmpty ? null : instructions.trim();
     _exitSelectMode();
 
@@ -113,19 +115,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
         decompositionService: decompositionService,
         decompositionState: decompositionState,
         goalService: goalService,
+        messenger: messenger,
+        debugMode: debugMode,
       );
     }
   }
 
   // Fire-and-forget: marks the goal as decomposing, fetches new subtasks, then
   // writes them back. Intentionally not awaited at the call site.
+  // [messenger] and [debugMode] are captured by the caller before the loop so
+  // they remain valid even if this widget rebuilds or is disposed mid-flight.
   Future<void> _redecomposeInBackground({
     required Goal goal,
     required String? instructions,
     required GoalDecompositionService decompositionService,
     required DecompositionState decompositionState,
     required GoalService goalService,
+    required ScaffoldMessengerState messenger,
+    required bool debugMode,
   }) async {
+    Object? llmError;
     decompositionState.begin(goal.goalId);
     try {
       final descriptions = await decompositionService.redecomposeSubtasks(
@@ -133,9 +142,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
         description: goal.notes.isEmpty ? null : goal.notes,
         additionalInstructions: instructions,
         difficulty: goal.difficulty,
+        onError: (e) => llmError = e,
       );
       if (descriptions != null) {
         goalService.replaceAllSubTasks(goal.goalId, descriptions);
+      } else if (debugMode && llmError != null) {
+        messenger.showSnackBar(SnackBar(
+          content: Text('"${goal.title}": ${llmError.toString()}'),
+        ));
       }
     } finally {
       decompositionState.end(goal.goalId);

@@ -32,10 +32,34 @@ class _FakeDecompositionClient implements DecompositionClient {
   }
 
   @override
+  Future<List<String>> addSteps(
+    String title, {
+    String? description,
+    String? userPrompt,
+    GoalDifficulty? difficulty,
+    List<String>? existingPendingSteps,
+    List<String>? existingCompletedSteps,
+  }) async => ['new step 1'];
+
+  @override
+  Future<List<String>> modify(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+    required List<String> pendingSteps,
+    List<String>? completedSteps,
+  }) async => List.of(pendingSteps);
+
+  @override
   Future<List<String>> breakdown(
     String subtaskDescription, {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    String? goalTitle,
+    String? goalDescription,
+    List<String>? completedSteps,
+    List<String>? otherPendingSteps,
   }) async => ['sub-step 1'];
 
   @override

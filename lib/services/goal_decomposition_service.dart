@@ -35,12 +35,15 @@ class GoalDecompositionService {
   /// Re-runs full decomposition on an existing goal's title/description,
   /// returning a fresh list of subtask descriptions. Returns null on failure
   /// or when no provider is configured — caller should show an error.
+  /// [onError] is called with the caught exception before returning null, so
+  /// callers can surface debug details without catching themselves.
   Future<List<String>?> redecomposeSubtasks(
     String title, {
     String? description,
     String? additionalInstructions,
     GoalDifficulty? difficulty,
     List<String>? completedSteps,
+    void Function(Object error)? onError,
   }) async {
     if (_client == null) return null;
     try {
@@ -55,17 +58,91 @@ class GoalDecompositionService {
       return result;
     } catch (e) {
       debugPrint('Re-decompose failed: $e');
+      onError?.call(e);
+      return null;
+    }
+  }
+
+  /// Modifies the [pendingSteps] of an existing goal in-place, applying
+  /// [additionalInstructions] to the current list rather than generating from
+  /// scratch. [completedSteps] are forwarded as read-only context so the model
+  /// can avoid repeating work that is already done. Returns null on failure or
+  /// when no provider is configured — caller should show an error.
+  /// [onError] is called with the caught exception before returning null.
+  Future<List<String>?> modifySubtasks(
+    String title, {
+    String? description,
+    String? additionalInstructions,
+    GoalDifficulty? difficulty,
+    required List<String> pendingSteps,
+    List<String>? completedSteps,
+    void Function(Object error)? onError,
+  }) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.modify(
+        title,
+        description: description,
+        additionalInstructions: additionalInstructions,
+        difficulty: difficulty,
+        pendingSteps: pendingSteps,
+        completedSteps: completedSteps,
+      );
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Modify failed: $e');
+      onError?.call(e);
+      return null;
+    }
+  }
+
+  /// Generates new steps to APPEND to an existing plan based on [userPrompt].
+  /// Existing steps are forwarded so the model doesn't repeat them.
+  /// Returns null if no provider is configured or the call failed.
+  /// [onError] is called with the caught exception before returning null.
+  Future<List<String>?> addSubtasksFromPrompt(
+    String title, {
+    String? description,
+    String? userPrompt,
+    GoalDifficulty? difficulty,
+    List<String>? existingPendingSteps,
+    List<String>? existingCompletedSteps,
+    void Function(Object error)? onError,
+  }) async {
+    if (_client == null) return null;
+    try {
+      final result = await _client.addSteps(
+        title,
+        description: description,
+        userPrompt: userPrompt,
+        difficulty: difficulty,
+        existingPendingSteps: existingPendingSteps,
+        existingCompletedSteps: existingCompletedSteps,
+      );
+      if (result.isEmpty) return null;
+      return result;
+    } catch (e) {
+      debugPrint('Add subtasks failed: $e');
+      onError?.call(e);
       return null;
     }
   }
 
   /// Breaks an existing subtask down into smaller steps via the configured
-  /// provider. Returns null if no provider is configured or the call failed —
-  /// callers should fall back to a manual flow.
+  /// provider. Goal context is forwarded to help the model generate steps that
+  /// fit naturally within the broader goal. Returns null if no provider is
+  /// configured or the call failed — callers should fall back to a manual flow.
+  /// [onError] is called with the caught exception before returning null.
   Future<List<String>?> breakdownSubtask(
     String description, {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
+    String? goalTitle,
+    String? goalDescription,
+    List<String>? completedSteps,
+    List<String>? otherPendingSteps,
+    void Function(Object error)? onError,
   }) async {
     if (_client == null) return null;
     try {
@@ -73,11 +150,16 @@ class GoalDecompositionService {
         description,
         additionalInstructions: additionalInstructions,
         difficulty: difficulty,
+        goalTitle: goalTitle,
+        goalDescription: goalDescription,
+        completedSteps: completedSteps,
+        otherPendingSteps: otherPendingSteps,
       );
       if (result.isEmpty) return null;
       return result;
     } catch (e) {
       debugPrint('Subtask breakdown failed: $e');
+      onError?.call(e);
       return null;
     }
   }
