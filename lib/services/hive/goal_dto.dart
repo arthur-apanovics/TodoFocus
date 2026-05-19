@@ -10,8 +10,8 @@ part 'goal_dto.g.dart';
 // 3: status          (active)
 // 4: dueDate         (active)
 // 5: subtasks        (active)
-// 6: isFocusedToday  (active)
-// 7: todayOrder      (active)
+// 6: isFocusedToday  (RETIRED — focus moved to FocusListService)
+// 7: todayOrder      (RETIRED — focus moved to FocusListService)
 // 8: difficulty      (active)
 // 9: emoji           (active)
 // Next available: 10
@@ -35,12 +35,6 @@ class GoalDto extends HiveObject {
 
   @HiveField(5)
   late List<SubTaskDto> subtasks;
-
-  @HiveField(6)
-  bool isFocusedToday = false;
-
-  @HiveField(7)
-  int todayOrder = 0;
 
   @HiveField(8)
   String? difficulty;

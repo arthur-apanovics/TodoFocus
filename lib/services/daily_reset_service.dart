@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
-import 'goal_repository.dart';
+import 'focus_list_service.dart';
 
 class DailyResetService extends ChangeNotifier {
   static const _boxName = 'app_settings';
@@ -17,7 +17,7 @@ class DailyResetService extends ChangeNotifier {
   static const _urgencyDaysKey = 'urgency_days';
 
   final Box<String> _box;
-  final GoalRepository _repo;
+  final FocusListService _focus;
 
   bool _resetEnabled;
   int _resetHour;
@@ -30,7 +30,7 @@ class DailyResetService extends ChangeNotifier {
   int _urgencyDays;
   DailyResetService._({
     required Box<String> box,
-    required GoalRepository repo,
+    required FocusListService focus,
     required bool resetEnabled,
     required int resetHour,
     required int resetMinute,
@@ -41,7 +41,7 @@ class DailyResetService extends ChangeNotifier {
     required int morningPromptMinute,
     required int urgencyDays,
   })  : _box = box,
-        _repo = repo,
+        _focus = focus,
         _resetEnabled = resetEnabled,
         _resetHour = resetHour,
         _resetMinute = resetMinute,
@@ -111,18 +111,14 @@ class DailyResetService extends ChangeNotifier {
   }
 
   Future<void> _performReset(DateTime now) async {
-    final focused = _repo.all
-        .where((g) => g.isFocusedToday)
-        .map((g) => g.goalId)
-        .toList();
-    _previouslyAssigned = focused;
-    await _box.put(_prevAssignedKey, focused.join(','));
+    // Snapshot the goals that had at least one focused subtask before the
+    // wipe so the urgency-sort heuristic can keep "previously assigned"
+    // goals near the top of the list afterwards.
+    final priorGoalIds = _focus.groups.map((g) => g.goalId).toList();
+    _previouslyAssigned = priorGoalIds;
+    await _box.put(_prevAssignedKey, priorGoalIds.join(','));
 
-    for (final goal in _repo.all.where((g) => g.isFocusedToday).toList()) {
-      goal.isFocusedToday = false;
-      goal.todayOrder = 0;
-      _repo.save(goal);
-    }
+    await _focus.clearAll();
 
     _lastResetDate = _dateString(now);
     await _box.put(_lastResetDateKey, _lastResetDate!);
@@ -162,7 +158,7 @@ class DailyResetService extends ChangeNotifier {
   static String _dateString(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
-  static Future<DailyResetService> init(GoalRepository repo) async {
+  static Future<DailyResetService> init(FocusListService focus) async {
     final box = await Hive.openBox<String>(_boxName);
 
     final rawPrev = box.get(_prevAssignedKey, defaultValue: '') ?? '';
@@ -172,7 +168,7 @@ class DailyResetService extends ChangeNotifier {
 
     return DailyResetService._(
       box: box,
-      repo: repo,
+      focus: focus,
       resetEnabled: box.get(_resetEnabledKey) == 'true',
       resetHour: int.tryParse(box.get(_resetHourKey) ?? '') ?? 3,
       resetMinute: int.tryParse(box.get(_resetMinuteKey) ?? '') ?? 0,

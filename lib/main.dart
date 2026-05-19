@@ -15,6 +15,7 @@ import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
 import 'services/display_preferences.dart';
 import 'services/draft_service.dart';
+import 'services/focus_list_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
@@ -28,7 +29,8 @@ void main() async {
 
   final goalRepository = await HiveGoalRepository.init();
   final llmSettingsService = await LlmSettingsService.init();
-  final dailyResetService = await DailyResetService.init(goalRepository);
+  final focusListService = await FocusListService.init();
+  final dailyResetService = await DailyResetService.init(focusListService);
   final displayPreferences = await DisplayPreferences.init();
 
   final tabNotifier = ValueNotifier<int>(0);
@@ -38,6 +40,7 @@ void main() async {
   final notificationService = NotificationService(
     goalNavNotifier: goalNavNotifier,
     repository: goalRepository,
+    focus: focusListService,
   );
   await notificationService.init();
 
@@ -47,17 +50,21 @@ void main() async {
     await notificationService.scheduleMorningPrompt(t.hour, t.minute);
   }
 
-  goalRepository.addListener(() {
-    notificationService.update(GoalQueries(goalRepository).todayQueue);
-  });
+  // Re-post the notification whenever the focus list or the underlying
+  // goal data changes. Either source can shift which subtask is "current".
+  void refreshNotification() {
+    notificationService.update(focusListService.resolveGroups(goalRepository));
+  }
 
-  // Show initial state on startup (covers app restart with focused goals).
-  notificationService.update(GoalQueries(goalRepository).todayQueue);
+  goalRepository.addListener(refreshNotification);
+  focusListService.addListener(refreshNotification);
+  refreshNotification();
 
   runApp(
     TodoApp(
       goalRepository: goalRepository,
       llmSettingsService: llmSettingsService,
+      focusListService: focusListService,
       dailyResetService: dailyResetService,
       displayPreferences: displayPreferences,
       notificationService: notificationService,
@@ -70,6 +77,7 @@ void main() async {
 class TodoApp extends StatelessWidget {
   final GoalRepository goalRepository;
   final LlmSettingsService llmSettingsService;
+  final FocusListService focusListService;
   final DailyResetService dailyResetService;
   final DisplayPreferences displayPreferences;
   final NotificationService notificationService;
@@ -81,6 +89,7 @@ class TodoApp extends StatelessWidget {
     super.key,
     required this.goalRepository,
     required this.llmSettingsService,
+    required this.focusListService,
     required this.dailyResetService,
     required this.displayPreferences,
     required this.notificationService,
@@ -96,8 +105,11 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<LlmSettingsService>.value(
           value: llmSettingsService,
         ),
-        ProxyProvider<GoalRepository, GoalService>(
-          update: (_, repository, _) => GoalService(repository),
+        ChangeNotifierProvider<FocusListService>.value(
+          value: focusListService,
+        ),
+        ProxyProvider2<GoalRepository, FocusListService, GoalService>(
+          update: (_, repository, focus, _) => GoalService(repository, focus),
         ),
         ProxyProvider<GoalRepository, GoalQueries>(
           update: (_, repository, _) => GoalQueries(repository),
@@ -119,9 +131,13 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<DisplayPreferences>.value(
           value: displayPreferences,
         ),
-        ProxyProvider2<GoalRepository, LlmSettingsService, BackupService>(
-          update: (_, goals, settings, _) =>
-              BackupService(goals: goals, settings: settings),
+        ProxyProvider3<GoalRepository, LlmSettingsService, FocusListService,
+            BackupService>(
+          update: (_, goals, settings, focus, _) => BackupService(
+            goals: goals,
+            settings: settings,
+            focus: focus,
+          ),
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
@@ -216,16 +232,17 @@ class _AppShellState extends State<AppShell>
 
   Future<void> _checkResetAndUpdateNotification() async {
     final repo = context.read<GoalRepository>();
+    final focus = context.read<FocusListService>();
     final notif = context.read<NotificationService>();
     final resetService = context.read<DailyResetService>();
 
     final wasReset = await resetService.checkAndReset();
-    final queue = GoalQueries(repo).todayQueue;
+    final groups = focus.resolveGroups(repo);
 
-    if (wasReset && queue.isEmpty) {
+    if (wasReset && groups.isEmpty) {
       await notif.showAssignTasksPrompt();
     } else {
-      await notif.update(queue);
+      await notif.update(groups);
     }
   }
 
@@ -334,7 +351,11 @@ class _AppShellState extends State<AppShell>
             const InboxScreen(),
           ],
         ),
-        floatingActionButton: _buildFab(context),
+        // The Focus tab has its own FAB ("Pick") rendered by FocusScreen.
+        // Hiding the global one prevents the Create-Goal FAB from sitting on
+        // top of it and swallowing taps.
+        floatingActionButton:
+            _tabController.index == 0 ? null : _buildFab(context),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tabController.index,
           onDestinationSelected: _onDestinationSelected,

@@ -16,6 +16,8 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
+    // Fields 6 (isFocusedToday) and 7 (todayOrder) are retired — read but
+    // ignored so previously-persisted records load without error.
     return GoalDto()
       ..goalId = fields[0] as String
       ..title = fields[1] as String
@@ -23,8 +25,6 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..status = fields[3] as String
       ..dueDate = fields[4] as DateTime?
       ..subtasks = (fields[5] as List).cast<SubTaskDto>()
-      ..isFocusedToday = fields[6] as bool
-      ..todayOrder = fields[7] as int
       ..difficulty = fields[8] as String?
       ..emoji = fields[9] as String?;
   }
@@ -32,7 +32,7 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
   @override
   void write(BinaryWriter writer, GoalDto obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.goalId)
       ..writeByte(1)
@@ -45,10 +45,6 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..write(obj.dueDate)
       ..writeByte(5)
       ..write(obj.subtasks)
-      ..writeByte(6)
-      ..write(obj.isFocusedToday)
-      ..writeByte(7)
-      ..write(obj.todayOrder)
       ..writeByte(8)
       ..write(obj.difficulty)
       ..writeByte(9)

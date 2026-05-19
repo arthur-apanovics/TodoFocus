@@ -11,13 +11,11 @@ Goal makeGoal({
   String id = 'g1',
   GoalStatus status = GoalStatus.active,
   List<SubTask>? subtasks,
-  bool isFocusedToday = false,
 }) => Goal(
   goalId: id,
   title: 'Test goal',
   status: status,
   subtasks: subtasks,
-  isFocusedToday: isFocusedToday,
 );
 
 SubTask makeSubTask(String id, {SubTaskState state = SubTaskState.pending}) =>

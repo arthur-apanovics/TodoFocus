@@ -2,26 +2,30 @@ import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import 'focus_list_service.dart';
 import 'goal_repository.dart';
 
 class GoalService {
   final GoalRepository _repository;
+  final FocusListService _focus;
   final _uuid = const Uuid();
 
-  GoalService(this._repository);
+  GoalService(this._repository, this._focus);
 
   // --- Goal operations ---
 
   void addGoal(Goal goal) => _repository.save(goal);
 
-  void removeGoal(String goalId) => _repository.delete(goalId);
+  void removeGoal(String goalId) {
+    _focus.dropGoal(goalId);
+    _repository.delete(goalId);
+  }
 
   void archiveGoal(String goalId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
     goal.status = GoalStatus.archived;
-    goal.isFocusedToday = false;
-    goal.todayOrder = 0;
+    _focus.dropGoal(goalId);
     _repository.save(goal);
   }
 
@@ -57,6 +61,7 @@ class GoalService {
     for (final subtask in goal.subtasks) {
       subtask.state = SubTaskState.pending;
     }
+    _focus.dropGoal(goalId);
     _repository.save(goal);
   }
 
@@ -118,52 +123,23 @@ class GoalService {
     _repository.save(goal);
   }
 
-  void toggleFocusToday(Goal goal) {
-    goal.isFocusedToday = !goal.isFocusedToday;
-    if (goal.isFocusedToday) {
-      // Append to the bottom of the today queue by giving this goal a higher
-      // todayOrder than any currently-focused goal.
-      final maxOrder = _repository.all
-          .where((g) => g.isFocusedToday && g.goalId != goal.goalId)
-          .fold<int>(-1, (m, g) => g.todayOrder > m ? g.todayOrder : m);
-      goal.todayOrder = maxOrder + 1;
-    }
-    _repository.save(goal);
-  }
-
-  // Reorders the today queue based on the visible list shown to the user.
-  // Caller passes the *current* ordered queue (e.g. queries.todayQueue) and
-  // the indices supplied by ReorderableListView. We normalise newIndex,
-  // rebuild the list, then write back 0..n-1 to each goal's todayOrder.
-  void reorderTodayQueue(
-    List<Goal> currentQueue,
-    int oldIndex,
-    int newIndex,
-  ) {
-    if (newIndex > oldIndex) newIndex -= 1;
-    if (oldIndex == newIndex) return;
-
-    final reordered = List<Goal>.from(currentQueue);
-    final moving = reordered.removeAt(oldIndex);
-    reordered.insert(newIndex, moving);
-
-    for (var i = 0; i < reordered.length; i++) {
-      final goal = reordered[i];
-      if (goal.todayOrder != i) {
-        goal.todayOrder = i;
-        _repository.save(goal);
-      }
-    }
-  }
-
   // --- SubTask operations ---
+  //
+  // The `_reconcileFocus*` helpers keep [FocusListService] in step with the
+  // canonical goal state. We diff old vs new subtask IDs after each mutation
+  // and let the focus service add/remove entries as needed — that way no
+  // call site has to know about focus internals, and the auto-include
+  // behavior for fully-focused goals is enforced in one place.
 
   void addSubTask(String goalId, String description) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
 
-    goal.addSubTask(SubTask(subtaskId: _uuid.v4(), description: description));
+    final newSubtask =
+        SubTask(subtaskId: _uuid.v4(), description: description);
+    goal.addSubTask(newSubtask);
     _repository.save(goal);
+    _focus.onSubtasksAddedToGoal(goalId, [newSubtask.subtaskId]);
   }
 
   // Appends multiple new subtasks to the end of the pending list.
@@ -173,10 +149,15 @@ class GoalService {
     if (descriptions.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    for (final desc in descriptions) {
-      goal.addSubTask(SubTask(subtaskId: _uuid.v4(), description: desc));
+    final newSubtasks = descriptions
+        .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
+        .toList();
+    for (final st in newSubtasks) {
+      goal.addSubTask(st);
     }
     _repository.save(goal);
+    _focus.onSubtasksAddedToGoal(
+        goalId, newSubtasks.map((s) => s.subtaskId).toList());
   }
 
   // Replaces all subtasks on a goal with a fresh set of descriptions.
@@ -191,6 +172,7 @@ class GoalService {
           .toList(),
     );
     _repository.save(goal);
+    _focus.reconcileAfterBulkMutation(goal);
   }
 
   // Replaces only the pending subtasks, preserving any already-completed steps.
@@ -205,6 +187,7 @@ class GoalService {
           .toList(),
     );
     _repository.save(goal);
+    _focus.reconcileAfterBulkMutation(goal);
   }
 
   // Replaces a single subtask with one or more smaller steps. Used both by
@@ -218,13 +201,23 @@ class GoalService {
     if (descriptions.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    goal.replaceSubTask(
-      subtaskId,
-      descriptions
-          .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
-          .toList(),
-    );
+    final newSubtasks = descriptions
+        .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
+        .toList();
+    final wasFocused = _focus.isInFocus(goalId, subtaskId);
+    final goalFull = _focus.isGoalFullyFocused(goalId);
+    goal.replaceSubTask(subtaskId, newSubtasks);
     _repository.save(goal);
+
+    if (wasFocused || goalFull) {
+      _focus.replaceEntry(
+        goalId,
+        subtaskId,
+        newSubtasks.map((s) => s.subtaskId).toList(),
+      );
+    } else {
+      _focus.removeDanglingEntry(goalId, subtaskId);
+    }
   }
 
   void deleteSubTask(String goalId, String subtaskId) {
@@ -233,6 +226,7 @@ class GoalService {
 
     goal.removeSubTask(subtaskId);
     _repository.save(goal);
+    _focus.removeDanglingEntry(goalId, subtaskId);
   }
 
   void updateSubTaskDescription(
@@ -261,10 +255,35 @@ class GoalService {
     _repository.save(goal);
   }
 
+  /// Completes a specific subtask by id. Differs from
+  /// [completeCurrentSubTask] in that the target need not be the goal's
+  /// current step — the Focus screen lets the user knock off any focused
+  /// subtask, even one that's mid-sequence within its parent goal.
+  void completeSubTask(String goalId, String subtaskId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    final subtask = goal.subtasks
+        .where((t) => t.subtaskId == subtaskId)
+        .firstOrNull;
+    if (subtask == null || subtask.state == SubTaskState.completed) return;
+    subtask.markComplete();
+    // Recalculate goal status by going through the same path as the
+    // model's _recalculateStatus (called from completeCurrentSubTask).
+    final allDone =
+        goal.subtasks.every((t) => t.state == SubTaskState.completed);
+    if (allDone &&
+        goal.status != GoalStatus.archived &&
+        goal.status != GoalStatus.inbox) {
+      goal.status = GoalStatus.completed;
+    }
+    _repository.save(goal);
+  }
+
   void uncompleteSubTask(String goalId, String subtaskId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
     goal.uncompleteSubTask(subtaskId);
     _repository.save(goal);
   }
+
 }

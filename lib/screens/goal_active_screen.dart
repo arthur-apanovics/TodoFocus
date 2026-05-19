@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
+import '../services/focus_list_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -297,9 +298,11 @@ class _GoalHeader extends StatelessWidget {
   }
 }
 
-// Sticky bottom bar that lets the user toggle this goal in/out of today's
-// focus queue. Mirrors the planning screen's "Queue Goal" bar in placement
-// and sizing, but stays visible for the lifetime of the active-goal view.
+// Sticky bottom bar that toggles the whole goal in/out of today's focus.
+// When tapped to focus, every currently-pending subtask is appended to the
+// focus list AND the goal is marked "fully focused" so future subtasks
+// added to this goal auto-join the list too. Tapping again removes the
+// goal-level intent and drops every entry belonging to this goal.
 class _FocusBar extends StatelessWidget {
   final Goal goal;
 
@@ -307,28 +310,31 @@ class _FocusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFocused = goal.isFocusedToday;
+    final focus = context.watch<FocusListService>();
+    final fullyFocused = focus.isGoalFullyFocused(goal.goalId);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: isFocused
+        child: fullyFocused
             ? OutlinedButton.icon(
                 icon: const Icon(Icons.star_rounded),
-                label: const Text('In today\'s focus — tap to remove'),
+                label: const Text('Goal in focus — tap to remove'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
                 ),
-                onPressed: () =>
-                    context.read<GoalService>().toggleFocusToday(goal),
+                onPressed: () => context
+                    .read<FocusListService>()
+                    .unfocusGoalFully(goal.goalId),
               )
             : FilledButton.icon(
                 icon: const Icon(Icons.star_outline_rounded),
-                label: const Text('Schedule for today\'s focus'),
+                label: const Text('Add all pending to today\'s focus'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
                 ),
-                onPressed: () =>
-                    context.read<GoalService>().toggleFocusToday(goal),
+                onPressed: () => context
+                    .read<FocusListService>()
+                    .focusGoalFully(goal.goalId, context.read<GoalRepository>()),
               ),
       ),
     );

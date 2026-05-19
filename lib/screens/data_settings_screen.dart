@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
+import '../models/enums.dart';
 import '../models/goal.dart';
 import '../services/backup_service.dart';
+import '../services/focus_list_service.dart';
 import '../services/goal_queries.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -336,9 +338,23 @@ class _LoadSampleDataTile extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
 
     final service = context.read<GoalService>();
+    final focus = context.read<FocusListService>();
+    final repo = context.read<GoalRepository>();
     final goals = SampleData.build();
     for (final goal in goals) {
       service.addGoal(goal);
+    }
+
+    // Seed today's focus with the first two active goals (fully focused)
+    // so the Focus tab isn't empty after loading samples.
+    final activeWithPending = goals
+        .where((g) =>
+            g.status == GoalStatus.active &&
+            g.subtasks.any((s) => s.state == SubTaskState.pending))
+        .take(2)
+        .toList();
+    for (final goal in activeWithPending) {
+      await focus.focusGoalFully(goal.goalId, repo);
     }
 
     if (!context.mounted) return;

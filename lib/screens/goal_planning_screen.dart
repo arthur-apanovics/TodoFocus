@@ -7,6 +7,7 @@ import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
 import '../services/draft_service.dart';
+import '../services/focus_list_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -1488,6 +1489,9 @@ class _SubTaskTileState extends State<SubTaskTile> {
         child: Opacity(
           opacity: _isBreakingDown ? 0.6 : 1.0,
           child: ListTile(
+            // Compact leading star toggles individual focus for this subtask.
+            // Filled when in today's focus, outlined otherwise.
+            leading: _SubtaskFocusStar(goal: goal, subtask: subtask),
             title: GestureDetector(
               onTap: (isPending && !_isBreakingDown)
                   ? () => _showEditSheet(context, service)
@@ -2127,6 +2131,42 @@ class _EmptySubtaskState extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Tiny leading star on each SubTaskTile that toggles per-subtask focus
+// membership. Sized to sit comfortably in a ListTile.leading slot.
+class _SubtaskFocusStar extends StatelessWidget {
+  final Goal goal;
+  final SubTask subtask;
+
+  const _SubtaskFocusStar({required this.goal, required this.subtask});
+
+  @override
+  Widget build(BuildContext context) {
+    final focus = context.watch<FocusListService>();
+    final inFocus = focus.isInFocus(goal.goalId, subtask.subtaskId);
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      tooltip:
+          inFocus ? 'Remove from today\'s focus' : 'Add to today\'s focus',
+      icon: Icon(
+        inFocus ? Icons.star_rounded : Icons.star_outline_rounded,
+        size: 20,
+        color: inFocus ? AppColors.accent : AppColors.muted,
+      ),
+      onPressed: () {
+        final f = context.read<FocusListService>();
+        final repo = context.read<GoalRepository>();
+        if (inFocus) {
+          f.unfocusSubtask(goal.goalId, subtask.subtaskId, repo);
+        } else {
+          f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
+        }
+      },
     );
   }
 }

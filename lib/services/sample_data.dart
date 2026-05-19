@@ -51,8 +51,6 @@ class SampleData {
           notes: 'Work through the Rust Book and build a small CLI tool.',
           difficulty: GoalDifficulty.hard,
           dueDate: _in(45),
-          isFocusedToday: true,
-          todayOrder: 0,
           subtasks: [
             _done('Read chapters 1–4 of the Rust Book', daysAgo: 10, effort: 2),
             _done('Understand ownership and borrowing', daysAgo: 7, effort: 3),
@@ -71,8 +69,6 @@ class SampleData {
           difficulty: GoalDifficulty.easy,
           emoji: 'running',
           dueDate: _ago(3), // overdue
-          isFocusedToday: true,
-          todayOrder: 1,
           subtasks: [
             _done('Complete week 1 runs', daysAgo: 20, effort: 1),
             _done('Complete week 2 runs', daysAgo: 14, effort: 1),
@@ -90,8 +86,6 @@ class SampleData {
           notes: 'Tackle every room systematically before the family visit.',
           difficulty: GoalDifficulty.easy,
           dueDate: _in(1), // tomorrow
-          isFocusedToday: true,
-          todayOrder: 2,
           subtasks: [
             _done('Buy cleaning supplies', daysAgo: 3),
             _done('Declutter living room and hallway', daysAgo: 2),
@@ -108,8 +102,6 @@ class SampleData {
           notes: 'Ten-minute sessions every day using positive reinforcement.',
           difficulty: GoalDifficulty.easy,
           emoji: 'pets',
-          isFocusedToday: true,
-          todayOrder: 3,
           subtasks: [
             _done('Master "sit" reliably', daysAgo: 14),
             _done('Master "stay" for 30 seconds', daysAgo: 10),
@@ -366,8 +358,6 @@ class SampleData {
           notes: 'Check bank statements for the last three months.',
           difficulty: GoalDifficulty.easy,
           dueDate: _ago(2), // slightly overdue
-          isFocusedToday: true,
-          todayOrder: 4,
           subtasks: [
             _done('Export bank statement to spreadsheet', daysAgo: 3),
             _pending('Highlight recurring charges to review'),

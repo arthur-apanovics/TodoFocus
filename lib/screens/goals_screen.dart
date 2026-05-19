@@ -7,8 +7,10 @@ import '../services/daily_reset_service.dart';
 import '../services/decomposition_state.dart';
 import '../services/display_preferences.dart';
 import '../services/draft_service.dart';
+import '../services/focus_list_service.dart';
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_queries.dart';
+import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
@@ -435,7 +437,6 @@ class _GoalTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = context.read<GoalService>();
     final isDecomposing = context.watch<DecompositionState>().isDecomposing(
       goal.goalId,
     );
@@ -466,18 +467,7 @@ class _GoalTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (goal.status == GoalStatus.active)
-                  IconButton(
-                    icon: Icon(
-                      goal.isFocusedToday ? Icons.star : Icons.star_border,
-                      color: goal.isFocusedToday
-                          ? AppColors.accent
-                          : AppColors.muted,
-                    ),
-                    tooltip: goal.isFocusedToday
-                        ? 'Remove from Today'
-                        : 'Add to Today',
-                    onPressed: () => service.toggleFocusToday(goal),
-                  ),
+                  _GoalFocusToggle(goal: goal),
                 const Icon(Icons.chevron_right),
               ],
             ),
@@ -671,6 +661,40 @@ class _SubtaskStrip extends StatelessWidget {
           );
         }).toList(),
       ),
+    );
+  }
+}
+
+// Inline trailing toggle on each goal row. Tapping flips the whole goal's
+// "fully focused" intent — adds every pending subtask to the focus list, and
+// marks future additions to auto-join. Star is filled when ANY subtask of
+// this goal is in the list (signals "this goal is on today's plate"), even
+// if the user only manually focused a subset.
+class _GoalFocusToggle extends StatelessWidget {
+  final Goal goal;
+
+  const _GoalFocusToggle({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final focus = context.watch<FocusListService>();
+    final fullyFocused = focus.isGoalFullyFocused(goal.goalId);
+    final hasAny = focus.hasFocus(goal.goalId);
+    return IconButton(
+      icon: Icon(
+        hasAny ? Icons.star : Icons.star_border,
+        color: hasAny ? AppColors.accent : AppColors.muted,
+      ),
+      tooltip:
+          fullyFocused ? 'Remove from Today' : 'Add all pending to Today',
+      onPressed: () {
+        final f = context.read<FocusListService>();
+        if (fullyFocused) {
+          f.unfocusGoalFully(goal.goalId);
+        } else {
+          f.focusGoalFully(goal.goalId, context.read<GoalRepository>());
+        }
+      },
     );
   }
 }

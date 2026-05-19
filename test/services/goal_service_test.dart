@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/models/enums.dart';
 import 'package:todo_app/models/goal.dart';
 import 'package:todo_app/models/sub_task.dart';
+import 'package:todo_app/services/focus_list_service.dart';
 import 'package:todo_app/services/goal_repository.dart';
 import 'package:todo_app/services/goal_service.dart';
 
@@ -13,13 +14,11 @@ Goal makeGoal({
   String id = 'g1',
   GoalStatus status = GoalStatus.active,
   List<SubTask>? subtasks,
-  bool isFocusedToday = false,
 }) => Goal(
   goalId: id,
   title: 'Test goal',
   status: status,
   subtasks: subtasks,
-  isFocusedToday: isFocusedToday,
 );
 
 SubTask makeSubTask(String id, {SubTaskState state = SubTaskState.pending}) =>
@@ -30,7 +29,8 @@ SubTask makeSubTask(String id, {SubTaskState state = SubTaskState.pending}) =>
   for (final g in seed) {
     repo.save(g);
   }
-  return (GoalService(repo), repo);
+  final focus = FocusListService.inMemory();
+  return (GoalService(repo, focus), repo);
 }
 
 void main() {
@@ -120,84 +120,6 @@ void main() {
       final (service, repo) = makeService(seed: [goal]);
       service.updateGoal('g1', title: 'Updated');
       expect(repo.findById('g1')!.difficulty, GoalDifficulty.impossible);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // toggleFocusToday
-  // -------------------------------------------------------------------------
-
-  group('toggleFocusToday', () {
-    test('sets isFocusedToday to true on first toggle', () {
-      final goal = makeGoal();
-      final (service, repo) = makeService(seed: [goal]);
-      service.toggleFocusToday(goal);
-      expect(repo.findById('g1')!.isFocusedToday, isTrue);
-    });
-
-    test('sets isFocusedToday back to false on second toggle', () {
-      final goal = makeGoal(isFocusedToday: true);
-      final (service, repo) = makeService(seed: [goal]);
-      service.toggleFocusToday(goal);
-      expect(repo.findById('g1')!.isFocusedToday, isFalse);
-    });
-
-    test('assigns todayOrder 0 when first goal is focused', () {
-      final goal = makeGoal();
-      final (service, repo) = makeService(seed: [goal]);
-      service.toggleFocusToday(goal);
-      expect(repo.findById('g1')!.todayOrder, 0);
-    });
-
-    test('appends to the end when another goal is already focused', () {
-      final existing = makeGoal(id: 'g1', isFocusedToday: true);
-      existing.todayOrder = 0;
-      final newGoal = makeGoal(id: 'g2');
-      final (service, repo) = makeService(seed: [existing, newGoal]);
-      service.toggleFocusToday(newGoal);
-      expect(repo.findById('g2')!.todayOrder, 1);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // reorderTodayQueue
-  // -------------------------------------------------------------------------
-
-  group('reorderTodayQueue', () {
-    List<Goal> focusedTrio() {
-      final a = makeGoal(id: 'a', isFocusedToday: true)..todayOrder = 0;
-      final b = makeGoal(id: 'b', isFocusedToday: true)..todayOrder = 1;
-      final c = makeGoal(id: 'c', isFocusedToday: true)..todayOrder = 2;
-      return [a, b, c];
-    }
-
-    test('moves a goal from the bottom to the top', () {
-      final goals = focusedTrio();
-      final (service, repo) = makeService(seed: goals);
-      // ReorderableListView passes newIndex one past the target when moving down.
-      service.reorderTodayQueue(goals, 2, 0); // move c to top
-      expect(repo.findById('c')!.todayOrder, 0);
-      expect(repo.findById('a')!.todayOrder, 1);
-      expect(repo.findById('b')!.todayOrder, 2);
-    });
-
-    test('moves a goal from the top to the bottom', () {
-      final goals = focusedTrio();
-      final (service, repo) = makeService(seed: goals);
-      // ReorderableListView convention: dropping past the end uses index N.
-      service.reorderTodayQueue(goals, 0, 3); // move a to bottom
-      expect(repo.findById('b')!.todayOrder, 0);
-      expect(repo.findById('c')!.todayOrder, 1);
-      expect(repo.findById('a')!.todayOrder, 2);
-    });
-
-    test('is a no-op when the move resolves to the same index', () {
-      final goals = focusedTrio();
-      final (service, repo) = makeService(seed: goals);
-      service.reorderTodayQueue(goals, 1, 2); // newIndex normalised to 1 — no-op
-      expect(repo.findById('a')!.todayOrder, 0);
-      expect(repo.findById('b')!.todayOrder, 1);
-      expect(repo.findById('c')!.todayOrder, 2);
     });
   });
 

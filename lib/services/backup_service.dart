@@ -3,22 +3,29 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 
+import 'focus_list_service.dart';
 import 'goal_repository.dart';
 import 'settings/llm_settings_service.dart';
 
 typedef BackupResult = ({int imported, int skipped});
 
 class BackupService {
-  static const int _version = 1;
+  // Bumped from 1 → 2 when the focus list moved into FocusListService and
+  // out of the goal model. Version is a hint for tooling — the importer
+  // accepts any version and ignores fields it doesn't recognise.
+  static const int _version = 2;
 
   final GoalRepository _goals;
   final LlmSettingsService _settings;
+  final FocusListService _focus;
 
   BackupService({
     required GoalRepository goals,
     required LlmSettingsService settings,
+    required FocusListService focus,
   })  : _goals = goals,
-        _settings = settings;
+        _settings = settings,
+        _focus = focus;
 
   // Opens the system save-file picker so the user chooses the destination.
   // Returns true if the file was saved, false if the user cancelled.
@@ -29,6 +36,7 @@ class BackupService {
       'exportedAt': now.toIso8601String(),
       'goals': _goals.exportToJson(),
       'settings': _settings.exportToJson(),
+      'focus': _focus.exportToJson(),
     })));
 
     final path = await FilePicker.platform.saveFile(
@@ -73,6 +81,18 @@ class BackupService {
     final rawSettings = payload['settings'];
     if (rawSettings is Map<String, dynamic>) {
       await _settings.importFromJson(rawSettings);
+    }
+
+    // Focus list is imported last so it sees the freshly-restored goals.
+    // Entries pointing at goal/subtask IDs that didn't survive the import
+    // become dangling refs and are dropped silently at resolve time.
+    final rawFocus = payload['focus'];
+    if (rawFocus is List) {
+      await _focus.importFromJson(rawFocus);
+    } else {
+      // No focus block (older backup) → clear any stale entries so the
+      // restored repo doesn't carry over yesterday's working set.
+      await _focus.clearAll();
     }
 
     return (imported: imported, skipped: skipped);

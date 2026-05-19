@@ -16,13 +16,11 @@ import 'package:todo_app/services/hive/sub_task_dto.dart';
 Goal makeGoal({
   String id = 'g1',
   GoalStatus status = GoalStatus.active,
-  bool isFocusedToday = false,
   List<SubTask>? subtasks,
 }) => Goal(
   goalId: id,
   title: 'Goal $id',
   status: status,
-  isFocusedToday: isFocusedToday,
   subtasks: subtasks,
 );
 
@@ -112,41 +110,6 @@ void main() {
   // Bug: this flag was missing from _toDto and was silently reset on reload.
   // -------------------------------------------------------------------------
 
-  group('todayOrder round-trip', () {
-    test('non-zero value survives a save/reload cycle', () {
-      final goal = makeGoal()..todayOrder = 42;
-      _repo.save(goal);
-      expect(_repo.findById('g1')!.todayOrder, 42);
-    });
-
-    test('default 0 survives a save/reload cycle', () {
-      _repo.save(makeGoal());
-      expect(_repo.findById('g1')!.todayOrder, 0);
-    });
-  });
-
-  group('isFocusedToday round-trip', () {
-    test('true survives a save/reload cycle', () {
-      _repo.save(makeGoal(isFocusedToday: true));
-      // Reload by reading directly from the box (same box, same memory —
-      // the repository re-maps from the DTO on every get).
-      expect(_repo.findById('g1')!.isFocusedToday, isTrue);
-    });
-
-    test('false (default) survives a save/reload cycle', () {
-      _repo.save(makeGoal(isFocusedToday: false));
-      expect(_repo.findById('g1')!.isFocusedToday, isFalse);
-    });
-
-    test('can be toggled from true to false and persisted', () {
-      _repo.save(makeGoal(isFocusedToday: true));
-      final goal = _repo.findById('g1')!;
-      goal.isFocusedToday = false;
-      _repo.save(goal);
-      expect(_repo.findById('g1')!.isFocusedToday, isFalse);
-    });
-  });
-
   // -------------------------------------------------------------------------
   // GoalStatus persistence and migration
   // -------------------------------------------------------------------------
@@ -176,7 +139,6 @@ void main() {
         ..notes = ''
         ..status = 'paused'
         ..dueDate = null
-        ..isFocusedToday = false
         ..subtasks = [];
       _box.put('legacy', dto);
 
@@ -238,8 +200,6 @@ void main() {
         difficulty: GoalDifficulty.hard,
         dueDate: due,
         emoji: '🚀',
-        isFocusedToday: true,
-        todayOrder: 7,
         subtasks: [
           SubTask(
             subtaskId: 'st1',
@@ -264,9 +224,6 @@ void main() {
       expect(loaded.difficulty, original.difficulty, reason: 'difficulty');
       expect(loaded.dueDate, original.dueDate, reason: 'dueDate');
       expect(loaded.emoji, original.emoji, reason: 'emoji');
-      expect(loaded.isFocusedToday, original.isFocusedToday,
-          reason: 'isFocusedToday');
-      expect(loaded.todayOrder, original.todayOrder, reason: 'todayOrder');
 
       expect(loaded.subtasks.length, 2, reason: 'subtask count');
       expect(loaded.subtasks[0].subtaskId, 'st1', reason: 'subtask[0].id');

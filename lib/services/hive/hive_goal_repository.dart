@@ -91,8 +91,6 @@ class HiveGoalRepository extends GoalRepository {
       difficulty: GoalDifficulty.values.asNameMap()[dto.difficulty ?? ''] ??
           GoalDifficulty.easy,
       dueDate: dto.dueDate,
-      isFocusedToday: dto.isFocusedToday,
-      todayOrder: dto.todayOrder,
       emoji: dto.emoji,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
     );
@@ -120,8 +118,6 @@ class HiveGoalRepository extends GoalRepository {
       ..status = goal.status.name
       ..difficulty = goal.difficulty.name
       ..dueDate = goal.dueDate
-      ..isFocusedToday = goal.isFocusedToday
-      ..todayOrder = goal.todayOrder
       ..emoji = goal.emoji
       ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
     return dto;

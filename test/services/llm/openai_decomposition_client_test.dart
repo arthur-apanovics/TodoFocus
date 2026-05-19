@@ -59,7 +59,7 @@ void main() {
       await _client(llm).decompose('Learn Swift');
       expect(llm.capturedSchema!['minItems'], 3);
       expect(llm.capturedSchema!['maxItems'], 6);
-      expect(llm.capturedSystemPrompt, contains('3 and 6'));
+      expect(llm.capturedUserPrompt, contains('3 and 6'));
     });
 
     test('easy difficulty uses easy bounds (3–6)', () async {
@@ -67,7 +67,7 @@ void main() {
       await _client(llm).decompose('Learn Swift', difficulty: GoalDifficulty.easy);
       expect(llm.capturedSchema!['minItems'], 3);
       expect(llm.capturedSchema!['maxItems'], 6);
-      expect(llm.capturedSystemPrompt, contains('3 and 6'));
+      expect(llm.capturedUserPrompt, contains('3 and 6'));
     });
 
     test('hard difficulty uses hard bounds (10–20)', () async {
@@ -78,7 +78,7 @@ void main() {
       await _client(llm).decompose('Build a portfolio', difficulty: GoalDifficulty.hard);
       expect(llm.capturedSchema!['minItems'], 10);
       expect(llm.capturedSchema!['maxItems'], 20);
-      expect(llm.capturedSystemPrompt, contains('10 and 20'));
+      expect(llm.capturedUserPrompt, contains('10 and 20'));
     });
 
     test('impossible difficulty uses impossible bounds (30–50)', () async {
@@ -87,7 +87,7 @@ void main() {
       await _client(llm).decompose('Impossible goal', difficulty: GoalDifficulty.impossible);
       expect(llm.capturedSchema!['minItems'], 30);
       expect(llm.capturedSchema!['maxItems'], 50);
-      expect(llm.capturedSystemPrompt, contains('30 and 50'));
+      expect(llm.capturedUserPrompt, contains('30 and 50'));
     });
 
     test('custom ranges override the defaults', () async {
@@ -98,7 +98,7 @@ void main() {
       );
       expect(llm.capturedSchema!['minItems'], 5);
       expect(llm.capturedSchema!['maxItems'], 8);
-      expect(llm.capturedSystemPrompt, contains('5 and 8'));
+      expect(llm.capturedUserPrompt, contains('5 and 8'));
     });
   });
 
@@ -152,11 +152,11 @@ void main() {
   });
 
   group('OpenAiDecompositionClient.breakdown', () {
-    test('uses fixed 1–3 schema when no difficulty is provided', () async {
+    test('uses fixed 1–5 schema when no difficulty is provided', () async {
       final llm = _FakeLlmClient(response: '["sub-step 1"]');
       await _client(llm).breakdown('An overwhelming subtask');
       expect(llm.capturedSchema!['minItems'], 1);
-      expect(llm.capturedSchema!['maxItems'], 3);
+      expect(llm.capturedSchema!['maxItems'], 5);
     });
 
     test('uses difficulty-based schema when difficulty is provided (easy)', () async {
