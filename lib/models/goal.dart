@@ -103,6 +103,24 @@ class Goal {
     _recalculateStatus();
   }
 
+  /// Completes a specific subtask by ID. Throws [StateError] if [subtaskId] is
+  /// not the first-pending subtask — completion is strictly sequential.
+  ///
+  /// Use [completeCurrentSubTask] when you always want to advance the sequence
+  /// without specifying an ID. Use this method when the caller needs to assert
+  /// it is targeting the right step (e.g. the Focus screen's completion button).
+  void completeSubTask(String subtaskId) {
+    final current = currentSubTask;
+    if (current == null || current.subtaskId != subtaskId) {
+      throw StateError(
+        'Cannot complete subtask "$subtaskId" out of order; '
+        'first pending subtask is "${current?.subtaskId ?? "none"}".',
+      );
+    }
+    current.markComplete();
+    _recalculateStatus();
+  }
+
   // Undo a completed subtask — reinserts just before the current subtask
   // so it becomes the new current
   void uncompleteSubTask(String subtaskId) {

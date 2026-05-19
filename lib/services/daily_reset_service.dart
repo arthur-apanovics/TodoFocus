@@ -136,6 +136,47 @@ class DailyResetService extends ChangeNotifier {
     return sorted;
   }
 
+  /// Splits [goals] into labelled categories for the Smart sort view.
+  ///
+  /// Categories (in display order):
+  ///   • **Urgent** — due within [urgencyDays] days (sorted by due date ASC).
+  ///   • **In progress** — previously assigned to today's focus but not urgent.
+  ///   • **Other** — everything else.
+  ///
+  /// Empty categories are omitted. Goals within each category are sorted by
+  /// [_applyUrgencySort] so the ordering is consistent with the flat view.
+  List<({String label, List<Goal> goals})> categorizeForSmart(
+      List<Goal> goals) {
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month, now.day + _urgencyDays);
+
+    final urgent = <Goal>[];
+    final inProgress = <Goal>[];
+    final other = <Goal>[];
+
+    for (final g in goals) {
+      if (g.dueDate != null && !g.dueDate!.isAfter(cutoff)) {
+        urgent.add(g);
+      } else if (_previouslyAssigned.contains(g.goalId)) {
+        inProgress.add(g);
+      } else {
+        other.add(g);
+      }
+    }
+
+    // Sort each bucket by urgency rules so ordering within categories
+    // matches what _applyUrgencySort produces for the flat list.
+    _applyUrgencySort(urgent);
+    _applyUrgencySort(inProgress);
+    // "other" stays in insertion order (stable).
+
+    return [
+      if (urgent.isNotEmpty) (label: 'Urgent', goals: urgent),
+      if (inProgress.isNotEmpty) (label: 'In progress', goals: inProgress),
+      if (other.isNotEmpty) (label: 'Other', goals: other),
+    ];
+  }
+
   void _applyUrgencySort(List<Goal> goals) {
     final now = DateTime.now();
     final cutoff = DateTime(now.year, now.month, now.day + _urgencyDays);

@@ -29,21 +29,104 @@ import 'goal_symbol.dart';
 /// to the bottom regardless of sort), then by the user's selected sort
 /// order from [DisplayPreferences] — same control as the Goals list, so the
 /// two views stay in step. Long-pressing a goal title navigates to that
-/// goal so the user can quickly add/edit subtasks before scheduling them.
-class FocusPickerSheet extends StatelessWidget {
+/// goal so the user can quickly add/edit subtasks before scheduling them —
+/// the sheet stays open so the user returns to the picker after navigating
+/// back.
+class FocusPickerSheet extends StatefulWidget {
   const FocusPickerSheet({super.key});
+
+  @override
+  State<FocusPickerSheet> createState() => _FocusPickerSheetState();
+}
+
+class _FocusPickerSheetState extends State<FocusPickerSheet> {
+  /// Tracks whether each goal's section is currently expanded.
+  /// Populated lazily on first build from focus state (goals with focused
+  /// subtasks start expanded; the rest start collapsed).
+  final Map<String, bool> _expandedByGoalId = {};
+
+  /// Incremented when the user hits the expand-all / collapse-all button so
+  /// that a new [ValueKey] is generated for each [_GoalSection], forcing the
+  /// widget subtree to recreate with the updated [initiallyExpanded] value.
+  int _expandVersion = 0;
+
+  /// Null = use per-goal defaults.
+  /// True/false = override applied by the last expand-all/collapse-all action.
+  bool? _forcedExpansion;
+
+  void _initExpanded(List<Goal> goals, FocusListService focus) {
+    for (final goal in goals) {
+      if (_expandedByGoalId.containsKey(goal.goalId)) continue;
+      final hasFocused =
+          focus.focusedPendingIds(goal.goalId, goal).isNotEmpty;
+      _expandedByGoalId[goal.goalId] = hasFocused;
+    }
+  }
+
+  bool get _anyExpanded => _expandedByGoalId.values.any((v) => v);
+
+  void _toggleAll(List<Goal> goals) {
+    final expand = !_anyExpanded;
+    setState(() {
+      for (final goal in goals) {
+        _expandedByGoalId[goal.goalId] = expand;
+      }
+      _forcedExpansion = expand;
+      _expandVersion++;
+    });
+  }
+
+  void _onSectionExpansionChanged(String goalId, bool expanded) {
+    // No setState needed here — we only read _anyExpanded when building the
+    // toggle button, which rebuilds on the next user interaction anyway.
+    // Keeping this lightweight avoids spurious redraws on every tile tap.
+    _expandedByGoalId[goalId] = expanded;
+    // Clear forced override so subsequent toggles respect per-goal state.
+    _forcedExpansion = null;
+  }
 
   @override
   Widget build(BuildContext context) {
     final queries = context.watch<GoalQueries>();
     final reset = context.watch<DailyResetService>();
     final prefs = context.watch<DisplayPreferences>();
+    final focus = context.watch<FocusListService>();
 
     final sorted = _orderForPicker(queries.goals, reset, prefs.sortOrder);
 
+    // Lazy-init expansion tracking for any goals not yet seen.
+    _initExpanded(sorted, focus);
+
+    // Smart sort: display goals grouped by category.
+    final useCategories = prefs.sortOrder == GoalSortOrder.smart;
+    final categories = useCategories
+        ? reset.categorizeForSmart(
+            sorted.where((g) => g.subtasks.any((s) => s.state == SubTaskState.pending)).toList() +
+            sorted.where((g) => !g.subtasks.any((s) => s.state == SubTaskState.pending)).toList(),
+          )
+        : null;
+
+    // Flatten the ordered list for expand-all/collapse-all scope.
+    final allGoalsForToggle = categories != null
+        ? [for (final c in categories) ...c.goals]
+        : sorted;
+
     return AppBottomSheet(
       title: 'Pick subtasks for today',
-      trailing: _SortMenuButton(current: prefs.sortOrder),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (sorted.isNotEmpty)
+            IconButton(
+              icon: Icon(
+                _anyExpanded ? Icons.unfold_less : Icons.unfold_more,
+              ),
+              tooltip: _anyExpanded ? 'Collapse all' : 'Expand all',
+              onPressed: () => _toggleAll(allGoalsForToggle),
+            ),
+          _SortMenuButton(current: prefs.sortOrder),
+        ],
+      ),
       children: [
         if (sorted.isEmpty)
           Padding(
@@ -59,14 +142,45 @@ class FocusPickerSheet extends StatelessWidget {
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.7,
             ),
-            child: ListView.builder(
+            child: ListView(
               shrinkWrap: true,
-              itemCount: sorted.length,
-              itemBuilder: (_, i) => _GoalSection(goal: sorted[i]),
+              children: [
+                if (categories != null)
+                  ..._buildCategorized(categories)
+                else
+                  for (final goal in sorted)
+                    _GoalSection(
+                      key: ValueKey('${goal.goalId}_$_expandVersion'),
+                      goal: goal,
+                      initiallyExpanded:
+                          _forcedExpansion ?? _expandedByGoalId[goal.goalId] ?? false,
+                      onExpansionChanged: (e) =>
+                          _onSectionExpansionChanged(goal.goalId, e),
+                    ),
+              ],
             ),
           ),
       ],
     );
+  }
+
+  List<Widget> _buildCategorized(
+      List<({String label, List<Goal> goals})> categories) {
+    final widgets = <Widget>[];
+    for (final category in categories) {
+      widgets.add(_PickerCategoryHeader(label: category.label));
+      for (final goal in category.goals) {
+        widgets.add(_GoalSection(
+          key: ValueKey('${goal.goalId}_$_expandVersion'),
+          goal: goal,
+          initiallyExpanded:
+              _forcedExpansion ?? _expandedByGoalId[goal.goalId] ?? false,
+          onExpansionChanged: (e) =>
+              _onSectionExpansionChanged(goal.goalId, e),
+        ));
+      }
+    }
+    return widgets;
   }
 
   /// Sorts goals for the picker:
@@ -90,6 +204,27 @@ class FocusPickerSheet extends StatelessWidget {
       ...reset.sortGoals(withPending, order),
       ...reset.sortGoals(withoutPending, order),
     ];
+  }
+}
+
+/// Slim section label for categorized picker display (Smart sort).
+class _PickerCategoryHeader extends StatelessWidget {
+  final String label;
+  const _PickerCategoryHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 2),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: AppColors.muted,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
   }
 }
 
@@ -138,8 +273,15 @@ class _SortMenuButton extends StatelessWidget {
 
 class _GoalSection extends StatelessWidget {
   final Goal goal;
+  final bool initiallyExpanded;
+  final void Function(bool expanded) onExpansionChanged;
 
-  const _GoalSection({required this.goal});
+  const _GoalSection({
+    super.key,
+    required this.goal,
+    required this.initiallyExpanded,
+    required this.onExpansionChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -180,7 +322,8 @@ class _GoalSection extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        initiallyExpanded: !noneFocused,
+        initiallyExpanded: initiallyExpanded,
+        onExpansionChanged: onExpansionChanged,
         tilePadding: const EdgeInsets.symmetric(horizontal: 12),
         leading: _BulkStarButton(
           allFocused: allFocused,
@@ -196,6 +339,8 @@ class _GoalSection extends StatelessWidget {
           },
         ),
         // Long-press anywhere on the header to jump into the goal screen.
+        // The sheet stays open underneath so the user returns to the picker
+        // after navigating back — no state is lost.
         // Tap still expands/collapses (default ExpansionTile behaviour) —
         // gesture arena handles the disambiguation since long-press and tap
         // are different recognisers.
@@ -209,7 +354,14 @@ class _GoalSection extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Expanded(
-                child: Text(goal.title, overflow: TextOverflow.ellipsis),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(goal.title, overflow: TextOverflow.ellipsis),
+                    if (goal.dueDate != null)
+                      _PickerDueDateLabel(dueDate: goal.dueDate!),
+                  ],
+                ),
               ),
               Text(
                 '${focusedPending.length}/${pending.length}',
@@ -235,11 +387,52 @@ class _GoalSection extends StatelessWidget {
   }
 
   void _openGoal(BuildContext context) {
-    Navigator.of(context).pop(); // close the sheet first
+    // Push WITHOUT closing the sheet — the bottom sheet route stays in the
+    // navigator stack so the user returns to the picker when they pop back.
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GoalPlanningScreen(goalId: goal.goalId),
       ),
+    );
+  }
+}
+
+/// Compact due-date label shown below the goal title in the picker.
+class _PickerDueDateLabel extends StatelessWidget {
+  final DateTime dueDate;
+  const _PickerDueDateLabel({required this.dueDate});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final diff = d.difference(today).inDays;
+
+    final String label;
+    final Color color;
+    if (diff < 0) {
+      label = '${diff.abs()}d overdue';
+      color = Theme.of(context).colorScheme.error;
+    } else if (diff == 0) {
+      label = 'due today';
+      color = Theme.of(context).colorScheme.error;
+    } else if (diff == 1) {
+      label = 'due tomorrow';
+      color = AppColors.accent;
+    } else if (diff <= 7) {
+      label = 'due in ${diff}d';
+      color = AppColors.accent;
+    } else {
+      final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'];
+      label = '${months[dueDate.month - 1]} ${dueDate.day}';
+      color = AppColors.muted;
+    }
+
+    return Text(
+      label,
+      style: TextStyle(fontSize: 11, color: color),
     );
   }
 }

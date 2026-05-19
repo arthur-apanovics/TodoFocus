@@ -252,15 +252,23 @@ class _GroupHeader extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    resolved.group.isFullyFocused
-                        ? '${resolved.completedCount}/${resolved.subtasks.length} · whole goal'
-                        : '${resolved.completedCount}/${resolved.subtasks.length} steps',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.muted,
-                      letterSpacing: 0.3,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        resolved.group.isFullyFocused
+                            ? '${resolved.completedCount}/${resolved.subtasks.length} · whole goal'
+                            : '${resolved.completedCount}/${resolved.subtasks.length} steps',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.muted,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      if (goal.dueDate != null) ...[
+                        const SizedBox(width: 8),
+                        _DueDateChip(dueDate: goal.dueDate!),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -268,6 +276,47 @@ class _GroupHeader extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Compact due-date label with urgency colouring.
+class _DueDateChip extends StatelessWidget {
+  final DateTime dueDate;
+
+  const _DueDateChip({required this.dueDate});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final diff = d.difference(today).inDays;
+
+    final String label;
+    final Color color;
+    if (diff < 0) {
+      label = '${diff.abs()}d overdue';
+      color = Theme.of(context).colorScheme.error;
+    } else if (diff == 0) {
+      label = 'due today';
+      color = Theme.of(context).colorScheme.error;
+    } else if (diff == 1) {
+      label = 'due tomorrow';
+      color = AppColors.accent;
+    } else if (diff <= 7) {
+      label = 'due in ${diff}d';
+      color = AppColors.accent;
+    } else {
+      final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'];
+      label = '${months[dueDate.month - 1]} ${dueDate.day}';
+      color = AppColors.muted;
+    }
+
+    return Text(
+      label,
+      style: TextStyle(fontSize: 11, color: color, letterSpacing: 0.3),
     );
   }
 }
@@ -288,6 +337,9 @@ class _SubtaskRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isCompleted = subtask.state == SubTaskState.completed;
     final isCurrent = goal.currentSubTask?.subtaskId == subtask.subtaskId;
+    // Completion is sequential: only the first-pending subtask may be ticked.
+    // Completed subtasks can always be un-ticked.
+    final canInteract = isCompleted || isCurrent;
     return Column(
       children: [
         Padding(
@@ -303,28 +355,46 @@ class _SubtaskRow extends StatelessWidget {
                     fontWeight: isCurrent && !isCompleted
                         ? FontWeight.w600
                         : FontWeight.w400,
-                    color: isCompleted ? AppColors.muted : null,
+                    color: isCompleted
+                        ? AppColors.muted
+                        : !isCurrent
+                            ? AppColors.muted
+                            : null,
                     decoration:
                         isCompleted ? TextDecoration.lineThrough : null,
                   ),
                 ),
               ),
               // Right-aligned completion circle for one-handed reach.
+              // Locked subtasks (pending but not current) show a lock icon
+              // and cannot be tapped — the domain model enforces order.
               IconButton(
-                tooltip: isCompleted ? 'Mark incomplete' : 'Mark complete',
-                onPressed: () {
-                  final svc = context.read<GoalService>();
-                  if (isCompleted) {
-                    svc.uncompleteSubTask(goal.goalId, subtask.subtaskId);
-                  } else {
-                    svc.completeSubTask(goal.goalId, subtask.subtaskId);
-                  }
-                },
+                tooltip: isCompleted
+                    ? 'Mark incomplete'
+                    : isCurrent
+                        ? 'Mark complete'
+                        : 'Complete previous steps first',
+                onPressed: canInteract
+                    ? () {
+                        final svc = context.read<GoalService>();
+                        if (isCompleted) {
+                          svc.uncompleteSubTask(goal.goalId, subtask.subtaskId);
+                        } else {
+                          svc.completeSubTask(goal.goalId, subtask.subtaskId);
+                        }
+                      }
+                    : null,
                 icon: Icon(
                   isCompleted
                       ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked,
-                  color: isCompleted ? AppColors.success : AppColors.strong,
+                      : isCurrent
+                          ? Icons.radio_button_unchecked
+                          : Icons.lock_outline_rounded,
+                  color: isCompleted
+                      ? AppColors.success
+                      : isCurrent
+                          ? AppColors.strong
+                          : AppColors.muted,
                   size: 24,
                 ),
               ),

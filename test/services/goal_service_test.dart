@@ -293,4 +293,89 @@ void main() {
       expect(repo.all, isEmpty);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // completeSubTask — sequential enforcement
+  // -------------------------------------------------------------------------
+
+  group('completeSubTask', () {
+    test('completes the first pending subtask', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1'), makeSubTask('s2')],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.completeSubTask('g1', 's1');
+      final loaded = repo.findById('g1')!;
+      expect(loaded.subtasks[0].state, SubTaskState.completed);
+      expect(loaded.subtasks[1].state, SubTaskState.pending);
+    });
+
+    test('throws StateError when attempting to skip a subtask', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1'), makeSubTask('s2')],
+      );
+      final (service, _) = makeService(seed: [goal]);
+      // s2 is not the first pending — domain model must reject this.
+      expect(
+        () => service.completeSubTask('g1', 's2'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('throws when trying to complete an already-completed subtask', () {
+      final goal = makeGoal(
+        subtasks: [
+          makeSubTask('s1', state: SubTaskState.completed),
+          makeSubTask('s2'),
+        ],
+      );
+      final (service, _) = makeService(seed: [goal]);
+      // s1 is completed — no pending subtask has that id; s2 is current.
+      expect(
+        () => service.completeSubTask('g1', 's1'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('is a no-op for an unknown goalId', () {
+      final (service, repo) = makeService();
+      // Should not throw — unknown goal is silently ignored at service level.
+      expect(() => service.completeSubTask('nonexistent', 's1'), returnsNormally);
+      expect(repo.all, isEmpty);
+    });
+
+    test('transitions goal to completed when last subtask is done', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1')],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+      service.completeSubTask('g1', 's1');
+      expect(repo.findById('g1')!.status, GoalStatus.completed);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Goal.completeSubTask — domain model level
+  // -------------------------------------------------------------------------
+
+  group('Goal.completeSubTask', () {
+    test('completes the current subtask', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1'), makeSubTask('s2')]);
+      goal.completeSubTask('s1');
+      expect(goal.subtasks[0].state, SubTaskState.completed);
+      expect(goal.currentSubTask?.subtaskId, 's2');
+    });
+
+    test('throws StateError for a non-current pending subtask', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1'), makeSubTask('s2')]);
+      expect(() => goal.completeSubTask('s2'), throwsA(isA<StateError>()));
+    });
+
+    test('throws StateError when no subtasks are pending', () {
+      final goal = makeGoal(subtasks: [
+        makeSubTask('s1', state: SubTaskState.completed),
+      ]);
+      expect(() => goal.completeSubTask('s1'), throwsA(isA<StateError>()));
+    });
+  });
 }

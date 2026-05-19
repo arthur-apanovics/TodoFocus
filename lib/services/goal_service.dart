@@ -255,27 +255,15 @@ class GoalService {
     _repository.save(goal);
   }
 
-  /// Completes a specific subtask by id. Differs from
-  /// [completeCurrentSubTask] in that the target need not be the goal's
-  /// current step — the Focus screen lets the user knock off any focused
-  /// subtask, even one that's mid-sequence within its parent goal.
+  /// Completes a specific subtask by ID.
+  ///
+  /// Delegates to [Goal.completeSubTask] which enforces sequential completion —
+  /// only the first-pending subtask of a goal may be completed. Throws
+  /// [StateError] if [subtaskId] is not that subtask.
   void completeSubTask(String goalId, String subtaskId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    final subtask = goal.subtasks
-        .where((t) => t.subtaskId == subtaskId)
-        .firstOrNull;
-    if (subtask == null || subtask.state == SubTaskState.completed) return;
-    subtask.markComplete();
-    // Recalculate goal status by going through the same path as the
-    // model's _recalculateStatus (called from completeCurrentSubTask).
-    final allDone =
-        goal.subtasks.every((t) => t.state == SubTaskState.completed);
-    if (allDone &&
-        goal.status != GoalStatus.archived &&
-        goal.status != GoalStatus.inbox) {
-      goal.status = GoalStatus.completed;
-    }
+    goal.completeSubTask(subtaskId); // throws if out of order
     _repository.save(goal);
   }
 

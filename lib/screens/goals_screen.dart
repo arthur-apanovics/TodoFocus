@@ -165,9 +165,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final displayPrefs = context.watch<DisplayPreferences>();
 
     final showCompleted = widget.showCompletedNotifier.value;
+    final sortOrder = displayPrefs.sortOrder;
     final goals = showCompleted
         ? queries.completedGoals
-        : resetService.sortGoals(queries.goals, displayPrefs.sortOrder);
+        : resetService.sortGoals(queries.goals, sortOrder);
+
+    // For Smart sort, the categorized view is built from the same goal set
+    // but split into labelled buckets.
+    final useSmart = !showCompleted && sortOrder == GoalSortOrder.smart;
+    final smartCategories = useSmart
+        ? resetService.categorizeForSmart(queries.goals)
+        : null;
 
     final activeSelectedCount = goals
         .where(
@@ -199,13 +207,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
           Expanded(
             child: goals.isEmpty
                 ? _EmptyState(showCompleted: showCompleted)
-                : _GoalList(
-                    goals: goals,
-                    selectMode: _selectMode,
-                    selectedIds: _selectedIds,
-                    onLongPress: _enterSelectMode,
-                    onToggleSelect: _toggleSelection,
-                  ),
+                : smartCategories != null
+                    ? _CategorizedGoalList(
+                        categories: smartCategories,
+                        selectMode: _selectMode,
+                        selectedIds: _selectedIds,
+                        onLongPress: _enterSelectMode,
+                        onToggleSelect: _toggleSelection,
+                      )
+                    : _GoalList(
+                        goals: goals,
+                        selectMode: _selectMode,
+                        selectedIds: _selectedIds,
+                        onLongPress: _enterSelectMode,
+                        onToggleSelect: _toggleSelection,
+                      ),
           ),
         ],
       ),
@@ -382,6 +398,63 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(color: AppColors.muted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Renders goals grouped by smart-sort category with sticky section labels.
+class _CategorizedGoalList extends StatelessWidget {
+  final List<({String label, List<Goal> goals})> categories;
+  final bool selectMode;
+  final Set<String> selectedIds;
+  final void Function(String) onLongPress;
+  final void Function(String) onToggleSelect;
+
+  const _CategorizedGoalList({
+    required this.categories,
+    required this.selectMode,
+    required this.selectedIds,
+    required this.onLongPress,
+    required this.onToggleSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Build a flat list of items: section headers interleaved with goal tiles.
+    final items = <Widget>[];
+    for (final category in categories) {
+      items.add(_SectionHeader(label: category.label));
+      for (final goal in category.goals) {
+        items.add(_GoalTile(
+          goal: goal,
+          selectMode: selectMode,
+          isSelected: selectedIds.contains(goal.goalId),
+          onLongPress: () => onLongPress(goal.goalId),
+          onToggleSelect: () => onToggleSelect(goal.goalId),
+        ));
+      }
+    }
+    return ListView(children: items);
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+
+  const _SectionHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: AppColors.muted,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w600,
+            ),
       ),
     );
   }
