@@ -25,13 +25,21 @@ class LlmConfig {
   //              --dart-define=LLM_MODEL=gpt-4o-mini
   //              --dart-define=LLM_API_KEY=sk-...
   static LlmConfig? fromEnvironment() {
+    // Each value must be bound in a const context — String.fromEnvironment is
+    // a const factory and only reads the --dart-define value when invoked as
+    // a const expression. Used inline as a non-const call it silently returns
+    // the default value (the empty string, or whatever `defaultValue` is set
+    // to), which previously caused LLM_API_KEY and LLM_MODEL to be ignored.
     const url = String.fromEnvironment('LLM_BASE_URL');
     if (url.isEmpty) return null;
 
+    const model = String.fromEnvironment('LLM_MODEL', defaultValue: 'llama3.2');
+    const apiKey = String.fromEnvironment('LLM_API_KEY');
+
     return LlmConfig(
       baseUrl: url,
-      model: String.fromEnvironment('LLM_MODEL', defaultValue: 'llama3.2'),
-      apiKey: String.fromEnvironment('LLM_API_KEY'),
+      model: model,
+      apiKey: apiKey.isEmpty ? null : apiKey,
     );
   }
 }
