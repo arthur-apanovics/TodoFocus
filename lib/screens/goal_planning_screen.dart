@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
@@ -38,12 +39,29 @@ class GoalPlanningScreen extends StatefulWidget {
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
+  late final GoalRepository _repo;
+
+  // Multi-level undo stack. Each entry is a JSON snapshot of the goal taken
+  // *before* an action mutated it — so popping restores the pre-action state.
+  // [_lastSeenJson] holds the goal's current persisted state so we can diff
+  // against it when the repo emits a change. Both are discarded on dispose,
+  // which is the implicit "commit" point (back arrow or "Queue Goal").
+  final List<String> _undoStack = [];
+  String? _lastSeenJson;
 
   @override
   void initState() {
     super.initState();
     _decompositionState = context.read<DecompositionState>();
     _decompositionState.addListener(_onDecompositionChanged);
+
+    _repo = context.read<GoalRepository>();
+    final goal = _repo.findById(widget.goalId);
+    if (goal != null) {
+      _lastSeenJson = jsonEncode(goal.toJson());
+    }
+    _repo.addListener(_onRepoChanged);
+
     if (widget.triggerBreakdown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _autoBreakdown();
@@ -54,7 +72,24 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   @override
   void dispose() {
     _decompositionState.removeListener(_onDecompositionChanged);
+    _repo.removeListener(_onRepoChanged);
     super.dispose();
+  }
+
+  // Fires whenever GoalRepository.save() is called from anywhere — manual
+  // edits, LLM generation, drag-reorders, etc. We diff the live goal's JSON
+  // against the last snapshot we saw; any real change pushes the previous
+  // state onto the undo stack. No setState needed here: the same notifier
+  // already triggers a rebuild via context.watch<GoalRepository>() in build.
+  void _onRepoChanged() {
+    if (!mounted) return;
+    final goal = _repo.findById(widget.goalId);
+    if (goal == null) return;
+    final currentJson = jsonEncode(goal.toJson());
+    if (_lastSeenJson != currentJson) {
+      if (_lastSeenJson != null) _undoStack.add(_lastSeenJson!);
+      _lastSeenJson = currentJson;
+    }
   }
 
   void _onDecompositionChanged() {
@@ -270,6 +305,15 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.undo),
+            // Tooltip includes the depth so the user has some idea how far
+            // back undo will go without surfacing a full history UI.
+            tooltip: _undoStack.isEmpty
+                ? 'Nothing to undo'
+                : 'Undo (${_undoStack.length})',
+            onPressed: _undoStack.isEmpty ? null : _undo,
+          ),
+          IconButton(
             icon: const Icon(Icons.archive_outlined),
             tooltip: 'Archive goal',
             onPressed: () {
@@ -473,6 +517,25 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     } finally {
       if (mounted) decompState.end(goal.goalId);
     }
+  }
+
+  // Reverts the goal to the state immediately before the most recent action.
+  // No confirmation: each undo only rolls back a single step, matching the
+  // behaviour of native undo affordances in other apps. Repeated taps walk
+  // further back through the history; once the stack is empty the AppBar
+  // button is disabled.
+  //
+  // We update _lastSeenJson *before* calling repo.save() so the listener
+  // that fires after notifyListeners() sees the new state as already-known
+  // and doesn't push the post-undo state back onto the stack.
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    final previousJson = _undoStack.removeLast();
+    _lastSeenJson = previousJson;
+    final restored = Goal.fromJson(
+      jsonDecode(previousJson) as Map<String, dynamic>,
+    );
+    _repo.save(restored);
   }
 
   Future<void> _confirmArchive(
