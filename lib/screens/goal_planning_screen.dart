@@ -17,6 +17,7 @@ import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
 import 'widgets/auto_sleep_picker_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
+import 'widgets/snooze_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/recurrence_picker_sheet.dart';
 
@@ -1738,8 +1739,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     bool isCurrent,
     bool isCompleted,
   ) {
-    // While breaking down, replace the whole trailing area with a spinner so
-    // nothing else can be tapped on this row.
+    // While breaking down, show a spinner — nothing else can be tapped.
     if (_isBreakingDown) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 12),
@@ -1750,51 +1750,24 @@ class _SubTaskTileState extends State<SubTaskTile> {
         ),
       );
     }
-    if (isCompleted) {
-      if (!widget.showCompletion) return null;
-      return IconButton(
-        icon: Icon(AppIcons.uncomplete, size: 20, color: AppColors.muted),
-        tooltip: 'Mark incomplete',
-        onPressed: () =>
-            service.uncompleteSubTask(goal.goalId, subtask.subtaskId),
-      );
-    }
 
-    // Breakdown button — tapping opens a choice sheet so all paths are
-    // discoverable without requiring a long press.
-    final splitButton = IconButton(
-      icon: const Icon(AppIcons.breakdown, size: 20),
-      tooltip: 'Break down subtask',
-      onPressed: () => _showBreakdownChoiceSheet(context, service),
+    final moreButton = IconButton(
+      icon: const Icon(Icons.more_vert),
+      tooltip: 'Step actions',
+      onPressed: () => _showActionsSheet(context, service, isCurrent),
     );
 
-    // Snoozed subtasks — surface a "wake now" button so the user can reverse
-    // the snooze without leaving the screen. Breakdown is also available.
-    if (subtask.state == SubTaskState.snoozed) {
+    if (isCompleted) {
+      if (!widget.showCompletion) return null;
+      return moreButton;
+    }
+
+    // Active mode, current step: show complete + more.
+    if (isCurrent && widget.showCompletion) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          splitButton,
-          IconButton(
-            icon: Icon(Icons.alarm_on, size: 20, color: AppColors.accent),
-            tooltip: 'Wake now',
-            onPressed: () =>
-                service.wakeSubTask(goal.goalId, subtask.subtaskId),
-          ),
-        ],
-      );
-    }
-
-    if (!widget.showCompletion) {
-      // Planning mode: only the breakdown affordance.
-      return splitButton;
-    }
-
-    if (isCurrent) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          splitButton,
+          moreButton,
           IconButton(
             icon: Icon(AppIcons.complete, color: AppColors.strong),
             tooltip: 'Mark complete',
@@ -1804,54 +1777,145 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Queued pending subtask — replace the old "queued" indicator with a
-    // useful affordance: schedule an auto-sleep so when this step becomes
-    // active it'll snooze for the configured duration. Tinted when an
-    // auto-sleep is already set so the user can tell at a glance.
-    final hasAutoSleep = subtask.autoSleepDuration != null;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        splitButton,
-        IconButton(
-          icon: Icon(
-            Icons.bedtime_outlined,
-            size: 20,
-            color: hasAutoSleep ? AppColors.accent : AppColors.muted,
-          ),
-          tooltip: hasAutoSleep
-              ? 'Edit auto-sleep'
-              : 'Schedule auto-sleep when this becomes active',
-          onPressed: () => _openAutoSleepPicker(context, service),
-        ),
-      ],
-    );
+    return moreButton;
   }
 
-  Future<void> _openAutoSleepPicker(
+  /// Unified action sheet for a subtask — consolidates edit, breakdown,
+  /// snooze, auto-sleep, wake, uncomplete, and delete into one place.
+  void _showActionsSheet(
     BuildContext context,
     GoalService service,
-  ) async {
-    final result = await AutoSleepPickerSheet.show(
-      context,
-      initial: subtask.autoSleepDuration,
+    bool isCurrent,
+  ) {
+    final isCompleted = subtask.isCompleted;
+    final isSnoozed = subtask.state == SubTaskState.snoozed;
+    final isPending = !isCompleted && !isSnoozed;
+    final hasAutoSleep = subtask.autoSleepDuration != null;
+
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetCtx) => AppBottomSheet(
+        title: subtask.description,
+        children: [
+          // Edit
+          if (isPending)
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _showEditSheet(context, service);
+              },
+            ),
+
+          // Break down
+          if (isPending || isSnoozed)
+            ListTile(
+              leading: const Icon(AppIcons.breakdown),
+              title: const Text('Break down'),
+              subtitle: const Text('Split into smaller steps'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _showBreakdownChoiceSheet(context, service);
+              },
+            ),
+
+          // Snooze — only for the current step in active mode
+          if (isPending && isCurrent && widget.showCompletion)
+            ListTile(
+              leading: const Icon(Icons.bedtime_outlined),
+              title: const Text('Snooze'),
+              subtitle: const Text('Pause until a specific time'),
+              onTap: () async {
+                Navigator.pop(sheetCtx);
+                final result = await SnoozePickerSheet.show(
+                  // ignore: use_build_context_synchronously
+                  context,
+                  initialUntil: subtask.snoozedUntil,
+                  initialNotify: subtask.notifyOnWake,
+                );
+                if (result != null && mounted) {
+                  service.snoozeCurrentSubTask(
+                    goal.goalId,
+                    until: result.until,
+                    notify: result.notify,
+                  );
+                }
+              },
+            ),
+
+          // Auto-sleep — for any pending subtask
+          if (isPending)
+            ListTile(
+              leading: Icon(
+                Icons.alarm_outlined,
+                color: hasAutoSleep ? AppColors.accent : null,
+              ),
+              title: Text(hasAutoSleep ? 'Edit auto-sleep' : 'Schedule auto-sleep'),
+              subtitle: const Text(
+                  'Snooze automatically when this step becomes active'),
+              onTap: () async {
+                Navigator.pop(sheetCtx);
+                final result = await AutoSleepPickerSheet.show(
+                  // ignore: use_build_context_synchronously
+                  context,
+                  initial: subtask.autoSleepDuration,
+                );
+                if (result == null || !mounted) return;
+                if (result.cleared) {
+                  service.setSubTaskAutoSleep(
+                      goal.goalId, subtask.subtaskId, null);
+                } else if (result.duration != null) {
+                  service.setSubTaskAutoSleep(
+                      goal.goalId, subtask.subtaskId, result.duration);
+                }
+              },
+            ),
+
+          // Wake now — only for snoozed subtasks
+          if (isSnoozed)
+            ListTile(
+              leading:
+                  Icon(Icons.alarm_on, color: AppColors.accent),
+              title: const Text('Wake now'),
+              subtitle: const Text('Cancel snooze and resume immediately'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                service.wakeSubTask(goal.goalId, subtask.subtaskId);
+              },
+            ),
+
+          // Mark incomplete — only for completed subtasks in active mode
+          if (isCompleted && widget.showCompletion)
+            ListTile(
+              leading: Icon(AppIcons.uncomplete, color: AppColors.muted),
+              title: const Text('Mark incomplete'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                service.uncompleteSubTask(goal.goalId, subtask.subtaskId);
+              },
+            ),
+
+          // Delete — any non-completed subtask
+          if (!isCompleted)
+            ListTile(
+              leading: Icon(AppIcons.delete, color: AppColors.destructive),
+              title: Text(
+                'Delete',
+                style: TextStyle(color: AppColors.destructive),
+              ),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                service.deleteSubTask(goal.goalId, subtask.subtaskId);
+              },
+            ),
+        ],
+      ),
     );
-    if (result == null) return;
-    if (result.cleared) {
-      service.setSubTaskAutoSleep(goal.goalId, subtask.subtaskId, null);
-    } else if (result.duration != null) {
-      service.setSubTaskAutoSleep(
-          goal.goalId, subtask.subtaskId, result.duration);
-    }
   }
 
-  // Calls the configured decomposition provider to break this subtask into
-  // 1–3 smaller steps. While in flight, the row is locked via _isBreakingDown
-  // so the user can't edit/swipe/drag/complete the row out from under the
-  // result. On failure or when no provider is configured, falls back to the
-  // manual entry sheet.
-  // Opens a titled choice sheet so all breakdown paths are visible at once.
-  // Falls through directly to manual split when no LLM is configured.
+  // Breakdown-specific choice sheet: auto / with-instructions / manual.
   void _showBreakdownChoiceSheet(BuildContext context, GoalService service) {
     final decomp = context.read<GoalDecompositionService>();
     if (!decomp.canAutoBreakdown) {

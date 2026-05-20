@@ -23,13 +23,16 @@ class SubTaskDtoAdapter extends TypeAdapter<SubTaskDto> {
       ..assignedDate = fields[3] as DateTime
       ..completionDate = fields[4] as DateTime?
       ..lastSeenDate = fields[5] as DateTime
-      ..effortEstimate = fields[6] as int?;
+      ..effortEstimate = fields[6] as int?
+      ..snoozedUntil = fields[7] as DateTime?
+      ..notifyOnWake = fields[8] as bool?
+      ..autoSleepSeconds = fields[9] as int?;
   }
 
   @override
   void write(BinaryWriter writer, SubTaskDto obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.subtaskId)
       ..writeByte(1)
@@ -43,7 +46,13 @@ class SubTaskDtoAdapter extends TypeAdapter<SubTaskDto> {
       ..writeByte(5)
       ..write(obj.lastSeenDate)
       ..writeByte(6)
-      ..write(obj.effortEstimate);
+      ..write(obj.effortEstimate)
+      ..writeByte(7)
+      ..write(obj.snoozedUntil)
+      ..writeByte(8)
+      ..write(obj.notifyOnWake)
+      ..writeByte(9)
+      ..write(obj.autoSleepSeconds);
   }
 
   @override

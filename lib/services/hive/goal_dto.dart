@@ -4,17 +4,21 @@ import 'sub_task_dto.dart';
 part 'goal_dto.g.dart';
 
 // Field index registry — NEVER reuse a retired index
-// 0: goalId          (active)
-// 1: title           (active)
-// 2: notes           (active)
-// 3: status          (active)
-// 4: dueDate         (active)
-// 5: subtasks        (active)
-// 6: isFocusedToday  (RETIRED — focus moved to FocusListService)
-// 7: todayOrder      (RETIRED — focus moved to FocusListService)
-// 8: difficulty      (active)
-// 9: emoji           (active)
-// Next available: 10
+// 0: goalId               (active)
+// 1: title                (active)
+// 2: notes                (active)
+// 3: status               (active)
+// 4: dueDate              (active)
+// 5: subtasks             (active)
+// 6: isFocusedToday       (RETIRED — focus moved to FocusListService)
+// 7: todayOrder           (RETIRED — focus moved to FocusListService)
+// 8: difficulty           (active)
+// 9: emoji                (active)
+// 10: recurrenceJson      (active)
+// 11: nextOccurrenceAt    (active)
+// 12: lastIterationSummary (active)
+// 13: lastResumedAt       (active)
+// Next available: 14
 
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
@@ -41,4 +45,16 @@ class GoalDto extends HiveObject {
 
   @HiveField(9)
   String? emoji;
+
+  @HiveField(10)
+  String? recurrenceJson;
+
+  @HiveField(11)
+  DateTime? nextOccurrenceAt;
+
+  @HiveField(12)
+  String? lastIterationSummary;
+
+  @HiveField(13)
+  DateTime? lastResumedAt;
 }
