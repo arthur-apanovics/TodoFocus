@@ -8,7 +8,6 @@ import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
-import 'models/enums.dart';
 import 'services/backup_service.dart';
 import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
@@ -189,9 +188,6 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  late final ValueNotifier<bool> _goalsShowCompleted;
-
-  static const _tabTitles = ['Today', 'Goals', 'Planning'];
 
   @override
   void initState() {
@@ -201,7 +197,6 @@ class _AppShellState extends State<AppShell>
       vsync: this,
       initialIndex: widget.tabNotifier.value,
     );
-    _goalsShowCompleted = ValueNotifier(false);
     _tabController.addListener(_onTabControllerChanged);
     widget.tabNotifier.addListener(_onExternalTabChange);
     widget.goalNavNotifier.addListener(_onGoalNavRequested);
@@ -220,7 +215,6 @@ class _AppShellState extends State<AppShell>
   void dispose() {
     _tabController.removeListener(_onTabControllerChanged);
     _tabController.dispose();
-    _goalsShowCompleted.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier.removeListener(_onExternalTabChange);
     widget.goalNavNotifier.removeListener(_onGoalNavRequested);
@@ -296,11 +290,6 @@ class _AppShellState extends State<AppShell>
     );
   }
 
-  void _onDestinationSelected(int index) {
-    _tabController.animateTo(index);
-    widget.tabNotifier.value = index;
-  }
-
   // Opens the new-goal bottom sheet. "Save" closes the sheet silently
   // (goal lives in Planning tab); "Plan" returns the goalId so we push
   // straight into the planning screen for subtask shaping.
@@ -337,277 +326,39 @@ class _AppShellState extends State<AppShell>
     );
   }
 
-  /// Opens the focus picker. Wired to the AppBar's "Pick" action when the
-  /// Focus tab is selected — keeps the picker affordance visible without
-  /// stealing the FAB slot from "Create goal".
-  void _openFocusPicker() => FocusScreen.openPicker(context);
-
   @override
   Widget build(BuildContext context) {
-    final inboxCount = context.watch<GoalQueries>().inbox.length;
-    return AnimatedBuilder(
-      animation: Listenable.merge([_tabController, _goalsShowCompleted]),
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: Text(_tabTitles[_tabController.index]),
-          actions: [
-            // ── Focus tab: "Pick" lives in the AppBar so the FAB slot can
-            //    be used by the global "Create goal" button on every tab.
-            if (_tabController.index == 0)
-              IconButton(
-                icon: const Icon(Icons.add_task),
-                tooltip: 'Pick subtasks for today',
-                onPressed: _openFocusPicker,
-              ),
-            if (_tabController.index == 1) ...[
-              _GoalsFilterButton(
-                showCompleted: _goalsShowCompleted.value,
-                onChanged: (v) => _goalsShowCompleted.value = v,
-              ),
-              _SortButton(),
-              _LayoutButton(),
-            ],
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Settings',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('TodoFocus'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
-          ],
-        ),
-        body: TabBarView(
+          ),
+        ],
+        bottom: TabBar(
           controller: _tabController,
-          children: [
-            const FocusScreen(),
-            GoalsScreen(showCompletedNotifier: _goalsShowCompleted),
-            const InboxScreen(),
-          ],
-        ),
-        // "Create goal" is now visible on every tab — the picker moved into
-        // the AppBar so this slot is no longer contested on the Focus tab.
-        floatingActionButton: _buildFab(context),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _tabController.index,
-          onDestinationSelected: _onDestinationSelected,
-          destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.bolt_outlined),
-              selectedIcon: Icon(Icons.bolt),
-              label: 'Focus',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.flag_outlined),
-              selectedIcon: Icon(Icons.flag),
-              label: 'Goals',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: inboxCount > 0,
-                label: Text('$inboxCount'),
-                child: const Icon(Icons.edit_note_outlined),
-              ),
-              selectedIcon: Badge(
-                isLabelVisible: inboxCount > 0,
-                label: Text('$inboxCount'),
-                child: const Icon(Icons.edit_note),
-              ),
-              label: 'Planning',
-            ),
+          tabs: const [
+            Tab(text: 'Focus'),
+            Tab(text: 'Goals'),
+            Tab(text: 'Planning'),
           ],
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Goals tab — filter toggle (Active / Done) + sort button + sort sheet
-// ---------------------------------------------------------------------------
-
-class _GoalsFilterButton extends StatelessWidget {
-  final bool showCompleted;
-  final ValueChanged<bool> onChanged;
-
-  const _GoalsFilterButton({
-    required this.showCompleted,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SegmentedButton<bool>(
-        style: SegmentedButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          textStyle: Theme.of(context).textTheme.labelSmall,
-        ),
-        segments: const [
-          ButtonSegment(value: false, label: Text('Active')),
-          ButtonSegment(value: true, label: Text('Done')),
-        ],
-        selected: {showCompleted},
-        onSelectionChanged: (s) => onChanged(s.first),
-        showSelectedIcon: false,
-      ),
-    );
-  }
-}
-
-class _SortButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final order = context.watch<DisplayPreferences>().sortOrder;
-    return IconButton(
-      icon: const Icon(Icons.sort),
-      tooltip: 'Sort goals',
-      onPressed: () => showModalBottomSheet<void>(
-        context: context,
-        builder: (_) => _SortSheet(
-          current: order,
-          onSelected: context.read<DisplayPreferences>().setSortOrder,
-        ),
-      ),
-    );
-  }
-}
-
-class _SortSheet extends StatelessWidget {
-  final GoalSortOrder current;
-  final void Function(GoalSortOrder) onSelected;
-
-  const _SortSheet({required this.current, required this.onSelected});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-            child: Text(
-              'Sort goals',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
-          _SortTile(
-            label: 'Date added',
-            subtitle: 'Oldest first',
-            icon: Icons.calendar_today_outlined,
-            selected: current == GoalSortOrder.dateAdded,
-            onTap: () {
-              onSelected(GoalSortOrder.dateAdded);
-              Navigator.pop(context);
-            },
-          ),
-          _SortTile(
-            label: 'Urgency',
-            subtitle: 'Near deadlines → previously assigned → rest',
-            icon: Icons.priority_high,
-            selected: current == GoalSortOrder.urgency,
-            onTap: () {
-              onSelected(GoalSortOrder.urgency);
-              Navigator.pop(context);
-            },
-          ),
-          _SortTile(
-            label: 'Smart',
-            subtitle: 'Same as urgency — recommended default',
-            icon: Icons.auto_awesome_outlined,
-            selected: current == GoalSortOrder.smart,
-            onTap: () {
-              onSelected(GoalSortOrder.smart);
-              Navigator.pop(context);
-            },
-          ),
-          const SizedBox(height: 8),
+          const FocusScreen(),
+          const GoalsScreen(),
+          const InboxScreen(),
         ],
       ),
-    );
-  }
-}
-
-class _SortTile extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _SortTile({
-    required this.label,
-    required this.subtitle,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: selected ? Theme.of(context).colorScheme.primary : null,
-      ),
-      title: Text(
-        label,
-        style: selected
-            ? TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              )
-            : null,
-      ),
-      subtitle: Text(subtitle),
-      trailing: selected ? const Icon(Icons.check) : null,
-      onTap: onTap,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Layout button — toggles how many subtask steps are shown inline per goal
-// ---------------------------------------------------------------------------
-
-class _LayoutButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final layout = context.watch<DisplayPreferences>().layout;
-    final setLayout = context.read<DisplayPreferences>().setLayout;
-    return PopupMenuButton<GoalListLayout>(
-      icon: Icon(Icons.view_agenda_outlined),
-      tooltip: 'List layout',
-      onSelected: setLayout,
-      itemBuilder: (_) => [
-        _item(GoalListLayout.compact, 'Compact', layout),
-        _item(GoalListLayout.current, 'Current step', layout),
-        _item(GoalListLayout.currentPlus2, 'Current + 2 next', layout),
-        _item(GoalListLayout.currentPlus4, 'Current + 4 next', layout),
-      ],
-    );
-  }
-
-  PopupMenuItem<GoalListLayout> _item(
-    GoalListLayout value,
-    String label,
-    // IconData icon,
-    GoalListLayout current,
-  ) {
-    return PopupMenuItem(
-      value: value,
-      child: ListTile(
-        // leading: Icon(icon),
-        title: Text(label),
-        trailing: current == value ? const Icon(Icons.check, size: 18) : null,
-        contentPadding: EdgeInsets.zero,
-        dense: true,
-        minLeadingWidth: 24,
-      ),
+      floatingActionButton: _buildFab(context),
     );
   }
 }

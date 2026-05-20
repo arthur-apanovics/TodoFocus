@@ -19,9 +19,7 @@ import 'goal_planning_screen.dart';
 import 'widgets/goal_symbol.dart';
 
 class GoalsScreen extends StatefulWidget {
-  final ValueNotifier<bool> showCompletedNotifier;
-
-  const GoalsScreen({super.key, required this.showCompletedNotifier});
+  const GoalsScreen({super.key});
 
   @override
   State<GoalsScreen> createState() => _GoalsScreenState();
@@ -30,22 +28,7 @@ class GoalsScreen extends StatefulWidget {
 class _GoalsScreenState extends State<GoalsScreen> {
   bool _selectMode = false;
   final Set<String> _selectedIds = {};
-
-  @override
-  void initState() {
-    super.initState();
-    widget.showCompletedNotifier.addListener(_onFilterChanged);
-  }
-
-  void _onFilterChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    widget.showCompletedNotifier.removeListener(_onFilterChanged);
-    super.dispose();
-  }
+  bool _showCompleted = false;
 
   void _enterSelectMode(String goalId) {
     setState(() {
@@ -164,7 +147,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final resetService = context.watch<DailyResetService>();
     final displayPrefs = context.watch<DisplayPreferences>();
 
-    final showCompleted = widget.showCompletedNotifier.value;
+    final showCompleted = _showCompleted;
     final sortOrder = displayPrefs.sortOrder;
     final goals = showCompleted
         ? queries.completedGoals
@@ -203,6 +186,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     : () => _redecomposeSelected(goals),
                 onCancel: _exitSelectMode,
               ),
+            ),
+          if (!_selectMode)
+            _GoalsControlBar(
+              showCompleted: _showCompleted,
+              onFilterChanged: (v) => setState(() => _showCompleted = v),
             ),
           Expanded(
             child: goals.isEmpty
@@ -786,6 +774,161 @@ class _GoalFocusToggle extends StatelessWidget {
           f.focusGoalFully(goal.goalId, context.read<GoalRepository>());
         }
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Goals tab control bar — filter, sort, layout (moved from AppShell)
+// ---------------------------------------------------------------------------
+
+class _GoalsControlBar extends StatelessWidget {
+  final bool showCompleted;
+  final ValueChanged<bool> onFilterChanged;
+
+  const _GoalsControlBar({
+    required this.showCompleted,
+    required this.onFilterChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final displayPrefs = context.watch<DisplayPreferences>();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 4, 0),
+      child: Row(
+        children: [
+          SegmentedButton<bool>(
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              textStyle: Theme.of(context).textTheme.labelSmall,
+            ),
+            segments: const [
+              ButtonSegment(value: false, label: Text('Active')),
+              ButtonSegment(value: true, label: Text('Done')),
+            ],
+            selected: {showCompleted},
+            onSelectionChanged: (s) => onFilterChanged(s.first),
+            showSelectedIcon: false,
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.sort),
+            tooltip: 'Sort goals',
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              builder: (_) => _SortSheet(
+                current: displayPrefs.sortOrder,
+                onSelected: context.read<DisplayPreferences>().setSortOrder,
+              ),
+            ),
+          ),
+          PopupMenuButton<GoalListLayout>(
+            icon: const Icon(Icons.view_agenda_outlined),
+            tooltip: 'List layout',
+            onSelected: context.read<DisplayPreferences>().setLayout,
+            itemBuilder: (_) => GoalListLayout.values
+                .map(
+                  (v) => PopupMenuItem(
+                    value: v,
+                    child: ListTile(
+                      title: Text(v.displayName),
+                      trailing: displayPrefs.layout == v
+                          ? const Icon(Icons.check, size: 18)
+                          : null,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      minLeadingWidth: 24,
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortSheet extends StatelessWidget {
+  final GoalSortOrder current;
+  final void Function(GoalSortOrder) onSelected;
+
+  const _SortSheet({required this.current, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+            child: Text(
+              'Sort goals',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          _SortTile(
+            label: 'Date added',
+            subtitle: 'Oldest first',
+            icon: Icons.calendar_today_outlined,
+            selected: current == GoalSortOrder.dateAdded,
+            onTap: () { onSelected(GoalSortOrder.dateAdded); Navigator.pop(context); },
+          ),
+          _SortTile(
+            label: 'Urgency',
+            subtitle: 'Near deadlines → previously assigned → rest',
+            icon: Icons.priority_high,
+            selected: current == GoalSortOrder.urgency,
+            onTap: () { onSelected(GoalSortOrder.urgency); Navigator.pop(context); },
+          ),
+          _SortTile(
+            label: 'Smart',
+            subtitle: 'Same as urgency — recommended default',
+            icon: Icons.auto_awesome_outlined,
+            selected: current == GoalSortOrder.smart,
+            onTap: () { onSelected(GoalSortOrder.smart); Navigator.pop(context); },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortTile extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SortTile({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon,
+          color: selected ? Theme.of(context).colorScheme.primary : null),
+      title: Text(label,
+          style: selected
+              ? TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                )
+              : null),
+      subtitle: Text(subtitle),
+      trailing: selected ? const Icon(Icons.check) : null,
+      onTap: onTap,
     );
   }
 }
