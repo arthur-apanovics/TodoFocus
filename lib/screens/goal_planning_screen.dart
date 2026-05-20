@@ -15,8 +15,10 @@ import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import 'widgets/app_bottom_sheet.dart';
+import 'widgets/auto_sleep_picker_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
+import 'widgets/recurrence_picker_sheet.dart';
 
 // Unified goal screen — handles inbox, active, and completed goals. Replaces
 // the separate active/planning split with a single screen whose bottom bar,
@@ -1193,13 +1195,79 @@ class _GoalDescriptionCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 8),
-                _DueDateChip(goal: goal),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _DueDateChip(goal: goal),
+                    _RecurrenceChip(goal: goal),
+                  ],
+                ),
               ],
             ),
           ),
           const Divider(height: 1, thickness: 1),
         ],
       ),
+    );
+  }
+}
+
+// --- Recurrence chip ---
+//
+// Mirrors [_DueDateChip] in shape and interaction: tap to edit, X to clear.
+// Lives next to the due-date chip on the goal header so the user can see
+// and configure both "when is this due" and "does this repeat" together.
+
+class _RecurrenceChip extends StatelessWidget {
+  final Goal goal;
+
+  const _RecurrenceChip({required this.goal});
+
+  Future<void> _open(BuildContext context) async {
+    // Capture the service and goal id *before* awaiting the sheet. After the
+    // bottom sheet pops, `context.mounted` may briefly read false (the
+    // ancestor route is settling) — guarding on it would silently drop the
+    // user's apply. Pulling the service eagerly means we can still write
+    // even if the chip element rebuilt while the picker was open.
+    final svc = context.read<GoalService>();
+    final goalId = goal.goalId;
+    final initial = goal.recurrence;
+
+    final result = await RecurrencePickerSheet.show(context, initial: initial);
+    if (result == null) return; // user cancelled
+
+    if (result.cleared) {
+      svc.setRecurrence(goalId, null);
+      return;
+    }
+    final picked = result.recurrence;
+    if (picked != null) {
+      svc.setRecurrence(goalId, picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recurrence = goal.recurrence;
+    if (recurrence == null) {
+      return ActionChip(
+        avatar: Icon(Icons.repeat, size: 14, color: AppColors.muted),
+        label: Text('Repeat', style: TextStyle(color: AppColors.muted)),
+        side: BorderSide.none,
+        backgroundColor: Colors.transparent,
+        onPressed: () => _open(context),
+      );
+    }
+    return InputChip(
+      avatar: Icon(Icons.repeat, size: 14, color: AppColors.accent),
+      label: Text(recurrence.label),
+      onPressed: () => _open(context),
+      onDeleted: () =>
+          context.read<GoalService>().setRecurrence(goal.goalId, null),
+      deleteIcon: const Icon(Icons.close, size: 14),
+      deleteButtonTooltipMessage: 'Remove recurrence',
     );
   }
 }
@@ -1564,9 +1632,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
         ),
         subtitle: _isBreakingDown
             ? const Text('Breaking down…')
-            : isCompleted
-                ? const Text('Completed')
-                : null,
+            : _buildSubtitle(context, isCompleted),
         trailing: readOnly
             ? null
             : _buildTrailingAction(
@@ -1614,6 +1680,58 @@ class _SubTaskTileState extends State<SubTaskTile> {
     );
   }
 
+  /// Subtitle for the subtask tile. Communicates state in plain text rather
+  /// than relying on icons alone:
+  ///   • completed             → "Completed"
+  ///   • snoozed               → "Snoozed · wakes [time]"
+  ///   • has auto-sleep queued → "Sleeps [duration] when active"
+  ///   • otherwise             → null (no subtitle)
+  Widget? _buildSubtitle(BuildContext context, bool isCompleted) {
+    if (isCompleted) return const Text('Completed');
+
+    if (subtask.state == SubTaskState.snoozed && subtask.snoozedUntil != null) {
+      return Text(
+        'Snoozed · wakes ${_humaniseWake(subtask.snoozedUntil!)}',
+        style: TextStyle(color: AppColors.muted, fontSize: 12),
+      );
+    }
+
+    final auto = subtask.autoSleepDuration;
+    if (auto != null && auto.inSeconds > 0) {
+      return Text(
+        'Auto-sleeps ${_humaniseDuration(auto)} when active',
+        style: TextStyle(color: AppColors.muted, fontSize: 12),
+      );
+    }
+    return null;
+  }
+
+  static String _humaniseDuration(Duration d) {
+    if (d.inDays >= 1 && d.inHours % 24 == 0) {
+      final n = d.inDays;
+      return '$n day${n == 1 ? '' : 's'}';
+    }
+    if (d.inHours >= 1 && d.inMinutes % 60 == 0) {
+      final n = d.inHours;
+      return '$n hour${n == 1 ? '' : 's'}';
+    }
+    return '${d.inMinutes} min';
+  }
+
+  static String _humaniseWake(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = target.difference(today).inDays;
+    final hhmm =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    if (diffDays == 0) return 'today $hhmm';
+    if (diffDays == 1) return 'tomorrow $hhmm';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day} $hhmm';
+  }
+
   Widget? _buildTrailingAction(
     BuildContext context,
     GoalService service,
@@ -1632,11 +1750,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
         ),
       );
     }
-    // Monotone palette — three semantic shades carry the meaning.
-    // See AppColors for the actual values; tweak there to experiment.
-    //   faded   → completed row leading icon
-    //   muted   → lock, restore  (present but secondary)
-    //   strong  → primary action (the current subtask's circle)
     if (isCompleted) {
       if (!widget.showCompletion) return null;
       return IconButton(
@@ -1655,8 +1768,25 @@ class _SubTaskTileState extends State<SubTaskTile> {
       onPressed: () => _showBreakdownChoiceSheet(context, service),
     );
 
+    // Snoozed subtasks — surface a "wake now" button so the user can reverse
+    // the snooze without leaving the screen. Breakdown is also available.
+    if (subtask.state == SubTaskState.snoozed) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          splitButton,
+          IconButton(
+            icon: Icon(Icons.alarm_on, size: 20, color: AppColors.accent),
+            tooltip: 'Wake now',
+            onPressed: () =>
+                service.wakeSubTask(goal.goalId, subtask.subtaskId),
+          ),
+        ],
+      );
+    }
+
     if (!widget.showCompletion) {
-      // Planning mode: only the breakdown affordance, no complete/queued.
+      // Planning mode: only the breakdown affordance.
       return splitButton;
     }
 
@@ -1674,18 +1804,45 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // Pending but not current — queued until earlier subtasks complete.
-    // `AppIcons.queued` reads as "waiting your turn" (circle-outline glyph
-    // rhymes with the hollow-circle of `complete`), unlike the older lock
-    // which read as "permission denied".
+    // Queued pending subtask — replace the old "queued" indicator with a
+    // useful affordance: schedule an auto-sleep so when this step becomes
+    // active it'll snooze for the configured duration. Tinted when an
+    // auto-sleep is already set so the user can tell at a glance.
+    final hasAutoSleep = subtask.autoSleepDuration != null;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         splitButton,
-        Icon(AppIcons.queued, size: 20, color: AppColors.muted),
-        const SizedBox(width: 8),
+        IconButton(
+          icon: Icon(
+            Icons.bedtime_outlined,
+            size: 20,
+            color: hasAutoSleep ? AppColors.accent : AppColors.muted,
+          ),
+          tooltip: hasAutoSleep
+              ? 'Edit auto-sleep'
+              : 'Schedule auto-sleep when this becomes active',
+          onPressed: () => _openAutoSleepPicker(context, service),
+        ),
       ],
     );
+  }
+
+  Future<void> _openAutoSleepPicker(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final result = await AutoSleepPickerSheet.show(
+      context,
+      initial: subtask.autoSleepDuration,
+    );
+    if (result == null) return;
+    if (result.cleared) {
+      service.setSubTaskAutoSleep(goal.goalId, subtask.subtaskId, null);
+    } else if (result.duration != null) {
+      service.setSubTaskAutoSleep(
+          goal.goalId, subtask.subtaskId, result.duration);
+    }
   }
 
   // Calls the configured decomposition provider to break this subtask into

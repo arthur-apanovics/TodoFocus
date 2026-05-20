@@ -64,6 +64,8 @@ class _InboxList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
+      // Bottom inset lets the last item scroll above the FAB.
+      padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
       itemCount: items.length,
       itemBuilder: (context, index) => _InboxTile(goal: items[index]),
     );

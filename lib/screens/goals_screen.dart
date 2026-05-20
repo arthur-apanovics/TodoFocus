@@ -435,7 +435,11 @@ class _CategorizedGoalList extends StatelessWidget {
         ));
       }
     }
-    return ListView(children: items);
+    return ListView(
+      // Bottom inset lets the last goal scroll above the FAB.
+      padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
+      children: items,
+    );
   }
 }
 
@@ -478,6 +482,8 @@ class _GoalList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
+      // Bottom inset lets the last goal scroll above the FAB.
+      padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
       itemCount: goals.length,
       itemBuilder: (context, index) {
         final goal = goals[index];
@@ -632,13 +638,25 @@ class _GoalTile extends StatelessWidget {
           )
         else
           const Text('No subtasks yet'),
-        if (dueDate != null) ...[
-          const Spacer(),
+        const Spacer(),
+        // State indicators: recurrence ↻, snooze 💤. These sit before the
+        // due date so the eye reads "what kind of goal" before "when".
+        if (goal.isRecurring)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Icon(Icons.repeat, size: 12, color: AppColors.accent),
+          ),
+        if (goal.isOnHold)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Icon(Icons.bedtime_outlined,
+                size: 12, color: AppColors.muted),
+          ),
+        if (dueDate != null)
           Text(
             _formatDueDate(dueDate),
             style: TextStyle(fontSize: 12, color: AppColors.muted),
           ),
-        ],
       ],
     );
   }

@@ -5,9 +5,34 @@ enum GoalStatus {
   archived,
 }
 
+/// Lifecycle states a subtask moves through.
+///
+/// • [pending]   — actively waiting to be worked on (default state).
+/// • [snoozed]   — temporarily paused. Pairs with [SubTask.snoozedUntil] —
+///                 the [SchedulingService] auto-transitions back to
+///                 [pending] when that time arrives. Snoozing the current
+///                 step puts the whole goal on hold (no current task,
+///                 goal sinks in the sort).
+/// • [completed] — finished, frozen.
 enum SubTaskState {
   pending,
-  completed
+  snoozed,
+  completed,
+}
+
+/// Cadence at which a recurring goal repeats.
+///
+/// • [daily]       — every day at the configured reset time.
+/// • [weeklyDays]  — on a chosen set of weekdays (1=Mon … 7=Sun).
+/// • [everyNDays]  — every N days from the last completion / reset.
+/// • [monthly]     — on a specific day of the month; gracefully clamps to
+///                   the last day of the month when the chosen day doesn't
+///                   exist (e.g. day 31 in February).
+enum RecurrenceFrequency {
+  daily,
+  weeklyDays,
+  everyNDays,
+  monthly,
 }
 
 enum GoalSortOrder { dateAdded, urgency, smart }

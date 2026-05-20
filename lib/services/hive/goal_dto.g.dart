@@ -16,8 +16,6 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
-    // Fields 6 (isFocusedToday) and 7 (todayOrder) are retired — read but
-    // ignored so previously-persisted records load without error.
     return GoalDto()
       ..goalId = fields[0] as String
       ..title = fields[1] as String

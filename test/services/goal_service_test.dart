@@ -358,6 +358,62 @@ void main() {
   // Goal.completeSubTask — domain model level
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // setSubTaskAutoSleep
+  // -------------------------------------------------------------------------
+
+  group('setSubTaskAutoSleep', () {
+    test('stores the duration on a queued pending subtask', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1'), makeSubTask('s2')],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+
+      service.setSubTaskAutoSleep('g1', 's2', const Duration(days: 3));
+
+      final loaded = repo.findById('g1')!;
+      // Still pending; duration stashed for when s1 completes.
+      expect(loaded.subtasks[1].state, SubTaskState.pending);
+      expect(loaded.subtasks[1].autoSleepDuration, const Duration(days: 3));
+    });
+
+    test('immediately snoozes when applied to the current subtask', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1')],
+      );
+      final (service, repo) = makeService(seed: [goal]);
+
+      service.setSubTaskAutoSleep('g1', 's1', const Duration(hours: 1));
+
+      final loaded = repo.findById('g1')!;
+      expect(loaded.subtasks[0].state, SubTaskState.snoozed);
+      expect(loaded.subtasks[0].snoozedUntil, isNotNull);
+    });
+
+    test('clearing removes the stored duration', () {
+      final goal = makeGoal(
+        subtasks: [makeSubTask('s1'), makeSubTask('s2')],
+      );
+      goal.subtasks[1].autoSleepDuration = const Duration(days: 3);
+      final (service, repo) = makeService(seed: [goal]);
+
+      service.setSubTaskAutoSleep('g1', 's2', null);
+
+      expect(repo.findById('g1')!.subtasks[1].autoSleepDuration, isNull);
+    });
+
+    test('ignores completed subtasks', () {
+      final goal = makeGoal(subtasks: [
+        makeSubTask('s1', state: SubTaskState.completed),
+      ]);
+      final (service, repo) = makeService(seed: [goal]);
+
+      service.setSubTaskAutoSleep('g1', 's1', const Duration(days: 1));
+
+      expect(repo.findById('g1')!.subtasks[0].autoSleepDuration, isNull);
+    });
+  });
+
   group('Goal.completeSubTask', () {
     test('completes the current subtask', () {
       final goal = makeGoal(subtasks: [makeSubTask('s1'), makeSubTask('s2')]);

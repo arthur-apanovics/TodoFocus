@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart';
 import '../models/enums.dart';
+import '../models/recurrence.dart';
 import '../models/sub_task.dart';
 
 class Goal {
@@ -14,6 +15,34 @@ class Goal {
   String? emoji;
   final List<SubTask> subtasks;
 
+  // ── Recurrence ──────────────────────────────────────────────────────────
+  //
+  // A goal can repeat on a schedule. When set, the [SchedulingService]
+  // monitors [nextOccurrenceAt] and resets all subtasks to pending when the
+  // next occurrence arrives. The previous cycle's progress is captured in
+  // [lastIterationSummary] so a (future) LLM "re-plan" flow can use it as
+  // context when generating fresh steps for the new cycle.
+  //
+  // Null = one-shot goal (today's behaviour, no change).
+
+  /// The recurrence pattern, or null for a one-shot goal.
+  Recurrence? recurrence;
+
+  /// Pre-computed time at which the next reset is due. Set whenever the
+  /// recurrence pattern changes or a cycle resets. Null when [recurrence]
+  /// is null.
+  DateTime? nextOccurrenceAt;
+
+  /// Free-text summary of what the user completed in the previous cycle.
+  /// Stays small (a couple hundred chars) so it can be passed straight to
+  /// an LLM as part of a prompt without context-window concerns.
+  /// Empty before the first reset.
+  String lastIterationSummary;
+
+  /// When the previous cycle ended (recurrence reset). Used by the sort
+  /// to mark goals that have a freshly-revived current step as "Resumed".
+  DateTime? lastResumedAt;
+
   Goal({
     required this.goalId,
     required this.title,
@@ -23,6 +52,10 @@ class Goal {
     this.dueDate,
     this.emoji,
     List<SubTask>? subtasks,
+    this.recurrence,
+    this.nextOccurrenceAt,
+    this.lastIterationSummary = '',
+    this.lastResumedAt,
   }) : subtasks = subtasks ?? [];
 
   // --- Computed properties ---
@@ -32,10 +65,30 @@ class Goal {
   bool get isDailyAssignable =>
       status != GoalStatus.completed && status != GoalStatus.inbox;
 
-  // The subtask the user should work on right now
-  // Always the first non-completed subtask — inProgress is implicit
-  SubTask? get currentSubTask =>
-      subtasks.firstWhereOrNull((t) => t.state == SubTaskState.pending);
+  /// True when the recurrence pattern is set (recurring goal).
+  bool get isRecurring => recurrence != null;
+
+  /// True when the first non-completed subtask is snoozed. The goal is
+  /// effectively "on hold" — [currentSubTask] returns null and the sort
+  /// pushes it to the bottom.
+  bool get isOnHold {
+    final firstActive =
+        subtasks.firstWhereOrNull((t) => t.state != SubTaskState.completed);
+    return firstActive?.state == SubTaskState.snoozed;
+  }
+
+  /// The subtask the user should work on right now.
+  ///
+  /// Returns the first pending subtask in order. **Returns null when the
+  /// first non-completed subtask is snoozed** — that means the goal is on
+  /// hold and the user shouldn't be skipped ahead to a later step.
+  SubTask? get currentSubTask {
+    final firstActive =
+        subtasks.firstWhereOrNull((t) => t.state != SubTaskState.completed);
+    if (firstActive == null) return null; // every subtask is completed
+    if (firstActive.state == SubTaskState.snoozed) return null; // on hold
+    return firstActive;
+  }
 
   // The next subtask after the current one — for the "peek" in Focus screen
   SubTask? get nextSubTask {
@@ -101,6 +154,7 @@ class Goal {
 
     current.markComplete();
     _recalculateStatus();
+    _applyAutoSleepToNewCurrent();
   }
 
   /// Completes a specific subtask by ID. Throws [StateError] if [subtaskId] is
@@ -119,6 +173,52 @@ class Goal {
     }
     current.markComplete();
     _recalculateStatus();
+    _applyAutoSleepToNewCurrent();
+  }
+
+  /// If the (newly promoted) current subtask carries an
+  /// [SubTask.autoSleepDuration], snooze it for that duration and clear
+  /// the field so the trigger is one-shot. Called from any code path that
+  /// advances the queue.
+  void _applyAutoSleepToNewCurrent() {
+    final next = currentSubTask;
+    if (next == null) return;
+    final delay = next.autoSleepDuration;
+    if (delay == null) return;
+    // Only snooze if the delay is positive — defensive against bad inputs.
+    if (delay.inSeconds <= 0) {
+      next.autoSleepDuration = null;
+      return;
+    }
+    next.snooze(DateTime.now().add(delay));
+    // One-shot: clear the configured duration so a future
+    // un-complete / re-complete cycle doesn't re-snooze the same step.
+    next.autoSleepDuration = null;
+  }
+
+  /// Snoozes the current subtask until [until]. Throws [StateError] when
+  /// there is no current subtask (goal already on hold or completed). This
+  /// is the only entry point — snoozing a non-current pending subtask is
+  /// disallowed since the sequential ordering would still block it.
+  void snoozeCurrentSubTask(DateTime until, {bool notify = false}) {
+    final current = currentSubTask;
+    if (current == null) {
+      throw StateError(
+        'Cannot snooze: goal has no current subtask '
+        '(already on hold or completed).',
+      );
+    }
+    current.snooze(until, notify: notify);
+  }
+
+  /// Wakes a snoozed subtask immediately by ID. No-op if the subtask isn't
+  /// snoozed. Used by manual "wake now" actions and by the
+  /// [SchedulingService] when [SubTask.snoozedUntil] passes.
+  void wakeSubTask(String subtaskId) {
+    final subtask =
+        subtasks.firstWhereOrNull((t) => t.subtaskId == subtaskId);
+    if (subtask == null) return;
+    subtask.wakeUp();
   }
 
   // Undo a completed subtask — reinserts just before the current subtask
@@ -157,6 +257,52 @@ class Goal {
     subtasks.insert(newIndex, movingTask);
   }
 
+  // ── Recurrence operations ────────────────────────────────────────────────
+
+  /// Resets every subtask back to [SubTaskState.pending] and records a
+  /// brief summary of what was just completed in [lastIterationSummary] so
+  /// the next iteration can reference it (e.g. for LLM-driven re-planning).
+  ///
+  /// This is the single domain-level entry point for cycling a recurring
+  /// goal. [SchedulingService] calls it at the configured occurrence time;
+  /// the UI can also expose a manual "Start a new cycle" button.
+  void resetRecurrenceCycle({DateTime? now}) {
+    final stamp = now ?? DateTime.now();
+    // Capture completed-step descriptions before we reset them.
+    final completedDescs = subtasks
+        .where((t) => t.state == SubTaskState.completed)
+        .map((t) => t.description)
+        .toList();
+    lastIterationSummary = _buildIterationSummary(completedDescs);
+
+    // Flip all subtasks back to pending (and clear any snooze state).
+    for (final st in subtasks) {
+      st.state = SubTaskState.pending;
+      st.completionDate = null;
+      st.snoozedUntil = null;
+      st.notifyOnWake = false;
+      st.lastSeenDate = stamp;
+    }
+
+    lastResumedAt = stamp;
+    if (recurrence != null) {
+      nextOccurrenceAt = recurrence!.nextOccurrenceAfter(stamp);
+    }
+    _recalculateStatus();
+  }
+
+  /// Builds a compact iteration summary string from completed step
+  /// descriptions. Capped to ~280 chars so it stays cheap to embed in
+  /// future LLM prompts.
+  String _buildIterationSummary(List<String> completedDescs) {
+    if (completedDescs.isEmpty) {
+      return 'No steps completed last cycle.';
+    }
+    final joined = completedDescs.map((d) => '• $d').join('\n');
+    if (joined.length <= 280) return joined;
+    return '${joined.substring(0, 277)}…';
+  }
+
   void _recalculateStatus() {
     // Inbox goals stay in the planning stage until the user explicitly
     // queues them via GoalService.queueGoal(). Archived goals are frozen.
@@ -170,15 +316,22 @@ class Goal {
   // --- Serialisation ---
 
   Map<String, dynamic> toJson() => {
-    'goalId': goalId,
-    'title': title,
-    'notes': notes,
-    'status': status.name,
-    'difficulty': difficulty.name,
-    'dueDate': dueDate?.toIso8601String(),
-    'emoji': emoji,
-    'subtasks': subtasks.map((t) => t.toJson()).toList(),
-  };
+        'goalId': goalId,
+        'title': title,
+        'notes': notes,
+        'status': status.name,
+        'difficulty': difficulty.name,
+        'dueDate': dueDate?.toIso8601String(),
+        'emoji': emoji,
+        'subtasks': subtasks.map((t) => t.toJson()).toList(),
+        if (recurrence != null) 'recurrence': recurrence!.toJson(),
+        if (nextOccurrenceAt != null)
+          'nextOccurrenceAt': nextOccurrenceAt!.toIso8601String(),
+        if (lastIterationSummary.isNotEmpty)
+          'lastIterationSummary': lastIterationSummary,
+        if (lastResumedAt != null)
+          'lastResumedAt': lastResumedAt!.toIso8601String(),
+      };
 
   factory Goal.fromJson(Map<String, dynamic> json) {
     return Goal(
@@ -197,6 +350,17 @@ class Goal {
               ?.map((t) => SubTask.fromJson(t as Map<String, dynamic>))
               .toList() ??
           [],
+      recurrence: json['recurrence'] != null
+          ? Recurrence.fromJson(
+              (json['recurrence'] as Map).cast<String, dynamic>())
+          : null,
+      nextOccurrenceAt: json['nextOccurrenceAt'] != null
+          ? DateTime.parse(json['nextOccurrenceAt'] as String)
+          : null,
+      lastIterationSummary: json['lastIterationSummary'] as String? ?? '',
+      lastResumedAt: json['lastResumedAt'] != null
+          ? DateTime.parse(json['lastResumedAt'] as String)
+          : null,
     );
   }
 }

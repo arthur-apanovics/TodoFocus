@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
+import '../models/recurrence.dart';
 import '../models/sub_task.dart';
 import 'focus_list_service.dart';
 import 'goal_repository.dart';
@@ -120,6 +121,100 @@ class GoalService {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
     goal.dueDate = dueDate;
+    _repository.save(goal);
+  }
+
+  // --- Recurrence ---
+
+  /// Configures (or clears, when [recurrence] is null) a recurring schedule
+  /// for the goal. Re-runs the next-occurrence calculation so the
+  /// [SchedulingService] knows when the next reset is due.
+  void setRecurrence(String goalId, Recurrence? recurrence) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.recurrence = recurrence;
+    goal.nextOccurrenceAt = recurrence?.nextOccurrenceAfter(DateTime.now());
+    _repository.save(goal);
+  }
+
+  /// Manually triggers a recurrence cycle reset — flips all subtasks back
+  /// to pending and snapshots the last cycle's progress. Useful for
+  /// "I want to start over" without waiting for the next occurrence.
+  void resetRecurrenceCycle(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.resetRecurrenceCycle();
+    _repository.save(goal);
+  }
+
+  // --- Snooze ---
+
+  /// Snoozes the current (first-pending) subtask of [goalId] until [until].
+  /// The whole goal effectively goes "on hold" — its [Goal.currentSubTask]
+  /// returns null until the snooze elapses and [SchedulingService] wakes it.
+  ///
+  /// [notify] controls whether a wake-up notification is posted at [until].
+  ///
+  /// Throws [StateError] when the goal has no current subtask, or when
+  /// [until] is in the past.
+  void snoozeCurrentSubTask(
+    String goalId, {
+    required DateTime until,
+    bool notify = false,
+  }) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    if (!until.isAfter(DateTime.now())) {
+      throw StateError('Snooze target must be in the future.');
+    }
+    goal.snoozeCurrentSubTask(until, notify: notify);
+    _repository.save(goal);
+  }
+
+  /// Wakes a snoozed subtask immediately. No-op for non-snoozed subtasks.
+  void wakeSubTask(String goalId, String subtaskId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.wakeSubTask(subtaskId);
+    goal.lastResumedAt = DateTime.now();
+    _repository.save(goal);
+  }
+
+  /// Configures (or clears, when [duration] is null) a pre-scheduled
+  /// auto-sleep on [subtaskId].
+  ///
+  /// Semantics:
+  ///   • The subtask must be in [SubTaskState.pending]. Completed / snoozed
+  ///     subtasks reject the call as a no-op.
+  ///   • If [subtaskId] is the goal's **current** subtask AND [duration] is
+  ///     non-null, the snooze is applied immediately and the autoSleepDuration
+  ///     field is cleared (one-shot behaviour).
+  ///   • If [subtaskId] is a queued (non-current) pending subtask, the
+  ///     duration is stored and will be applied when the previous step
+  ///     completes (via [Goal._applyAutoSleepToNewCurrent]).
+  ///   • If [duration] is null, any stored auto-sleep is removed.
+  void setSubTaskAutoSleep(
+    String goalId,
+    String subtaskId,
+    Duration? duration,
+  ) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    final subtask = goal.subtasks
+        .where((s) => s.subtaskId == subtaskId)
+        .firstOrNull;
+    if (subtask == null) return;
+    if (subtask.state != SubTaskState.pending) return;
+
+    if (duration == null) {
+      subtask.autoSleepDuration = null;
+    } else if (goal.currentSubTask?.subtaskId == subtaskId) {
+      // Already the current step → snooze immediately, no need to defer.
+      subtask.snooze(DateTime.now().add(duration));
+    } else {
+      // Queued — stash the duration so it fires when this step becomes current.
+      subtask.autoSleepDuration = duration;
+    }
     _repository.save(goal);
   }
 

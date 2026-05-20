@@ -348,4 +348,230 @@ void main() {
       expect(g.status, GoalStatus.archived);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Snooze / on-hold semantics
+  // -------------------------------------------------------------------------
+
+  group('snoozeCurrentSubTask', () {
+    test('moves the current subtask to snoozed state', () {
+      final g = makeGoal(subtasks: [makeSubTask('a'), makeSubTask('b')]);
+      g.snoozeCurrentSubTask(DateTime.now().add(const Duration(hours: 1)));
+      expect(g.subtasks[0].state, SubTaskState.snoozed);
+      expect(g.subtasks[1].state, SubTaskState.pending);
+    });
+
+    test('records snoozedUntil and notify flag', () {
+      final g = makeGoal(subtasks: [makeSubTask('a')]);
+      final until = DateTime.now().add(const Duration(hours: 2));
+      g.snoozeCurrentSubTask(until, notify: true);
+      expect(g.subtasks[0].snoozedUntil, until);
+      expect(g.subtasks[0].notifyOnWake, isTrue);
+    });
+
+    test('throws when there is no current subtask', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+      ]);
+      expect(
+        () => g.snoozeCurrentSubTask(DateTime.now()),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('currentSubTask with snoozed', () {
+    test('returns null when the first non-completed subtask is snoozed', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.snoozed),
+        makeSubTask('b'), // pending — but blocked by snoozed 'a'
+      ]);
+      expect(g.currentSubTask, isNull);
+      expect(g.isOnHold, isTrue);
+    });
+
+    test('skips completed subtasks before the snoozed one', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+        makeSubTask('b', state: SubTaskState.snoozed),
+        makeSubTask('c'),
+      ]);
+      expect(g.currentSubTask, isNull);
+      expect(g.isOnHold, isTrue);
+    });
+
+    test('returns next pending after waking a snoozed subtask', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.snoozed),
+        makeSubTask('b'),
+      ]);
+      g.wakeSubTask('a');
+      expect(g.currentSubTask?.subtaskId, 'a');
+      expect(g.isOnHold, isFalse);
+    });
+  });
+
+  group('completeSubTask rejects on hold', () {
+    test('throws when first non-completed subtask is snoozed', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.snoozed),
+        makeSubTask('b'),
+      ]);
+      // 'b' is pending but goal is on hold → currentSubTask is null →
+      // completion must throw regardless of which id is passed.
+      expect(() => g.completeSubTask('b'), throwsA(isA<StateError>()));
+      expect(() => g.completeSubTask('a'), throwsA(isA<StateError>()));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Recurrence cycle reset
+  // -------------------------------------------------------------------------
+
+  group('resetRecurrenceCycle', () {
+    test('flips every subtask back to pending', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+        makeSubTask('b', state: SubTaskState.completed),
+      ]);
+      g.resetRecurrenceCycle();
+      expect(g.subtasks.every((s) => s.state == SubTaskState.pending), isTrue);
+      expect(g.subtasks.every((s) => s.completionDate == null), isTrue);
+    });
+
+    test('writes a non-empty iteration summary including completed steps', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+      ]);
+      g.subtasks[0].description = 'Practice scales';
+      g.resetRecurrenceCycle();
+      expect(g.lastIterationSummary, contains('Practice scales'));
+    });
+
+    test('clears snooze state during reset', () {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.snoozed),
+      ]);
+      g.subtasks[0].snoozedUntil = future;
+      g.subtasks[0].notifyOnWake = true;
+      g.resetRecurrenceCycle();
+      expect(g.subtasks[0].snoozedUntil, isNull);
+      expect(g.subtasks[0].notifyOnWake, isFalse);
+    });
+
+    test('bumps lastResumedAt to the reset timestamp', () {
+      final g = makeGoal(subtasks: [makeSubTask('a')]);
+      expect(g.lastResumedAt, isNull);
+      g.resetRecurrenceCycle();
+      expect(g.lastResumedAt, isNotNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Auto-sleep on transition to current
+  // -------------------------------------------------------------------------
+
+  group('autoSleepDuration', () {
+    test(
+      'fires when the previous subtask completes and clears the field',
+      () {
+        final g = makeGoal(subtasks: [
+          makeSubTask('a'),
+          makeSubTask('b'),
+        ]);
+        g.subtasks[1].autoSleepDuration = const Duration(days: 3);
+
+        g.completeSubTask('a');
+
+        expect(g.subtasks[1].state, SubTaskState.snoozed);
+        expect(g.subtasks[1].snoozedUntil, isNotNull);
+        // One-shot semantics: field is cleared after firing.
+        expect(g.subtasks[1].autoSleepDuration, isNull);
+      },
+    );
+
+    test('does not re-fire after un-complete/re-complete', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a'),
+        makeSubTask('b'),
+      ]);
+      g.subtasks[1].autoSleepDuration = const Duration(hours: 1);
+
+      g.completeSubTask('a');
+      expect(g.subtasks[1].state, SubTaskState.snoozed);
+
+      // Manually wake to simulate the snooze elapsing.
+      g.subtasks[1].wakeUp();
+      // Un-complete + re-complete the prior step.
+      g.uncompleteSubTask('a');
+      g.completeSubTask('a');
+
+      // No re-snooze — autoSleepDuration was cleared on first fire.
+      expect(g.subtasks[1].state, SubTaskState.pending);
+    });
+
+    test('completeCurrentSubTask path also fires the auto-sleep', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a'),
+        makeSubTask('b'),
+      ]);
+      g.subtasks[1].autoSleepDuration = const Duration(minutes: 30);
+
+      g.completeCurrentSubTask();
+
+      expect(g.subtasks[1].state, SubTaskState.snoozed);
+      expect(g.subtasks[1].autoSleepDuration, isNull);
+    });
+
+    test('zero / negative duration is treated as "clear it"', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a'),
+        makeSubTask('b'),
+      ]);
+      g.subtasks[1].autoSleepDuration = const Duration();
+
+      g.completeSubTask('a');
+
+      expect(g.subtasks[1].state, SubTaskState.pending);
+      expect(g.subtasks[1].autoSleepDuration, isNull);
+    });
+
+    test('round-trips through JSON as integer seconds', () {
+      final st = makeSubTask('a');
+      st.autoSleepDuration = const Duration(days: 3);
+      final json = st.toJson();
+      expect(json['autoSleepSeconds'], 3 * 24 * 60 * 60);
+      final parsed = SubTask.fromJson(json);
+      expect(parsed.autoSleepDuration, const Duration(days: 3));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Serialisation round-trip with new fields
+  // -------------------------------------------------------------------------
+
+  group('JSON round-trip with new fields', () {
+    test('preserves snoozedUntil and notifyOnWake on subtask', () {
+      final st = makeSubTask('a');
+      final until = DateTime.now().add(const Duration(hours: 1));
+      st.snooze(until, notify: true);
+      final json = st.toJson();
+      final parsed = SubTask.fromJson(json);
+      expect(parsed.state, SubTaskState.snoozed);
+      expect(parsed.snoozedUntil, until);
+      expect(parsed.notifyOnWake, isTrue);
+    });
+
+    test('preserves recurrence and lastIterationSummary on goal', () {
+      final g = makeGoal(subtasks: [
+        makeSubTask('a', state: SubTaskState.completed),
+      ]);
+      g.resetRecurrenceCycle();
+      g.lastResumedAt = DateTime(2026, 5, 1, 9);
+      final parsed = Goal.fromJson(g.toJson());
+      expect(parsed.lastIterationSummary, isNotEmpty);
+      expect(parsed.lastResumedAt, DateTime(2026, 5, 1, 9));
+    });
+  });
 }

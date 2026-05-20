@@ -45,7 +45,8 @@ class AppBottomSheet extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              ?trailing,
+              // Note: Needs to remain as an if statement until packages are upgraded
+              if (trailing != null) trailing!,
             ],
           ),
           const SizedBox(height: 16),

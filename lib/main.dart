@@ -19,6 +19,7 @@ import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
+import 'services/scheduling_service.dart';
 import 'services/settings/llm_settings_service.dart';
 import 'screens/widgets/icon_catalog.dart';
 import 'theme/app_colors.dart';
@@ -42,6 +43,12 @@ void main() async {
     focus: focusListService,
   );
   await notificationService.init();
+
+  // Single source of truth for time-elapsed transitions (snooze wake-ups
+  // and recurrence resets). Run it once at startup so any state we missed
+  // while the app was closed is applied before the UI renders.
+  final schedulingService = SchedulingService(goalRepository);
+  schedulingService.checkAndProcess();
 
   // Schedule morning prompt if configured.
   if (dailyResetService.morningPromptEnabled) {
@@ -67,6 +74,7 @@ void main() async {
       dailyResetService: dailyResetService,
       displayPreferences: displayPreferences,
       notificationService: notificationService,
+      schedulingService: schedulingService,
       tabNotifier: tabNotifier,
       goalNavNotifier: goalNavNotifier,
     ),
@@ -80,6 +88,7 @@ class TodoApp extends StatelessWidget {
   final DailyResetService dailyResetService;
   final DisplayPreferences displayPreferences;
   final NotificationService notificationService;
+  final SchedulingService schedulingService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?>
   goalNavNotifier;
@@ -92,6 +101,7 @@ class TodoApp extends StatelessWidget {
     required this.dailyResetService,
     required this.displayPreferences,
     required this.notificationService,
+    required this.schedulingService,
     required this.tabNotifier,
     required this.goalNavNotifier,
   });
@@ -140,6 +150,11 @@ class TodoApp extends StatelessWidget {
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
+        // Exposed so AppShell can re-run the snooze / recurrence sweep on
+        // resume, and so screens can call setRecurrence / snooze flows.
+        ChangeNotifierProvider<SchedulingService>.value(
+          value: schedulingService,
+        ),
       ],
       child: MaterialApp(
         title: 'Todo App',
@@ -234,6 +249,13 @@ class _AppShellState extends State<AppShell>
     final focus = context.read<FocusListService>();
     final notif = context.read<NotificationService>();
     final resetService = context.read<DailyResetService>();
+    final scheduling = context.read<SchedulingService>();
+
+    // Apply any pending wake-ups / recurrence resets first so the focus
+    // list resolves against the freshest state. Order matters here: the
+    // scheduling sweep may add or remove a goal's "current" subtask, which
+    // changes what the notification should show.
+    scheduling.checkAndProcess();
 
     final wasReset = await resetService.checkAndReset();
     final groups = focus.resolveGroups(repo);
@@ -315,6 +337,11 @@ class _AppShellState extends State<AppShell>
     );
   }
 
+  /// Opens the focus picker. Wired to the AppBar's "Pick" action when the
+  /// Focus tab is selected — keeps the picker affordance visible without
+  /// stealing the FAB slot from "Create goal".
+  void _openFocusPicker() => FocusScreen.openPicker(context);
+
   @override
   Widget build(BuildContext context) {
     final inboxCount = context.watch<GoalQueries>().inbox.length;
@@ -324,6 +351,14 @@ class _AppShellState extends State<AppShell>
         appBar: AppBar(
           title: Text(_tabTitles[_tabController.index]),
           actions: [
+            // ── Focus tab: "Pick" lives in the AppBar so the FAB slot can
+            //    be used by the global "Create goal" button on every tab.
+            if (_tabController.index == 0)
+              IconButton(
+                icon: const Icon(Icons.add_task),
+                tooltip: 'Pick subtasks for today',
+                onPressed: _openFocusPicker,
+              ),
             if (_tabController.index == 1) ...[
               _GoalsFilterButton(
                 showCompleted: _goalsShowCompleted.value,
@@ -350,11 +385,9 @@ class _AppShellState extends State<AppShell>
             const InboxScreen(),
           ],
         ),
-        // The Focus tab has its own FAB ("Pick") rendered by FocusScreen.
-        // Hiding the global one prevents the Create-Goal FAB from sitting on
-        // top of it and swallowing taps.
-        floatingActionButton:
-            _tabController.index == 0 ? null : _buildFab(context),
+        // "Create goal" is now visible on every tab — the picker moved into
+        // the AppBar so this slot is no longer contested on the Focus tab.
+        floatingActionButton: _buildFab(context),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tabController.index,
           onDestinationSelected: _onDestinationSelected,
@@ -547,7 +580,7 @@ class _LayoutButton extends StatelessWidget {
     final layout = context.watch<DisplayPreferences>().layout;
     final setLayout = context.read<DisplayPreferences>().setLayout;
     return PopupMenuButton<GoalListLayout>(
-      icon: Icon(Icons.view_list_outlined),
+      icon: Icon(Icons.view_agenda_outlined),
       tooltip: 'List layout',
       onSelected: setLayout,
       itemBuilder: (_) => [

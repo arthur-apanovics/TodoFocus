@@ -72,3 +72,11 @@ class AppColors {
   static const Color destructive = Colors.red;
   static const Color onDestructive = Colors.white;
 }
+
+/// Bottom padding that scrollable lists should apply so their final item can
+/// be scrolled clear of a floating action button (Material's extended FAB is
+/// ~48 dp tall, plus a 16 dp screen margin, plus slack for fat-finger taps).
+///
+/// Acts as the "ghost entry" the user asked for — invisible space at the
+/// end of the list that pushes the last real item above the FAB's hit area.
+const double kFabSafeBottomPadding = 88.0;
