@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:collection/collection.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../models/enums.dart';
 import '../../models/goal.dart';
+import '../../models/recurrence.dart';
 import '../../models/sub_task.dart';
 import '../goal_repository.dart';
 import 'goal_dto.dart';
@@ -93,6 +96,13 @@ class HiveGoalRepository extends GoalRepository {
       dueDate: dto.dueDate,
       emoji: dto.emoji,
       subtasks: dto.subtasks.map(_subTaskToDomain).toList(),
+      recurrence: dto.recurrenceJson != null
+          ? Recurrence.fromJson(
+              jsonDecode(dto.recurrenceJson!) as Map<String, dynamic>)
+          : null,
+      nextOccurrenceAt: dto.nextOccurrenceAt,
+      lastIterationSummary: dto.lastIterationSummary ?? '',
+      lastResumedAt: dto.lastResumedAt,
     );
   }
 
@@ -105,6 +115,11 @@ class HiveGoalRepository extends GoalRepository {
       completionDate: dto.completionDate,
       lastSeenDate: dto.lastSeenDate,
       effortEstimate: dto.effortEstimate,
+      snoozedUntil: dto.snoozedUntil,
+      notifyOnWake: dto.notifyOnWake ?? false,
+      autoSleepDuration: dto.autoSleepSeconds != null
+          ? Duration(seconds: dto.autoSleepSeconds!)
+          : null,
     );
   }
 
@@ -119,7 +134,14 @@ class HiveGoalRepository extends GoalRepository {
       ..difficulty = goal.difficulty.name
       ..dueDate = goal.dueDate
       ..emoji = goal.emoji
-      ..subtasks = goal.subtasks.map(_subTaskToDto).toList();
+      ..subtasks = goal.subtasks.map(_subTaskToDto).toList()
+      ..recurrenceJson = goal.recurrence != null
+          ? jsonEncode(goal.recurrence!.toJson())
+          : null
+      ..nextOccurrenceAt = goal.nextOccurrenceAt
+      ..lastIterationSummary =
+          goal.lastIterationSummary.isEmpty ? null : goal.lastIterationSummary
+      ..lastResumedAt = goal.lastResumedAt;
     return dto;
   }
 
@@ -131,7 +153,10 @@ class HiveGoalRepository extends GoalRepository {
       ..assignedDate = subtask.assignedDate
       ..completionDate = subtask.completionDate
       ..lastSeenDate = subtask.lastSeenDate
-      ..effortEstimate = subtask.effortEstimate;
+      ..effortEstimate = subtask.effortEstimate
+      ..snoozedUntil = subtask.snoozedUntil
+      ..notifyOnWake = subtask.notifyOnWake
+      ..autoSleepSeconds = subtask.autoSleepDuration?.inSeconds;
   }
 
   // --- Static initialisation helper ---

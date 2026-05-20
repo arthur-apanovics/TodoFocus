@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:todo_app/models/enums.dart';
 import 'package:todo_app/models/goal.dart';
+import 'package:todo_app/models/recurrence.dart';
 import 'package:todo_app/models/sub_task.dart';
 import 'package:todo_app/services/hive/goal_dto.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
@@ -192,6 +193,9 @@ void main() {
   group('full field round-trip', () {
     test('every Goal field survives a save/reload cycle', () {
       final due = DateTime(2030, 6, 15);
+      final nextOcc = DateTime(2030, 6, 16);
+      final resumed = DateTime(2030, 6, 14, 8);
+      final snoozedUntil = DateTime(2030, 6, 15, 9);
       final original = Goal(
         goalId: 'full',
         title: 'Full field test',
@@ -200,6 +204,10 @@ void main() {
         difficulty: GoalDifficulty.hard,
         dueDate: due,
         emoji: '🚀',
+        recurrence: Recurrence.everyNDays(3),
+        nextOccurrenceAt: nextOcc,
+        lastIterationSummary: '• Step A\n• Step B',
+        lastResumedAt: resumed,
         subtasks: [
           SubTask(
             subtaskId: 'st1',
@@ -209,7 +217,10 @@ void main() {
           SubTask(
             subtaskId: 'st2',
             description: 'Step two',
-            state: SubTaskState.pending,
+            state: SubTaskState.snoozed,
+            snoozedUntil: snoozedUntil,
+            notifyOnWake: true,
+            autoSleepDuration: const Duration(hours: 2),
           ),
         ],
       );
@@ -224,14 +235,81 @@ void main() {
       expect(loaded.difficulty, original.difficulty, reason: 'difficulty');
       expect(loaded.dueDate, original.dueDate, reason: 'dueDate');
       expect(loaded.emoji, original.emoji, reason: 'emoji');
+      expect(loaded.recurrence, original.recurrence, reason: 'recurrence');
+      expect(loaded.nextOccurrenceAt, original.nextOccurrenceAt,
+          reason: 'nextOccurrenceAt');
+      expect(loaded.lastIterationSummary, original.lastIterationSummary,
+          reason: 'lastIterationSummary');
+      expect(loaded.lastResumedAt, original.lastResumedAt,
+          reason: 'lastResumedAt');
 
       expect(loaded.subtasks.length, 2, reason: 'subtask count');
       expect(loaded.subtasks[0].subtaskId, 'st1', reason: 'subtask[0].id');
       expect(loaded.subtasks[0].state, SubTaskState.completed,
           reason: 'subtask[0].state');
       expect(loaded.subtasks[1].subtaskId, 'st2', reason: 'subtask[1].id');
-      expect(loaded.subtasks[1].state, SubTaskState.pending,
+      expect(loaded.subtasks[1].state, SubTaskState.snoozed,
           reason: 'subtask[1].state');
+      expect(loaded.subtasks[1].snoozedUntil, snoozedUntil,
+          reason: 'subtask[1].snoozedUntil');
+      expect(loaded.subtasks[1].notifyOnWake, true,
+          reason: 'subtask[1].notifyOnWake');
+      expect(loaded.subtasks[1].autoSleepDuration,
+          const Duration(hours: 2),
+          reason: 'subtask[1].autoSleepDuration');
+    });
+
+    test('null recurrence and empty summary round-trip cleanly', () {
+      _repo.save(makeGoal());
+      final loaded = _repo.findById('g1')!;
+      expect(loaded.recurrence, isNull, reason: 'recurrence null');
+      expect(loaded.nextOccurrenceAt, isNull, reason: 'nextOccurrenceAt null');
+      expect(loaded.lastIterationSummary, '', reason: 'lastIterationSummary empty');
+      expect(loaded.lastResumedAt, isNull, reason: 'lastResumedAt null');
+    });
+
+    test('weekly recurrence survives save/reload', () {
+      final goal = Goal(
+        goalId: 'weekly',
+        title: 'Weekly test',
+        recurrence: Recurrence.weeklyDays({DateTime.monday, DateTime.friday}),
+        nextOccurrenceAt: DateTime(2030, 6, 16),
+      );
+      _repo.save(goal);
+      final loaded = _repo.findById('weekly')!;
+      expect(loaded.recurrence?.frequency, RecurrenceFrequency.weeklyDays);
+      expect(loaded.recurrence?.daysOfWeek,
+          {DateTime.monday, DateTime.friday});
+    });
+
+    test('monthly recurrence survives save/reload', () {
+      final goal = Goal(
+        goalId: 'monthly',
+        title: 'Monthly test',
+        recurrence: Recurrence.monthly(15),
+      );
+      _repo.save(goal);
+      final loaded = _repo.findById('monthly')!;
+      expect(loaded.recurrence?.frequency, RecurrenceFrequency.monthly);
+      expect(loaded.recurrence?.dayOfMonth, 15);
+    });
+
+    test('subtask snooze state survives save/reload', () {
+      final wakeTime = DateTime(2030, 7, 1, 9);
+      final goal = makeGoal(subtasks: [
+        SubTask(
+          subtaskId: 'snooze',
+          description: 'Snoozed step',
+          state: SubTaskState.snoozed,
+          snoozedUntil: wakeTime,
+          notifyOnWake: true,
+        ),
+      ]);
+      _repo.save(goal);
+      final st = _repo.findById('g1')!.subtasks.first;
+      expect(st.state, SubTaskState.snoozed, reason: 'snoozed state');
+      expect(st.snoozedUntil, wakeTime, reason: 'snoozedUntil');
+      expect(st.notifyOnWake, true, reason: 'notifyOnWake');
     });
   });
 
