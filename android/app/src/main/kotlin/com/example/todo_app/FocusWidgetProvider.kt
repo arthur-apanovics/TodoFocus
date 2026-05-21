@@ -1,12 +1,13 @@
 package com.example.todo_app
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
-import android.net.Uri
+import android.os.Build
 import android.view.View
 import android.widget.RemoteViews
-import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 import org.json.JSONObject
@@ -14,31 +15,34 @@ import org.json.JSONObject
 /**
  * Renders the resizable Focus home-screen widget.
  *
- * Data arrives as a JSON string under "focus_payload", pushed from Dart by
- * FocusWidgetService whenever the focus queue changes. RemoteViews can't
- * loop, so five fixed rows are shown or hidden to match the payload.
+ * Architecture change (ListView migration)
+ * ────────────────────────────────────────
+ * The previous implementation used a fixed LinearLayout with five hardcoded
+ * rows and [android.widget.RemoteViews.setOnClickPendingIntent] per row.
+ * That approach had three problems:
+ *
+ *  1. Hard cap of five rows — extra payload rows were silently dropped.
+ *  2. Not scrollable — LinearLayout never scrolls.
+ *  3. Complete action broken — all rows shared PendingIntent request-code 0,
+ *     so FLAG_UPDATE_CURRENT meant only the last row's URI was kept.
+ *
+ * The current implementation:
+ *  - Uses a [android.widget.ListView] backed by [FocusWidgetListService]
+ *    (a RemoteViewsService). The factory reads every row from the payload
+ *    with no hard cap; the list scrolls naturally.
+ *  - Uses [android.widget.RemoteViews.setPendingIntentTemplate] +
+ *    [android.widget.RemoteViews.setOnClickFillInIntent] for the complete
+ *    action. The template targets [WidgetCompleteReceiver] with FLAG_MUTABLE
+ *    so the per-row fill-in extras are merged correctly at click time.
+ *  - The header row keeps its own tap-to-open-app intent.
  *
  * Interaction:
- *  - tapping anywhere on the widget opens the app;
- *  - tapping the current step's circle fires a home_widget background
- *    broadcast that completes the step without opening the app.
+ *  - Tapping the header (or anywhere outside the list) opens the app.
+ *  - Tapping the active check circle on the current step fires a broadcast
+ *    to [WidgetCompleteReceiver], which forwards to the home_widget
+ *    background isolate so Flutter can process the completion.
  */
 class FocusWidgetProvider : HomeWidgetProvider() {
-
-    private data class RowIds(
-        val container: Int,
-        val check: Int,
-        val step: Int,
-        val title: Int,
-    )
-
-    private val rowIds = listOf(
-        RowIds(R.id.row_0, R.id.row_0_check, R.id.row_0_step, R.id.row_0_title),
-        RowIds(R.id.row_1, R.id.row_1_check, R.id.row_1_step, R.id.row_1_title),
-        RowIds(R.id.row_2, R.id.row_2_check, R.id.row_2_step, R.id.row_2_title),
-        RowIds(R.id.row_3, R.id.row_3_check, R.id.row_3_step, R.id.row_3_title),
-        RowIds(R.id.row_4, R.id.row_4_check, R.id.row_4_step, R.id.row_4_title),
-    )
 
     override fun onUpdate(
         context: Context,
@@ -46,91 +50,62 @@ class FocusWidgetProvider : HomeWidgetProvider() {
         appWidgetIds: IntArray,
         widgetData: SharedPreferences,
     ) {
-        val payload = widgetData.getString("focus_payload", null)
-        val rows = parseRows(payload)
-        val compact = parseLayout(payload) == "compact"
+        val payload   = widgetData.getString("focus_payload", null)
+        val rowCount  = parseRowCount(payload)
 
         for (widgetId in appWidgetIds) {
             val views = RemoteViews(context.packageName, R.layout.focus_widget)
 
-            // Whole-widget tap opens the app.
+            // ── Header tap → open app ──────────────────────────────────────
             views.setOnClickPendingIntent(
-                R.id.focus_widget_root,
+                R.id.focus_widget_header,
                 HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java),
             )
 
-            if (rows.isEmpty()) {
+            // ── Empty / non-empty state ────────────────────────────────────
+            if (rowCount == 0) {
                 views.setViewVisibility(R.id.focus_widget_empty, View.VISIBLE)
+                views.setViewVisibility(R.id.focus_list, View.GONE)
                 views.setTextViewText(R.id.focus_widget_count, "")
             } else {
                 views.setViewVisibility(R.id.focus_widget_empty, View.GONE)
-                views.setTextViewText(R.id.focus_widget_count, rows.size.toString())
+                views.setViewVisibility(R.id.focus_list, View.VISIBLE)
+                views.setTextViewText(R.id.focus_widget_count, rowCount.toString())
             }
 
-            for ((i, ids) in rowIds.withIndex()) {
-                if (i >= rows.size) {
-                    views.setViewVisibility(ids.container, View.GONE)
-                    continue
-                }
-                val row = rows[i]
-                views.setViewVisibility(ids.container, View.VISIBLE)
-                views.setTextViewText(ids.step, row.optString("step"))
-
-                // Compact layout drops the goal-title line for a denser row.
-                if (compact) {
-                    views.setViewVisibility(ids.title, View.GONE)
-                } else {
-                    views.setViewVisibility(ids.title, View.VISIBLE)
-                    val emoji = row.optString("goalEmoji")
-                    val title = row.optString("goalTitle")
-                    views.setTextViewText(
-                        ids.title,
-                        if (emoji.isNotEmpty()) "$emoji  $title" else title,
-                    )
-                }
-
-                if (row.optBoolean("isCurrent")) {
-                    // The actionable step — circle completes it in the background.
-                    views.setImageViewResource(
-                        ids.check, R.drawable.ic_widget_check_active,
-                    )
-                    val uri = Uri.parse(
-                        "todofocus://complete" +
-                            "?goalId=" + row.optString("goalId") +
-                            "&subtaskId=" + row.optString("subtaskId"),
-                    )
-                    views.setOnClickPendingIntent(
-                        ids.check,
-                        HomeWidgetBackgroundIntent.getBroadcast(context, uri),
-                    )
-                } else {
-                    // Queued — locked dot, taps fall through to "open app".
-                    views.setImageViewResource(
-                        ids.check, R.drawable.ic_widget_check_locked,
-                    )
-                }
+            // ── ListView adapter (FocusWidgetListService) ──────────────────
+            val serviceIntent = Intent(context, FocusWidgetListService::class.java).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             }
+            views.setRemoteAdapter(R.id.focus_list, serviceIntent)
+
+            // ── Complete-step PendingIntent template ───────────────────────
+            // Must be FLAG_MUTABLE so the per-row fill-in extras (goalId,
+            // subtaskId, isCurrent) set by the factory can be merged in.
+            val templateIntent = Intent(context, WidgetCompleteReceiver::class.java).apply {
+                action = WidgetCompleteReceiver.ACTION_COMPLETE
+            }
+            val mutFlag = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val templatePendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                templateIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or mutFlag,
+            )
+            views.setPendingIntentTemplate(R.id.focus_list, templatePendingIntent)
 
             appWidgetManager.updateAppWidget(widgetId, views)
         }
     }
 
-    private fun parseRows(payload: String?): List<JSONObject> {
-        if (payload.isNullOrEmpty()) return emptyList()
-        return try {
-            val arr = JSONObject(payload).getJSONArray("rows")
-            (0 until arr.length()).map { arr.getJSONObject(it) }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    // ── Helpers ────────────────────────────────────────────────────────────
 
-    private fun parseLayout(payload: String?): String {
-        if (payload.isNullOrEmpty()) return ""
+    private fun parseRowCount(payload: String?): Int {
+        if (payload.isNullOrEmpty()) return 0
         return try {
-            JSONObject(payload).optString("layout")
-        } catch (e: Exception) {
-            ""
+            JSONObject(payload).getJSONArray("rows").length()
+        } catch (_: Exception) {
+            0
         }
     }
 }

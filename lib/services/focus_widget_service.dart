@@ -62,6 +62,7 @@ class FocusWidgetService {
       _displayPrefs.focusWidgetLayout,
       _focusList,
       _repo,
+      showAllGoals: _displayPrefs.focusWidgetShowAllGoals,
     );
     await HomeWidget.saveWidgetData<String>(payloadKey, payload);
     await HomeWidget.updateWidget(androidName: androidProviderName);
@@ -77,28 +78,70 @@ class FocusWidgetService {
   ///      "goalEmoji":"..","step":"..","isCurrent":true}
   ///   ] }
   /// ```
+  ///
+  /// When [showAllGoals] is false (default) the rows are capped globally at
+  /// `1 + layout.extraSteps`, so the widget shows at most that many steps from
+  /// the single topmost focused goal.
+  ///
+  /// When [showAllGoals] is true each focused goal contributes its own slice of
+  /// up to `1 + layout.extraSteps` rows, so every focused goal is represented
+  /// regardless of the total count.
   static String buildPayload(
     FocusLayout layout,
     FocusListService focus,
-    GoalRepository repo,
-  ) {
-    final maxRows = 1 + layout.extraSteps;
+    GoalRepository repo, {
+    bool showAllGoals = false,
+  }) {
+    final maxRowsPerGoal = 1 + layout.extraSteps;
     final rows = <Map<String, dynamic>>[];
-    outer:
-    for (final group in focus.resolveGroups(repo)) {
-      for (final st in group.subtasks) {
-        if (st.state != SubTaskState.pending) continue;
-        rows.add({
-          'goalId': group.goal.goalId,
-          'subtaskId': st.subtaskId,
-          'goalTitle': group.goal.title,
-          'goalEmoji': group.goal.emoji ?? '',
-          'step': st.description,
-          'isCurrent': rows.isEmpty,
-        });
-        if (rows.length >= maxRows) break outer;
+
+    // lastGoalId tracks when we cross a goal boundary so the native side can
+    // draw a visual separator between goal groups.
+    String? lastGoalId;
+
+    if (showAllGoals) {
+      // One slice per goal — each goal contributes up to maxRowsPerGoal rows.
+      for (final group in focus.resolveGroups(repo)) {
+        int rowsForThisGoal = 0;
+        for (final st in group.subtasks) {
+          if (st.state != SubTaskState.pending) continue;
+          final isFirstInGroup = group.goal.goalId != lastGoalId;
+          rows.add({
+            'goalId': group.goal.goalId,
+            'subtaskId': st.subtaskId,
+            'goalTitle': group.goal.title,
+            'goalEmoji': group.goal.emoji ?? '',
+            'step': st.description,
+            'isCurrent': rowsForThisGoal == 0,
+            'isFirstInGroup': isFirstInGroup,
+          });
+          lastGoalId = group.goal.goalId;
+          rowsForThisGoal++;
+          if (rowsForThisGoal >= maxRowsPerGoal) break;
+        }
+      }
+    } else {
+      // Single-goal mode: global cap across all goals.
+      outer:
+      for (final group in focus.resolveGroups(repo)) {
+        for (final st in group.subtasks) {
+          if (st.state != SubTaskState.pending) continue;
+          final isFirstInGroup = group.goal.goalId != lastGoalId;
+          rows.add({
+            'goalId': group.goal.goalId,
+            'subtaskId': st.subtaskId,
+            'goalTitle': group.goal.title,
+            'goalEmoji': group.goal.emoji ?? '',
+            'step': st.description,
+            'isCurrent': rows.isEmpty,
+            'isFirstInGroup': isFirstInGroup,
+          });
+          lastGoalId = group.goal.goalId;
+          if (rows.length >= maxRowsPerGoal) break outer;
+        }
       }
     }
+
     return jsonEncode({'layout': layout.name, 'rows': rows});
   }
 }
@@ -130,9 +173,6 @@ Future<void> focusWidgetBackgroundCallback(Uri? uri) async {
     // Out-of-order completion or a stale id — nothing to do.
   }
 
-  await FocusWidgetService(
-    repository: repo,
-    focus: focus,
-    prefs: prefs,
-  ).update();
+  await FocusWidgetService(repository: repo, focus: focus, prefs: prefs)
+      .update();
 }

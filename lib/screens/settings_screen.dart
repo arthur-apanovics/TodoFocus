@@ -51,6 +51,7 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'Home screen widget',
             children: [
+              _FocusWidgetShowAllGoalsTile(),
               _FocusWidgetLayoutTile(),
             ],
           ),
@@ -165,6 +166,24 @@ class _LlmConfigTile extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Home screen widget section
 // ---------------------------------------------------------------------------
+
+class _FocusWidgetShowAllGoalsTile extends StatelessWidget {
+  const _FocusWidgetShowAllGoalsTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.dashboard_outlined),
+      title: const Text('Show all focused goals'),
+      subtitle: const Text(
+        'Display a row for every focused goal instead of only the top one',
+      ),
+      value: prefs.focusWidgetShowAllGoals,
+      onChanged: prefs.setFocusWidgetShowAllGoals,
+    );
+  }
+}
 
 class _FocusWidgetLayoutTile extends StatelessWidget {
   const _FocusWidgetLayoutTile();

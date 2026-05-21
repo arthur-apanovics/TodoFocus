@@ -15,12 +15,14 @@ class DisplayPreferences extends ChangeNotifier {
   static const _layoutKey = 'goal_list_layout';
   static const _focusScreenLayoutKey = 'focus_screen_layout';
   static const _focusWidgetLayoutKey = 'focus_widget_layout';
+  static const _focusWidgetShowAllGoalsKey = 'focus_widget_show_all_goals';
 
   final Box<String> _box;
   GoalSortOrder _sortOrder;
   GoalListLayout _layout;
   FocusLayout _focusScreenLayout;
   FocusLayout _focusWidgetLayout;
+  bool _focusWidgetShowAllGoals;
 
   DisplayPreferences._({
     required Box<String> box,
@@ -28,11 +30,13 @@ class DisplayPreferences extends ChangeNotifier {
     required GoalListLayout layout,
     required FocusLayout focusScreenLayout,
     required FocusLayout focusWidgetLayout,
+    required bool focusWidgetShowAllGoals,
   })  : _box = box,
         _sortOrder = sortOrder,
         _layout = layout,
         _focusScreenLayout = focusScreenLayout,
-        _focusWidgetLayout = focusWidgetLayout;
+        _focusWidgetLayout = focusWidgetLayout,
+        _focusWidgetShowAllGoals = focusWidgetShowAllGoals;
 
   GoalSortOrder get sortOrder => _sortOrder;
   GoalListLayout get layout => _layout;
@@ -42,6 +46,10 @@ class DisplayPreferences extends ChangeNotifier {
 
   /// Layout for the home-screen widget. Independent of [focusScreenLayout].
   FocusLayout get focusWidgetLayout => _focusWidgetLayout;
+
+  /// When true the widget shows the current step of every focused goal instead
+  /// of only the topmost one. Defaults to false (single-goal mode).
+  bool get focusWidgetShowAllGoals => _focusWidgetShowAllGoals;
 
   Future<void> setSortOrder(GoalSortOrder order) async {
     _sortOrder = order;
@@ -64,6 +72,12 @@ class DisplayPreferences extends ChangeNotifier {
   Future<void> setFocusWidgetLayout(FocusLayout layout) async {
     _focusWidgetLayout = layout;
     await _box.put(_focusWidgetLayoutKey, layout.name);
+    notifyListeners();
+  }
+
+  Future<void> setFocusWidgetShowAllGoals(bool value) async {
+    _focusWidgetShowAllGoals = value;
+    await _box.put(_focusWidgetShowAllGoalsKey, value.toString());
     notifyListeners();
   }
 
@@ -95,6 +109,9 @@ class DisplayPreferences extends ChangeNotifier {
       );
     }
 
+    final showAllGoalsRaw = box.get(_focusWidgetShowAllGoalsKey);
+    final showAllGoals = showAllGoalsRaw == 'true';
+
     return DisplayPreferences._(
       box: box,
       sortOrder: sortOrder,
@@ -103,6 +120,7 @@ class DisplayPreferences extends ChangeNotifier {
           readFocusLayout(_focusScreenLayoutKey, FocusLayout.currentPlus2),
       focusWidgetLayout:
           readFocusLayout(_focusWidgetLayoutKey, FocusLayout.current),
+      focusWidgetShowAllGoals: showAllGoals,
     );
   }
 }

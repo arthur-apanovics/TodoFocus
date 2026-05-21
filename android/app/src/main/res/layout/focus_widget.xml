@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- RemoteViews layout for the Focus home-screen widget.
-
-     RemoteViews can't loop, so five subtask rows are inlined. The Kotlin
-     FocusWidgetProvider shows/hides each row and fills its text from the
-     JSON payload pushed by FocusWidgetService. The whole widget is tappable
-     (opens the app); the current step's circle has its own tap target that
-     completes the step in the background. -->
+     Rows are supplied by FocusWidgetListService (RemoteViewsService +
+     RemoteViewsFactory) so the list is unbounded and scrollable.
+     The header row keeps its own tap-to-open-app PendingIntent. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/focus_widget_root"
     android:layout_width="match_parent"
@@ -14,8 +11,10 @@
     android:background="@drawable/focus_widget_background"
     android:padding="14dp">
 
-    <!-- Header: heading + a count badge of focused steps. -->
+    <!-- Header: "Focus" heading + a count badge of focused steps.
+         The whole header is a tap target that opens the app. -->
     <LinearLayout
+        android:id="@+id/focus_widget_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -38,6 +37,7 @@
             android:layout_height="wrap_content"
             android:textColor="@color/widget_text_muted"
             android:textSize="12sp" />
+
     </LinearLayout>
 
     <!-- Empty state — shown when there is nothing in focus. -->
@@ -51,239 +51,18 @@
         android:textSize="13sp"
         android:visibility="gone" />
 
-    <!-- Row 0 -->
-    <LinearLayout
-        android:id="@+id/row_0"
+    <!-- Scrollable list of subtask rows.
+         Adapter is set in FocusWidgetProvider via setRemoteAdapter.
+         divider/dividerHeight are nulled out because the row layout handles
+         its own inter-group separators. -->
+    <ListView
+        android:id="@+id/focus_list"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/row_0_check"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_check_active"
-            android:contentDescription="@string/focus_widget_heading" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/row_0_step"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text"
-                android:textSize="14sp"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/row_0_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text_muted"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Row 1 -->
-    <LinearLayout
-        android:id="@+id/row_1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/row_1_check"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_check_locked"
-            android:contentDescription="@string/focus_widget_heading" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/row_1_step"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text"
-                android:textSize="14sp"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/row_1_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text_muted"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Row 2 -->
-    <LinearLayout
-        android:id="@+id/row_2"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/row_2_check"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_check_locked"
-            android:contentDescription="@string/focus_widget_heading" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/row_2_step"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text"
-                android:textSize="14sp"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/row_2_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text_muted"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Row 3 -->
-    <LinearLayout
-        android:id="@+id/row_3"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/row_3_check"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_check_locked"
-            android:contentDescription="@string/focus_widget_heading" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/row_3_step"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text"
-                android:textSize="14sp"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/row_3_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text_muted"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Row 4 -->
-    <LinearLayout
-        android:id="@+id/row_4"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingTop="5dp"
-        android:paddingBottom="5dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/row_4_check"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_check_locked"
-            android:contentDescription="@string/focus_widget_heading" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/row_4_step"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text"
-                android:textSize="14sp"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/row_4_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/widget_text_muted"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-        </LinearLayout>
-    </LinearLayout>
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none"
+        android:visibility="gone" />
 
 </LinearLayout>

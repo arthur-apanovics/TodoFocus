@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single row in the Focus widget's scrollable ListView.
+     Rendered by FocusWidgetRowFactory (FocusWidgetListService).
+     Views are shown/hidden from Kotlin based on the JSON payload flags. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Goal-group divider — visible when isFirstInGroup. Renders as a
+         labelled rule: short leading dash, goal title (with optional emoji),
+         long trailing dash filling the remaining width:
+
+             ── 🎯  Goal A ──────────────────
+
+         Note: <View> is NOT in the RemoteViews inflation whitelist, so each
+         dash is a 1dp-tall LinearLayout filled with the divider colour. -->
+    <LinearLayout
+        android:id="@+id/row_divider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="2dp"
+        android:visibility="gone">
+
+        <!-- Leading dash (fixed short length) -->
+        <LinearLayout
+            android:layout_width="12dp"
+            android:layout_height="1dp"
+            android:background="@color/widget_divider" />
+
+        <!-- Goal title (with optional emoji prefix) -->
+        <TextView
+            android:id="@+id/row_divider_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:textColor="@color/widget_text_muted"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <!-- Trailing dash (fills remaining width) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="1dp"
+            android:background="@color/widget_divider" />
+
+    </LinearLayout>
+
+    <!-- Row body: check circle + step text + goal label -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <!-- Check / complete button.
+             Current step: active drawable + fill-in intent fires completion.
+             Other steps: locked drawable, not interactive. -->
+        <ImageView
+            android:id="@+id/row_check"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_widget_check_locked"
+            android:contentDescription="@string/focus_widget_heading" />
+
+        <!-- Text column: subtask description + goal title -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/row_step"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="14sp"
+                android:maxLines="2"
+                android:ellipsize="end" />
+
+            <!-- Goal title (with optional emoji prefix).
+                 Hidden in compact layout mode. -->
+            <TextView
+                android:id="@+id/row_goal_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text_muted"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>
