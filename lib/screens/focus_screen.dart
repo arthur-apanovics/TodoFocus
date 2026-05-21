@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import '../services/display_preferences.dart';
 import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -50,18 +51,21 @@ class FocusScreen extends StatelessWidget {
           ? const _EmptyFocusState()
           : Column(
               children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 8, 0),
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.add_task, size: 18),
-                      label: const Text('Pick subtasks'),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                  child: Row(
+                    children: [
+                      const _FocusLayoutButton(),
+                      const Spacer(),
+                      TextButton.icon(
+                        icon: const Icon(Icons.add_task, size: 18),
+                        label: const Text('Pick subtasks'),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => FocusScreen.openPicker(context),
                       ),
-                      onPressed: () => FocusScreen.openPicker(context),
-                    ),
+                    ],
                   ),
                 ),
                 Expanded(
@@ -83,6 +87,40 @@ class FocusScreen extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => const FocusPickerSheet(),
+    );
+  }
+}
+
+/// Popup that switches the in-app Focus tab layout. Mirrors the Goals tab's
+/// layout control, but writes the independent
+/// [DisplayPreferences.focusScreenLayout] — the Focus tab, the home-screen
+/// widget and the Goals list each remember their own density.
+class _FocusLayoutButton extends StatelessWidget {
+  const _FocusLayoutButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return PopupMenuButton<FocusLayout>(
+      icon: const Icon(Icons.view_agenda_outlined),
+      tooltip: 'Focus layout',
+      onSelected: context.read<DisplayPreferences>().setFocusScreenLayout,
+      itemBuilder: (_) => FocusLayout.values
+          .map(
+            (v) => PopupMenuItem(
+              value: v,
+              child: ListTile(
+                title: Text(v.displayName),
+                trailing: prefs.focusScreenLayout == v
+                    ? const Icon(Icons.check, size: 18)
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                minLeadingWidth: 24,
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -389,6 +427,8 @@ class _GroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final goal = resolved.goal;
+    final layout = context.watch<DisplayPreferences>().focusScreenLayout;
+    final visible = _visibleSubtasks(layout);
     return Material(
       color: cs.surface,
       shape: RoundedRectangleBorder(
@@ -400,18 +440,77 @@ class _GroupCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _GroupHeader(resolved: resolved),
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: cs.outlineVariant,
-          ),
-          for (var i = 0; i < resolved.subtasks.length; i++) ...[
-            _SubtaskRow(
-              goal: goal,
-              subtask: resolved.subtasks[i],
-              showDivider: i < resolved.subtasks.length - 1,
+          if (layout == FocusLayout.compact)
+            _CompactNextLine(goal: goal)
+          else if (visible.isNotEmpty) ...[
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: cs.outlineVariant,
             ),
+            for (var i = 0; i < visible.length; i++)
+              _SubtaskRow(
+                goal: goal,
+                subtask: visible[i],
+                showDivider: i < visible.length - 1,
+              ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Focused subtasks limited to the chosen [layout]: every completed step
+  /// (frozen progress) stays visible, followed by the current step and up to
+  /// N upcoming pending steps. Compact returns nothing — the header carries
+  /// a one-line summary instead.
+  List<SubTask> _visibleSubtasks(FocusLayout layout) {
+    if (layout == FocusLayout.compact) return const [];
+    final all = resolved.subtasks;
+    final completed =
+        all.where((s) => s.state == SubTaskState.completed).toList();
+    final upcoming =
+        all.where((s) => s.state != SubTaskState.completed).toList();
+    return [...completed, ...upcoming.take(1 + layout.extraSteps)];
+  }
+}
+
+/// One-line "what's next" summary shown under the header in compact layout,
+/// so a collapsed card still tells the user what to do.
+class _CompactNextLine extends StatelessWidget {
+  final Goal goal;
+
+  const _CompactNextLine({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final current = goal.currentSubTask;
+    final String label;
+    final IconData icon;
+    if (current != null) {
+      label = current.description;
+      icon = Icons.arrow_right;
+    } else if (goal.isOnHold) {
+      label = 'On hold — snoozed';
+      icon = Icons.bedtime_outlined;
+    } else {
+      label = 'All steps complete';
+      icon = Icons.check_circle_outline;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppColors.muted),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ),
         ],
       ),
     );

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widget palette (light). The widget can't read the app's
+         Material theme, so it carries its own tokens. The values-night/
+         variant supplies the dark equivalents. -->
+    <color name="widget_background">#FFFFFF</color>
+    <color name="widget_surface">#F1F4F2</color>
+    <color name="widget_divider">#E2E5E3</color>
+    <color name="widget_text">#1B1C1B</color>
+    <color name="widget_text_muted">#6B6F6C</color>
+    <color name="widget_accent">#2E7D32</color>
+</resources>

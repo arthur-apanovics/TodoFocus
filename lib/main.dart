@@ -14,6 +14,7 @@ import 'services/decomposition_state.dart';
 import 'services/display_preferences.dart';
 import 'services/draft_service.dart';
 import 'services/focus_list_service.dart';
+import 'services/focus_widget_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
@@ -55,15 +56,28 @@ void main() async {
     await notificationService.scheduleMorningPrompt(t.hour, t.minute);
   }
 
-  // Re-post the notification whenever the focus list or the underlying
-  // goal data changes. Either source can shift which subtask is "current".
-  void refreshNotification() {
+  // Home-screen widget bridge. Mirrors the notification: re-rendered whenever
+  // focus or goal data changes, or the widget layout preference is edited.
+  final focusWidgetService = FocusWidgetService(
+    repository: goalRepository,
+    focus: focusListService,
+    prefs: displayPreferences,
+  );
+  await FocusWidgetService.registerBackgroundCallback();
+
+  // Re-post the notification AND re-render the home-screen widget whenever the
+  // focus list or the underlying goal data changes. Either source can shift
+  // which subtask is "current".
+  void refreshFocusSurfaces() {
     notificationService.update(focusListService.resolveGroups(goalRepository));
+    focusWidgetService.update();
   }
 
-  goalRepository.addListener(refreshNotification);
-  focusListService.addListener(refreshNotification);
-  refreshNotification();
+  goalRepository.addListener(refreshFocusSurfaces);
+  focusListService.addListener(refreshFocusSurfaces);
+  // The widget layout preference also changes what the widget renders.
+  displayPreferences.addListener(focusWidgetService.update);
+  refreshFocusSurfaces();
 
   runApp(
     TodoApp(
@@ -73,6 +87,7 @@ void main() async {
       dailyResetService: dailyResetService,
       displayPreferences: displayPreferences,
       notificationService: notificationService,
+      focusWidgetService: focusWidgetService,
       schedulingService: schedulingService,
       tabNotifier: tabNotifier,
       goalNavNotifier: goalNavNotifier,
@@ -87,6 +102,7 @@ class TodoApp extends StatelessWidget {
   final DailyResetService dailyResetService;
   final DisplayPreferences displayPreferences;
   final NotificationService notificationService;
+  final FocusWidgetService focusWidgetService;
   final SchedulingService schedulingService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?>
@@ -100,6 +116,7 @@ class TodoApp extends StatelessWidget {
     required this.dailyResetService,
     required this.displayPreferences,
     required this.notificationService,
+    required this.focusWidgetService,
     required this.schedulingService,
     required this.tabNotifier,
     required this.goalNavNotifier,
@@ -149,6 +166,8 @@ class TodoApp extends StatelessWidget {
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
+        // Exposed so AppShell can re-render the home-screen widget on resume.
+        Provider<FocusWidgetService>.value(value: focusWidgetService),
         // Exposed so AppShell can re-run the snooze / recurrence sweep on
         // resume, and so screens can call setRecurrence / snooze flows.
         ChangeNotifierProvider<SchedulingService>.value(
@@ -242,6 +261,7 @@ class _AppShellState extends State<AppShell>
     final repo = context.read<GoalRepository>();
     final focus = context.read<FocusListService>();
     final notif = context.read<NotificationService>();
+    final focusWidget = context.read<FocusWidgetService>();
     final resetService = context.read<DailyResetService>();
     final scheduling = context.read<SchedulingService>();
 
@@ -259,6 +279,8 @@ class _AppShellState extends State<AppShell>
     } else {
       await notif.update(groups);
     }
+    // Keep the home-screen widget in step with whatever the resume sweep did.
+    await focusWidget.update();
   }
 
   void _onExternalTabChange() {

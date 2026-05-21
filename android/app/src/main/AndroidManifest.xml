@@ -38,6 +38,22 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Resizable Focus home-screen widget. Data is pushed from Dart via
+             the home_widget plugin; FocusWidgetProvider renders it. The
+             home_widget background receiver (for the complete-step action)
+             is contributed by the plugin's own merged manifest. -->
+        <receiver
+            android:name=".FocusWidgetProvider"
+            android:exported="true"
+            android:label="@string/focus_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/focus_widget_info" />
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

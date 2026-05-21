@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="focus_widget_label">TodoFocus</string>
+    <string name="focus_widget_description">Your current focus tasks — tap a step to complete it.</string>
+    <string name="focus_widget_empty">Nothing in focus. Tap to plan your day.</string>
+    <string name="focus_widget_heading">Focus</string>
+</resources>

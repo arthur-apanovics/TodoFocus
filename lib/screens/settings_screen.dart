@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/enums.dart';
 import '../services/daily_reset_service.dart';
+import '../services/display_preferences.dart';
 import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import 'data_settings_screen.dart';
@@ -44,6 +46,12 @@ class SettingsScreen extends StatelessWidget {
                 title: 'Theme',
                 subtitle: 'Accent colour and dark mode',
               ),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Home screen widget',
+            children: [
+              _FocusWidgetLayoutTile(),
             ],
           ),
           _SettingsSection(
@@ -149,6 +157,50 @@ class _LlmConfigTile extends StatelessWidget {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const LlmSettingsScreen()),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Home screen widget section
+// ---------------------------------------------------------------------------
+
+class _FocusWidgetLayoutTile extends StatelessWidget {
+  const _FocusWidgetLayoutTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return ListTile(
+      leading: const Icon(Icons.widgets_outlined),
+      title: const Text('Widget layout'),
+      subtitle: Text(
+        'How much the resizable home-screen widget shows — '
+        '${prefs.focusWidgetLayout.displayName.toLowerCase()}',
+      ),
+      onTap: () => _showLayoutPicker(context, prefs),
+    );
+  }
+
+  void _showLayoutPicker(BuildContext context, DisplayPreferences prefs) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Widget layout'),
+        children: [
+          for (final layout in FocusLayout.values)
+            ListTile(
+              title: Text(layout.displayName),
+              trailing: prefs.focusWidgetLayout == layout
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () {
+                prefs.setFocusWidgetLayout(layout);
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
       ),
     );
   }

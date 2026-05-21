@@ -55,6 +55,33 @@ enum GoalListLayout {
   };
 }
 
+/// Controls how much detail a focus surface (the in-app Focus tab and the
+/// home-screen widget) renders per focused goal. Mirrors [GoalListLayout] but
+/// kept distinct so the two surfaces can be tuned independently — a tiny
+/// home-screen widget and the full Focus tab have very different space.
+enum FocusLayout {
+  compact,       // Goal header only — no subtask rows
+  current,       // Current step only
+  currentPlus2,  // Current + up to 2 next pending steps
+  currentPlus4,  // Current + up to 4 next pending steps
+  ;
+
+  String get displayName => switch (this) {
+    FocusLayout.compact => 'Compact',
+    FocusLayout.current => 'Current step',
+    FocusLayout.currentPlus2 => 'Current + 2 next',
+    FocusLayout.currentPlus4 => 'Current + 4 next',
+  };
+
+  /// Number of pending steps to show *after* the current one.
+  int get extraSteps => switch (this) {
+    FocusLayout.compact => 0,
+    FocusLayout.current => 0,
+    FocusLayout.currentPlus2 => 2,
+    FocusLayout.currentPlus4 => 4,
+  };
+}
+
 /// How granularly the LLM breaks down a goal into subtasks.
 /// The min/max counts for each level are configurable in LLM settings.
 enum GoalDifficulty {
