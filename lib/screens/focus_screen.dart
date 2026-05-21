@@ -46,12 +46,32 @@ class FocusScreen extends StatelessWidget {
     final partition = _partitionForToday(allGroups);
 
     return Scaffold(
-      // No FAB here — picking subtasks is exposed via the AppBar's "Pick"
-      // action in [AppShell], and the global "Create goal" FAB belongs to
-      // every tab. See AppShell.build for both wirings.
       body: partition.isEmpty
           ? const _EmptyFocusState()
-          : _GroupsList(partition: partition, allGroups: allGroups),
+          : Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 4, 8, 0),
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.add_task, size: 18),
+                      label: const Text('Pick subtasks'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => FocusScreen.openPicker(context),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: _GroupsList(
+                    partition: partition,
+                    allGroups: allGroups,
+                  ),
+                ),
+              ],
+            ),
     );
   }
 

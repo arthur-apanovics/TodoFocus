@@ -45,6 +45,14 @@ enum GoalListLayout {
   current,       // Current step only
   currentPlus2,  // Current + up to 2 next pending steps
   currentPlus4,  // Current + up to 4 next pending steps
+  ;
+
+  String get displayName => switch (this) {
+    GoalListLayout.compact => 'Compact',
+    GoalListLayout.current => 'Current step',
+    GoalListLayout.currentPlus2 => 'Current + 2 next',
+    GoalListLayout.currentPlus4 => 'Current + 4 next',
+  };
 }
 
 /// How granularly the LLM breaks down a goal into subtasks.
