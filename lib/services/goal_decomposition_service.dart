@@ -191,6 +191,7 @@ class GoalDecompositionService {
       dueDate: dueDate,
       difficulty: difficulty,
       subtasks: subtasks,
+      createdAt: DateTime.now(),
     );
   }
 
@@ -209,6 +210,7 @@ class GoalDecompositionService {
       dueDate: dueDate,
       difficulty: difficulty,
       subtasks: [],
+      createdAt: DateTime.now(),
     );
   }
 
@@ -225,6 +227,7 @@ class GoalDecompositionService {
       status: GoalStatus.inbox,
       difficulty: difficulty,
       subtasks: [],
+      createdAt: DateTime.now(),
     );
   }
 

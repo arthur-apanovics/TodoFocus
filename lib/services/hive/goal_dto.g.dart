@@ -28,13 +28,14 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..recurrenceJson = fields[10] as String?
       ..nextOccurrenceAt = fields[11] as DateTime?
       ..lastIterationSummary = fields[12] as String?
-      ..lastResumedAt = fields[13] as DateTime?;
+      ..lastResumedAt = fields[13] as DateTime?
+      ..createdAt = fields[14] as DateTime?;
   }
 
   @override
   void write(BinaryWriter writer, GoalDto obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.goalId)
       ..writeByte(1)
@@ -58,7 +59,9 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..writeByte(12)
       ..write(obj.lastIterationSummary)
       ..writeByte(13)
-      ..write(obj.lastResumedAt);
+      ..write(obj.lastResumedAt)
+      ..writeByte(14)
+      ..write(obj.createdAt);
   }
 
   @override

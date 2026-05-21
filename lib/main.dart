@@ -340,11 +340,36 @@ class _AppShellState extends State<AppShell>
     }
   }
 
+  // The FAB varies by tab: the Focus tab gains a second "Pick subtasks"
+  // button stacked above "Create goal"; every other tab shows just the
+  // create button. Rebuilt via the AnimatedBuilder on [_tabController].
   Widget _buildFab(BuildContext context) {
-    return FloatingActionButton.extended(
+    // createFab keeps the default hero tag so it still morphs into the
+    // pushed screens' FABs. Only the extra "Pick" FAB needs an explicit
+    // tag — two FABs on one screen can't share the default.
+    final createFab = FloatingActionButton.extended(
       onPressed: _openNewGoalSheet,
       icon: const Icon(Icons.add),
       label: const Text('Create goal'),
+    );
+    if (_tabController.index != 0) return createFab;
+
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: 'fab_pick_subtasks',
+          backgroundColor: cs.secondaryContainer,
+          foregroundColor: cs.onSecondaryContainer,
+          onPressed: () => FocusScreen.openPicker(context),
+          icon: const Icon(Icons.add_task),
+          label: const Text('Pick subtasks'),
+        ),
+        const SizedBox(height: 12),
+        createFab,
+      ],
     );
   }
 
@@ -352,7 +377,17 @@ class _AppShellState extends State<AppShell>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TodoFocus'),
+        // Tab titles live in the toolbar itself (no app title, no bottom
+        // strip) so the three screens get the vertical space back.
+        titleSpacing: 0,
+        title: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Focus'),
+            Tab(text: 'Goals'),
+            Tab(text: 'Planning'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -363,14 +398,6 @@ class _AppShellState extends State<AppShell>
             ),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Focus'),
-            Tab(text: 'Goals'),
-            Tab(text: 'Planning'),
-          ],
-        ),
       ),
       body: TabBarView(
         controller: _tabController,
@@ -380,7 +407,10 @@ class _AppShellState extends State<AppShell>
           const InboxScreen(),
         ],
       ),
-      floatingActionButton: _buildFab(context),
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabController,
+        builder: (context, _) => _buildFab(context),
+      ),
     );
   }
 }

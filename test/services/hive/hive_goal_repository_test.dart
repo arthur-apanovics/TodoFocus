@@ -196,6 +196,7 @@ void main() {
       final nextOcc = DateTime(2030, 6, 16);
       final resumed = DateTime(2030, 6, 14, 8);
       final snoozedUntil = DateTime(2030, 6, 15, 9);
+      final created = DateTime(2030, 6, 1, 7, 30);
       final original = Goal(
         goalId: 'full',
         title: 'Full field test',
@@ -208,6 +209,7 @@ void main() {
         nextOccurrenceAt: nextOcc,
         lastIterationSummary: '• Step A\n• Step B',
         lastResumedAt: resumed,
+        createdAt: created,
         subtasks: [
           SubTask(
             subtaskId: 'st1',
@@ -242,6 +244,7 @@ void main() {
           reason: 'lastIterationSummary');
       expect(loaded.lastResumedAt, original.lastResumedAt,
           reason: 'lastResumedAt');
+      expect(loaded.createdAt, original.createdAt, reason: 'createdAt');
 
       expect(loaded.subtasks.length, 2, reason: 'subtask count');
       expect(loaded.subtasks[0].subtaskId, 'st1', reason: 'subtask[0].id');

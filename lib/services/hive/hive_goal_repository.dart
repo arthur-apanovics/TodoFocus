@@ -103,6 +103,7 @@ class HiveGoalRepository extends GoalRepository {
       nextOccurrenceAt: dto.nextOccurrenceAt,
       lastIterationSummary: dto.lastIterationSummary ?? '',
       lastResumedAt: dto.lastResumedAt,
+      createdAt: dto.createdAt,
     );
   }
 
@@ -141,7 +142,8 @@ class HiveGoalRepository extends GoalRepository {
       ..nextOccurrenceAt = goal.nextOccurrenceAt
       ..lastIterationSummary =
           goal.lastIterationSummary.isEmpty ? null : goal.lastIterationSummary
-      ..lastResumedAt = goal.lastResumedAt;
+      ..lastResumedAt = goal.lastResumedAt
+      ..createdAt = goal.createdAt;
     return dto;
   }
 
