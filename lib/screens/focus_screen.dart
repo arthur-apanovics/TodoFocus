@@ -10,6 +10,7 @@ import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
 import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
@@ -395,7 +396,7 @@ class _SectionDivider extends StatelessWidget {
         Text(
           label.toUpperCase(),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: AppColors.muted,
+                color: context.palette.muted,
                 letterSpacing: 1.2,
                 fontWeight: FontWeight.w600,
               ),
@@ -541,14 +542,14 @@ class _CompactNextLine extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: AppColors.muted),
+          Icon(icon, size: 16, color: context.palette.muted),
           const SizedBox(width: 4),
           Expanded(
             child: Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: AppColors.muted),
+              style: TextStyle(fontSize: 13, color: context.palette.muted),
             ),
           ),
         ],
@@ -634,7 +635,7 @@ class _GroupHeader extends StatelessWidget {
                             : '${resolved.completedCount}/${resolved.subtasks.length} steps',
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.muted,
+                          color: context.palette.muted,
                           letterSpacing: 0.3,
                         ),
                       ),
@@ -648,7 +649,7 @@ class _GroupHeader extends StatelessWidget {
                       if (goal.isRecurring) ...[
                         const SizedBox(width: 8),
                         Icon(Icons.repeat,
-                            size: 12, color: AppColors.accent),
+                            size: 12, color: context.palette.accent),
                       ],
                       if (goal.isOnHold) ...[
                         const SizedBox(width: 8),
@@ -656,7 +657,7 @@ class _GroupHeader extends StatelessWidget {
                           'on hold',
                           style: TextStyle(
                             fontSize: 11,
-                            color: AppColors.muted,
+                            color: context.palette.muted,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
@@ -670,14 +671,14 @@ class _GroupHeader extends StatelessWidget {
               IconButton(
                 tooltip: 'Snooze current step',
                 icon: Icon(Icons.bedtime_outlined,
-                    size: 22, color: AppColors.muted),
+                    size: 22, color: context.palette.muted),
                 onPressed: () => _snooze(context),
               )
             else if (onHold)
               IconButton(
                 tooltip: 'Wake up — resume now',
                 icon: Icon(Icons.bedtime_off_outlined,
-                    size: 22, color: AppColors.accent),
+                    size: 22, color: context.palette.accent),
                 onPressed: () => _wake(context),
               ),
           ],
@@ -710,15 +711,15 @@ class _DueDateChip extends StatelessWidget {
       color = Theme.of(context).colorScheme.error;
     } else if (diff == 1) {
       label = 'due tomorrow';
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else if (diff <= 7) {
       label = 'due in ${diff}d';
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else {
       final months = ['Jan','Feb','Mar','Apr','May','Jun',
                       'Jul','Aug','Sep','Oct','Nov','Dec'];
       label = '${months[dueDate.month - 1]} ${dueDate.day}';
-      color = AppColors.muted;
+      color = context.palette.muted;
     }
 
     return Text(
@@ -768,7 +769,7 @@ class _SubtaskRow extends StatelessWidget {
                             ? FontWeight.w600
                             : FontWeight.w400,
                         color: isCompleted || !isCurrent
-                            ? AppColors.muted
+                            ? context.palette.muted
                             : null,
                         decoration:
                             isCompleted ? TextDecoration.lineThrough : null,
@@ -812,10 +813,10 @@ class _SubtaskRow extends StatelessWidget {
                               ? Icons.bedtime_rounded
                               : Icons.lock_outline_rounded,
                   color: isCompleted
-                      ? AppColors.success
+                      ? context.palette.success
                       : isCurrent
-                          ? AppColors.strong
-                          : AppColors.muted,
+                          ? context.palette.strong
+                          : context.palette.muted,
                   size: 24,
                 ),
               ),
@@ -852,10 +853,11 @@ class _SnoozeChip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: ActionChip(
-        avatar: Icon(Icons.bedtime_outlined, size: 14, color: AppColors.muted),
+        avatar: Icon(Icons.bedtime_outlined,
+            size: 14, color: context.palette.muted),
         label: Text(
           'Snoozed · $label · Tap to wake now',
-          style: TextStyle(fontSize: 11, color: AppColors.muted),
+          style: TextStyle(fontSize: 11, color: context.palette.muted),
         ),
         visualDensity: VisualDensity.compact,
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -893,7 +895,7 @@ class _EmptyFocusState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.bolt_outlined, size: 56, color: AppColors.muted),
+            Icon(Icons.bolt_outlined, size: 56, color: context.palette.muted),
             const SizedBox(height: 16),
             Text(
               'Nothing scheduled for today',
@@ -903,7 +905,7 @@ class _EmptyFocusState extends StatelessWidget {
             Text(
               'Tap "Pick" to choose subtasks from your goals.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted),
+              style: TextStyle(color: context.palette.muted),
             ),
             const SizedBox(height: 20),
             FilledButton.icon(

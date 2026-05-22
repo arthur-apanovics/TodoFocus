@@ -189,7 +189,7 @@ class NotificationService {
         summary: summary,
         notificationLayout: NotificationLayout.Inbox,
         category: NotificationCategory.Reminder,
-        color: AppColors.accent,
+        color: kBrandColor,
         payload: {
           'goalId': goal.goalId,
           'subtaskId': current.subtaskId,
@@ -230,7 +230,7 @@ class NotificationService {
         body: 'Nothing in focus yet — tap to pick what to work on today.',
         notificationLayout: NotificationLayout.Default,
         category: NotificationCategory.Reminder,
-        color: AppColors.accent,
+        color: kBrandColor,
         autoDismissible: false,
         locked: true,
         showWhen: false,

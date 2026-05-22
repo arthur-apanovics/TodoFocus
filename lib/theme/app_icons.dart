@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Central icon registry — sibling of [AppColors].
+/// Central icon registry — sibling of the theme colour palette.
 ///
 /// Only icons that recur across multiple screens belong here. One-off icons
 /// (e.g. the inbox empty-state's `inbox_outlined`) stay inline at their use

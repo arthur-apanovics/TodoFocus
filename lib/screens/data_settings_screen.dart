@@ -9,7 +9,7 @@ import '../services/goal_queries.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/sample_data.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_palette.dart';
 
 class DataSettingsScreen extends StatelessWidget {
   const DataSettingsScreen({super.key});
@@ -106,7 +106,7 @@ class _EmptyArchive extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Text(
         'No archived goals',
-        style: TextStyle(color: AppColors.muted),
+        style: TextStyle(color: context.palette.muted),
       ),
     );
   }
@@ -143,8 +143,8 @@ class _ArchiveTile extends StatelessWidget {
         children: [
           SlidableAction(
             onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: AppColors.destructive,
-            foregroundColor: AppColors.onDestructive,
+            backgroundColor: context.palette.destructive,
+            foregroundColor: context.palette.onDestructive,
             icon: Icons.delete_outline,
             label: 'Delete',
           ),

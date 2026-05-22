@@ -15,6 +15,7 @@ import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
+import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
 import 'widgets/goal_symbol.dart';
 
@@ -383,7 +384,7 @@ class _EmptyState extends StatelessWidget {
             isCompleted
                 ? 'Complete all subtasks on a goal to see it here'
                 : 'Tap + to add your first goal',
-            style: TextStyle(color: AppColors.muted),
+            style: TextStyle(color: context.palette.muted),
           ),
         ],
       ),
@@ -443,7 +444,7 @@ class _SectionHeader extends StatelessWidget {
       child: Text(
         label.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppColors.muted,
+              color: context.palette.muted,
               letterSpacing: 1.2,
               fontWeight: FontWeight.w600,
             ),
@@ -632,18 +633,18 @@ class _GoalTile extends StatelessWidget {
         if (goal.isRecurring)
           Padding(
             padding: const EdgeInsets.only(right: 6),
-            child: Icon(Icons.repeat, size: 12, color: AppColors.accent),
+            child: Icon(Icons.repeat, size: 12, color: context.palette.accent),
           ),
         if (goal.isOnHold)
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: Icon(Icons.bedtime_outlined,
-                size: 12, color: AppColors.muted),
+                size: 12, color: context.palette.muted),
           ),
         if (dueDate != null)
           Text(
             _formatDueDate(dueDate),
-            style: TextStyle(fontSize: 12, color: AppColors.muted),
+            style: TextStyle(fontSize: 12, color: context.palette.muted),
           ),
       ],
     );
@@ -672,7 +673,7 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (emoji != null) return GoalSymbol(name: emoji);
-    return Icon(_iconFor(status), color: _colorFor(status));
+    return Icon(_iconFor(status), color: _colorFor(context, status));
   }
 
   IconData _iconFor(GoalStatus status) => switch (status) {
@@ -682,11 +683,11 @@ class _StatusBadge extends StatelessWidget {
     GoalStatus.archived => Icons.archive_outlined,
   };
 
-  Color _colorFor(GoalStatus status) => switch (status) {
-    GoalStatus.inbox => AppColors.muted,
-    GoalStatus.active => AppColors.accent,
-    GoalStatus.completed => AppColors.success,
-    GoalStatus.archived => AppColors.muted,
+  Color _colorFor(BuildContext context, GoalStatus status) => switch (status) {
+    GoalStatus.inbox => context.palette.muted,
+    GoalStatus.active => context.palette.accent,
+    GoalStatus.completed => context.palette.success,
+    GoalStatus.archived => context.palette.muted,
   };
 }
 
@@ -719,7 +720,7 @@ class _SubtaskStrip extends StatelessWidget {
                 Icon(
                   isCurrent ? AppIcons.currentSubtask : AppIcons.nextInQueue,
                   size: 14,
-                  color: isCurrent ? cs.onSurface : AppColors.muted,
+                  color: isCurrent ? cs.onSurface : context.palette.muted,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -728,7 +729,7 @@ class _SubtaskStrip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: isCurrent ? cs.onSurface : AppColors.muted,
+                          color: isCurrent ? cs.onSurface : context.palette.muted,
                           fontWeight: isCurrent
                               ? FontWeight.w500
                               : FontWeight.normal,
@@ -762,7 +763,7 @@ class _GoalFocusToggle extends StatelessWidget {
     return IconButton(
       icon: Icon(
         hasAny ? Icons.star : Icons.star_border,
-        color: hasAny ? AppColors.accent : AppColors.muted,
+        color: hasAny ? context.palette.accent : context.palette.muted,
       ),
       tooltip:
           fullyFocused ? 'Remove from Today' : 'Add all pending to Today',

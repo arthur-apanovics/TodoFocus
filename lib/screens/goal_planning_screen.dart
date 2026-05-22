@@ -12,8 +12,8 @@ import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/settings/llm_settings_service.dart';
-import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
+import '../theme/app_palette.dart';
 import 'widgets/app_bottom_sheet.dart';
 import 'widgets/auto_sleep_picker_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
@@ -348,9 +348,10 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                   value: _GoalAction.delete,
                   child: ListTile(
                     leading: Icon(AppIcons.delete,
-                        color: AppColors.destructive),
+                        color: context.palette.destructive),
                     title: Text('Delete',
-                        style: TextStyle(color: AppColors.destructive)),
+                        style:
+                            TextStyle(color: context.palette.destructive)),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -675,8 +676,8 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: AppColors.destructive,
-              foregroundColor: AppColors.onDestructive,
+              backgroundColor: context.palette.destructive,
+              foregroundColor: context.palette.onDestructive,
             ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
@@ -1309,7 +1310,7 @@ class _GoalMetaLine extends StatelessWidget {
         style: Theme.of(context)
             .textTheme
             .labelSmall
-            ?.copyWith(color: AppColors.muted),
+            ?.copyWith(color: context.palette.muted),
       ),
     );
   }
@@ -1354,15 +1355,16 @@ class _RecurrenceChip extends StatelessWidget {
     final recurrence = goal.recurrence;
     if (recurrence == null) {
       return ActionChip(
-        avatar: Icon(Icons.repeat, size: 14, color: AppColors.muted),
-        label: Text('Repeat', style: TextStyle(color: AppColors.muted)),
+        avatar: Icon(Icons.repeat, size: 14, color: context.palette.muted),
+        label:
+            Text('Repeat', style: TextStyle(color: context.palette.muted)),
         side: BorderSide.none,
         backgroundColor: Colors.transparent,
         onPressed: () => _open(context),
       );
     }
     return InputChip(
-      avatar: Icon(Icons.repeat, size: 14, color: AppColors.accent),
+      avatar: Icon(Icons.repeat, size: 14, color: context.palette.accent),
       label: Text(recurrence.label),
       onPressed: () => _open(context),
       onDeleted: () =>
@@ -1634,9 +1636,10 @@ class _DueDateChip extends StatelessWidget {
         avatar: Icon(
           Icons.calendar_today_outlined,
           size: 14,
-          color: AppColors.muted,
+          color: context.palette.muted,
         ),
-        label: Text('Add date', style: TextStyle(color: AppColors.muted)),
+        label: Text('Add date',
+            style: TextStyle(color: context.palette.muted)),
         side: BorderSide.none,
         backgroundColor: Colors.transparent,
         onPressed: () => _pickDate(context),
@@ -1721,12 +1724,12 @@ class _SubTaskTileState extends State<SubTaskTile> {
             style: isCompleted
                 ? TextStyle(
                     decoration: TextDecoration.lineThrough,
-                    color: AppColors.muted,
+                    color: context.palette.muted,
                   )
                 : isCurrent
                     ? TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: AppColors.strong,
+                        color: context.palette.strong,
                       )
                     : null,
           ),
@@ -1769,8 +1772,8 @@ class _SubTaskTileState extends State<SubTaskTile> {
             SlidableAction(
               onPressed: (_) =>
                   service.deleteSubTask(goal.goalId, subtask.subtaskId),
-              backgroundColor: AppColors.destructive,
-              foregroundColor: AppColors.onDestructive,
+              backgroundColor: context.palette.destructive,
+              foregroundColor: context.palette.onDestructive,
               icon: AppIcons.delete,
               label: 'Delete',
             ),
@@ -1793,7 +1796,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     if (subtask.state == SubTaskState.snoozed && subtask.snoozedUntil != null) {
       return Text(
         'Snoozed · wakes ${_humaniseWake(subtask.snoozedUntil!)}',
-        style: TextStyle(color: AppColors.muted, fontSize: 12),
+        style: TextStyle(color: context.palette.muted, fontSize: 12),
       );
     }
 
@@ -1801,7 +1804,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     if (auto != null && auto.inSeconds > 0) {
       return Text(
         'Auto-sleeps ${_humaniseDuration(auto)} when active',
-        style: TextStyle(color: AppColors.muted, fontSize: 12),
+        style: TextStyle(color: context.palette.muted, fontSize: 12),
       );
     }
     return null;
@@ -1869,7 +1872,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
         children: [
           moreButton,
           IconButton(
-            icon: Icon(AppIcons.complete, color: AppColors.strong),
+            icon: Icon(AppIcons.complete, color: context.palette.strong),
             tooltip: 'Mark complete',
             onPressed: () => service.completeCurrentSubTask(goal.goalId),
           ),
@@ -1950,7 +1953,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
             ListTile(
               leading: Icon(
                 Icons.alarm_outlined,
-                color: hasAutoSleep ? AppColors.accent : null,
+                color: hasAutoSleep ? context.palette.accent : null,
               ),
               title: Text(hasAutoSleep ? 'Edit auto-sleep' : 'Schedule auto-sleep'),
               subtitle: const Text(
@@ -1977,7 +1980,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
           if (isSnoozed)
             ListTile(
               leading:
-                  Icon(Icons.alarm_on, color: AppColors.accent),
+                  Icon(Icons.alarm_on, color: context.palette.accent),
               title: const Text('Wake now'),
               subtitle: const Text('Cancel snooze and resume immediately'),
               onTap: () {
@@ -1989,7 +1992,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
           // Mark incomplete — only for completed subtasks in active mode
           if (isCompleted && widget.showCompletion)
             ListTile(
-              leading: Icon(AppIcons.uncomplete, color: AppColors.muted),
+              leading: Icon(AppIcons.uncomplete, color: context.palette.muted),
               title: const Text('Mark incomplete'),
               onTap: () {
                 Navigator.pop(sheetCtx);
@@ -2000,10 +2003,11 @@ class _SubTaskTileState extends State<SubTaskTile> {
           // Delete — any non-completed subtask
           if (!isCompleted)
             ListTile(
-              leading: Icon(AppIcons.delete, color: AppColors.destructive),
+              leading:
+                  Icon(AppIcons.delete, color: context.palette.destructive),
               title: Text(
                 'Delete',
-                style: TextStyle(color: AppColors.destructive),
+                style: TextStyle(color: context.palette.destructive),
               ),
               onTap: () {
                 Navigator.pop(sheetCtx);
@@ -2388,7 +2392,8 @@ class _InboxReadyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.edit_note_outlined, size: 48, color: AppColors.muted),
+          Icon(Icons.edit_note_outlined,
+              size: 48, color: context.palette.muted),
           const SizedBox(height: 12),
           Text('Plan this goal', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),
@@ -2396,7 +2401,7 @@ class _InboxReadyState extends StatelessWidget {
             decomp.canAutoBreakdown
                 ? 'Generate subtasks in the card above or add them manually with the + button.'
                 : 'Add subtasks using the + button.',
-            style: TextStyle(color: AppColors.muted),
+            style: TextStyle(color: context.palette.muted),
             textAlign: TextAlign.center,
           ),
         ],
@@ -2509,7 +2514,7 @@ class _DecomposingState extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'This may take a moment',
-            style: TextStyle(color: AppColors.muted),
+            style: TextStyle(color: context.palette.muted),
           ),
         ],
       ),
@@ -2527,13 +2532,13 @@ class _EmptySubtaskState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(AppIcons.addSubtask, size: 48, color: AppColors.muted),
+          Icon(AppIcons.addSubtask, size: 48, color: context.palette.muted),
           const SizedBox(height: 12),
           Text('No subtasks yet', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),
           Text(
             'Tap the button below to add your first step',
-            style: TextStyle(color: AppColors.muted),
+            style: TextStyle(color: context.palette.muted),
             textAlign: TextAlign.center,
           ),
         ],
@@ -2563,7 +2568,7 @@ class _SubtaskFocusStar extends StatelessWidget {
       icon: Icon(
         inFocus ? Icons.star_rounded : Icons.star_outline_rounded,
         size: 20,
-        color: inFocus ? AppColors.accent : AppColors.muted,
+        color: inFocus ? context.palette.accent : context.palette.muted,
       ),
       onPressed: () {
         final f = context.read<FocusListService>();

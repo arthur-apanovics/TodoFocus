@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_palette.dart';
 import 'app_bottom_sheet.dart';
 
 /// Bottom sheet that lets the user configure how long a queued subtask
@@ -106,7 +106,7 @@ class _AutoSleepPickerSheetState extends State<AutoSleepPickerSheet> {
           'When this step becomes active, automatically snooze it for the '
           'chosen duration. Useful for steps that need a waiting period '
           '(e.g. "check email 3 days later").',
-          style: TextStyle(color: AppColors.muted, fontSize: 13),
+          style: TextStyle(color: context.palette.muted, fontSize: 13),
         ),
         const SizedBox(height: 16),
 
@@ -172,17 +172,18 @@ class _AutoSleepPickerSheetState extends State<AutoSleepPickerSheet> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.successSurface,
+            color: context.palette.successSurface,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             children: [
-              Icon(Icons.bedtime_outlined, color: AppColors.accent, size: 18),
+              Icon(Icons.bedtime_outlined,
+                  color: context.palette.accent, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Sleeps for ${_humanise(resolved)} when activated',
-                  style: TextStyle(fontSize: 13, color: AppColors.strong),
+                  style: TextStyle(fontSize: 13, color: context.palette.strong),
                 ),
               ),
             ],
@@ -200,7 +201,7 @@ class _AutoSleepPickerSheetState extends State<AutoSleepPickerSheet> {
                 icon: const Icon(Icons.cancel_outlined, size: 18),
                 label: const Text('Clear'),
                 style: TextButton.styleFrom(
-                  foregroundColor: AppColors.destructive,
+                  foregroundColor: context.palette.destructive,
                 ),
               ),
             const Spacer(),

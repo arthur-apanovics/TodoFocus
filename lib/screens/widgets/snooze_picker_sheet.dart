@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_palette.dart';
 import 'app_bottom_sheet.dart';
 
 /// Result of the snooze picker.
@@ -112,7 +112,7 @@ class _SnoozePickerSheetState extends State<SnoozePickerSheet> {
       children: [
         Text(
           'Hide this step until later. The goal goes on hold while snoozed.',
-          style: TextStyle(color: AppColors.muted, fontSize: 13),
+          style: TextStyle(color: context.palette.muted, fontSize: 13),
         ),
         const SizedBox(height: 16),
         // Quick-pick chips
@@ -146,7 +146,7 @@ class _SnoozePickerSheetState extends State<SnoozePickerSheet> {
           title: const Text('Notify me when it wakes up'),
           subtitle: Text(
             'Posts a notification at the wake-up time.',
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
+            style: TextStyle(color: context.palette.muted, fontSize: 12),
           ),
           value: _notify,
           onChanged: (v) => setState(() => _notify = v),
@@ -156,19 +156,20 @@ class _SnoozePickerSheetState extends State<SnoozePickerSheet> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.successSurface,
+            color: context.palette.successSurface,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             children: [
-              Icon(Icons.bedtime_outlined, color: AppColors.accent, size: 18),
+              Icon(Icons.bedtime_outlined,
+                  color: context.palette.accent, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Wakes ${_formatAbsolute(_until)}',
                   style: TextStyle(
                     fontSize: 13,
-                    color: AppColors.strong,
+                    color: context.palette.strong,
                   ),
                 ),
               ),

@@ -7,6 +7,7 @@ import '../services/goal_queries.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
+import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
 
 // The Planning tab — shows inbox goals that the user is still shaping
@@ -35,19 +36,19 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // AppColors fields are `final`, not `const`, so the outer Center can't
+    // Palette colours are resolved at runtime, so the outer Center can't
     // be const anymore — but the inner const literals stay const.
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.edit_note_outlined, size: 48, color: AppColors.muted),
+          Icon(Icons.edit_note_outlined, size: 48, color: context.palette.muted),
           const SizedBox(height: 12),
           const Text('Nothing being planned'),
           const SizedBox(height: 4),
           Text(
             'Capture an idea and shape it here before queuing it up',
-            style: TextStyle(color: AppColors.muted),
+            style: TextStyle(color: context.palette.muted),
             textAlign: TextAlign.center,
           ),
         ],
@@ -91,8 +92,8 @@ class _InboxTile extends StatelessWidget {
         children: [
           SlidableAction(
             onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: AppColors.destructive,
-            foregroundColor: AppColors.onDestructive,
+            backgroundColor: context.palette.destructive,
+            foregroundColor: context.palette.onDestructive,
             icon: AppIcons.delete,
             label: 'Delete',
           ),
@@ -105,7 +106,7 @@ class _InboxTile extends StatelessWidget {
                 height: 24,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : Icon(Icons.edit_note_outlined, color: AppColors.muted),
+            : Icon(Icons.edit_note_outlined, color: context.palette.muted),
         title: Text(goal.title),
         subtitle: Text(
           isDecomposing

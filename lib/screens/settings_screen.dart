@@ -7,6 +7,8 @@ import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
+import '../services/theme_controller.dart';
+import '../theme/app_theme.dart';
 import 'data_settings_screen.dart';
 import 'llm_settings_screen.dart';
 
@@ -42,11 +44,15 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'Appearance',
             children: [
-              _ComingSoonTile(
-                icon: Icons.palette_outlined,
-                title: 'Theme',
-                subtitle: 'Accent colour and dark mode',
-              ),
+              _ThemeModeTile(),
+              _ThemeColorTile(),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Home screen widget',
+            children: [
+              _FocusWidgetShowAllGoalsTile(),
+              _FocusWidgetLayoutTile(),
             ],
           ),
           _SettingsSection(
@@ -97,43 +103,99 @@ class _SettingsSection extends StatelessWidget {
   }
 }
 
-class _ComingSoonTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
+// ---------------------------------------------------------------------------
+// Appearance section
+// ---------------------------------------------------------------------------
 
-  const _ComingSoonTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
+class _ThemeModeTile extends StatelessWidget {
+  const _ThemeModeTile();
+
+  static String _label(ThemeMode mode) => switch (mode) {
+    ThemeMode.system => 'Follow system',
+    ThemeMode.light => 'Light',
+    ThemeMode.dark => 'Dark',
+  };
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<ThemeController>();
     return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: const _ComingSoonBadge(),
+      leading: const Icon(Icons.brightness_6_outlined),
+      title: const Text('Appearance'),
+      subtitle: Text(_label(controller.mode)),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Appearance'),
+          children: [
+            for (final mode in ThemeMode.values)
+              ListTile(
+                title: Text(_label(mode)),
+                trailing: controller.mode == mode
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () {
+                  controller.setMode(mode);
+                  Navigator.pop(ctx);
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _ComingSoonBadge extends StatelessWidget {
-  const _ComingSoonBadge();
+class _ThemeColorTile extends StatelessWidget {
+  const _ThemeColorTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<ThemeController>();
+    return ListTile(
+      leading: const Icon(Icons.palette_outlined),
+      title: const Text('Accent colour'),
+      subtitle: Text(controller.color.displayName),
+      trailing: _ColorSwatch(color: controller.color.seed),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Accent colour'),
+          children: [
+            for (final color in AppThemeColor.values)
+              ListTile(
+                leading: _ColorSwatch(color: color.seed),
+                title: Text(color.displayName),
+                trailing: controller.color == color
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () {
+                  controller.setColor(color);
+                  Navigator.pop(ctx);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  final Color color;
+
+  const _ColorSwatch({required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      width: 24,
+      height: 24,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        'Soon',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
         ),
       ),
     );

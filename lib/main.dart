@@ -21,8 +21,9 @@ import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
 import 'services/scheduling_service.dart';
 import 'services/settings/llm_settings_service.dart';
+import 'services/theme_controller.dart';
 import 'screens/widgets/icon_catalog.dart';
-import 'theme/app_colors.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +33,7 @@ void main() async {
   final focusListService = await FocusListService.init();
   final dailyResetService = await DailyResetService.init(focusListService);
   final displayPreferences = await DisplayPreferences.init();
+  final themeController = await ThemeController.init();
 
   final tabNotifier = ValueNotifier<int>(0);
   final goalNavNotifier =
@@ -83,6 +85,7 @@ void main() async {
       focusListService: focusListService,
       dailyResetService: dailyResetService,
       displayPreferences: displayPreferences,
+      themeController: themeController,
       notificationService: notificationService,
       focusWidgetService: focusWidgetService,
       schedulingService: schedulingService,
@@ -98,6 +101,7 @@ class TodoApp extends StatelessWidget {
   final FocusListService focusListService;
   final DailyResetService dailyResetService;
   final DisplayPreferences displayPreferences;
+  final ThemeController themeController;
   final NotificationService notificationService;
   final FocusWidgetService focusWidgetService;
   final SchedulingService schedulingService;
@@ -112,6 +116,7 @@ class TodoApp extends StatelessWidget {
     required this.focusListService,
     required this.dailyResetService,
     required this.displayPreferences,
+    required this.themeController,
     required this.notificationService,
     required this.focusWidgetService,
     required this.schedulingService,
@@ -153,6 +158,9 @@ class TodoApp extends StatelessWidget {
         ChangeNotifierProvider<DisplayPreferences>.value(
           value: displayPreferences,
         ),
+        ChangeNotifierProvider<ThemeController>.value(
+          value: themeController,
+        ),
         ProxyProvider3<GoalRepository, LlmSettingsService, FocusListService,
             BackupService>(
           update: (_, goals, settings, focus, _) => BackupService(
@@ -171,15 +179,16 @@ class TodoApp extends StatelessWidget {
           value: schedulingService,
         ),
       ],
-      child: MaterialApp(
-        title: 'Todo App',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent),
-          useMaterial3: true,
-        ),
-        home: AppShell(
-          tabNotifier: tabNotifier,
-          goalNavNotifier: goalNavNotifier,
+      child: Consumer<ThemeController>(
+        builder: (context, theme, _) => MaterialApp(
+          title: 'Todo App',
+          theme: AppTheme.light(theme.color),
+          darkTheme: AppTheme.dark(theme.color),
+          themeMode: theme.mode,
+          home: AppShell(
+            tabNotifier: tabNotifier,
+            goalNavNotifier: goalNavNotifier,
+          ),
         ),
       ),
     );

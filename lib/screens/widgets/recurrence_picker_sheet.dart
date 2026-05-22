@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/enums.dart';
 import '../../models/recurrence.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_palette.dart';
 import 'app_bottom_sheet.dart';
 
 /// Bottom sheet for configuring a [Goal]'s recurrence pattern.
@@ -123,7 +123,7 @@ class _RecurrencePickerSheetState extends State<RecurrencePickerSheet> {
           'When the next occurrence arrives, every subtask resets so you can '
           'do the goal again. The previous cycle is summarised on the goal '
           'so you can build on it.',
-          style: TextStyle(color: AppColors.muted, fontSize: 13),
+          style: TextStyle(color: context.palette.muted, fontSize: 13),
         ),
         const SizedBox(height: 16),
 
@@ -143,19 +143,19 @@ class _RecurrencePickerSheetState extends State<RecurrencePickerSheet> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppColors.successSurface,
+              color: context.palette.successSurface,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                Icon(Icons.repeat, color: AppColors.accent, size: 18),
+                Icon(Icons.repeat, color: context.palette.accent, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     preview.label,
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.strong,
+                      color: context.palette.strong,
                     ),
                   ),
                 ),
@@ -175,7 +175,7 @@ class _RecurrencePickerSheetState extends State<RecurrencePickerSheet> {
                 icon: const Icon(Icons.cancel_outlined, size: 18),
                 label: const Text('Clear'),
                 style: TextButton.styleFrom(
-                  foregroundColor: AppColors.destructive,
+                  foregroundColor: context.palette.destructive,
                 ),
               ),
             const Spacer(),
@@ -412,7 +412,7 @@ class _DayOfMonthGridState extends State<_DayOfMonthGrid> {
       children: [
         Text(
           'Repeat on day',
-          style: TextStyle(fontSize: 13, color: AppColors.muted),
+          style: TextStyle(fontSize: 13, color: context.palette.muted),
         ),
         const SizedBox(height: 8),
         // 7-column calendar grid. Each day is a tappable circle button —
@@ -434,7 +434,7 @@ class _DayOfMonthGridState extends State<_DayOfMonthGrid> {
             final day = i + 1;
             final isSelected = day == widget.selected;
             return Material(
-              color: isSelected ? AppColors.accent : Colors.transparent,
+              color: isSelected ? context.palette.accent : Colors.transparent,
               shape: const CircleBorder(),
               child: InkWell(
                 customBorder: const CircleBorder(),
@@ -461,7 +461,7 @@ class _DayOfMonthGridState extends State<_DayOfMonthGrid> {
           children: [
             Text(
               'Or type day',
-              style: TextStyle(fontSize: 12, color: AppColors.muted),
+              style: TextStyle(fontSize: 12, color: context.palette.muted),
             ),
             const SizedBox(width: 8),
             SizedBox(
@@ -489,7 +489,7 @@ class _DayOfMonthGridState extends State<_DayOfMonthGrid> {
               Expanded(
                 child: Text(
                   '(months without day ${widget.selected} use the last day)',
-                  style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  style: TextStyle(fontSize: 11, color: context.palette.muted),
                 ),
               ),
           ],

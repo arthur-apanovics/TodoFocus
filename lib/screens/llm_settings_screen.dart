@@ -8,6 +8,7 @@ import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/settings/llm_profile.dart';
 import '../services/settings/llm_settings_service.dart';
+import '../theme/app_palette.dart';
 import 'widgets/icon_catalog.dart';
 
 // LLM configuration screen. Add new profile types by:
@@ -886,7 +887,7 @@ class _ModelSearchSheetState extends State<_ModelSearchSheet> {
                     label: 'Free',
                     subtitle: 'No billing info required',
                     icon: Icons.lock_open_outlined,
-                    color: Colors.green.shade700,
+                    color: context.palette.success,
                   ),
                   for (final m in free)
                     _ModelTile(model: m, current: widget.current),
@@ -982,7 +983,7 @@ class _ModelTile extends StatelessWidget {
           ? Icon(
               Icons.lock_open_outlined,
               size: 16,
-              color: Colors.green.shade700,
+              color: context.palette.success,
             )
           : null,
       selected: isSelected,
@@ -1081,7 +1082,7 @@ class _TestDialogState extends State<_TestDialog> {
                       Text(
                         '${subtasks.length} subtask${subtasks.length == 1 ? '' : 's'}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Colors.green.shade700,
+                              color: context.palette.success,
                               fontWeight: FontWeight.w600,
                             ),
                       ),

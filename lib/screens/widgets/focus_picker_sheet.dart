@@ -8,7 +8,7 @@ import '../../services/display_preferences.dart';
 import '../../services/focus_list_service.dart';
 import '../../services/goal_queries.dart';
 import '../../services/goal_repository.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_palette.dart';
 import '../goal_planning_screen.dart';
 import 'app_bottom_sheet.dart';
 import 'goal_symbol.dart';
@@ -134,7 +134,7 @@ class _FocusPickerSheetState extends State<FocusPickerSheet> {
             child: Text(
               'No active goals yet — create one first.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted),
+              style: TextStyle(color: context.palette.muted),
             ),
           )
         else
@@ -219,7 +219,7 @@ class _PickerCategoryHeader extends StatelessWidget {
       child: Text(
         label.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppColors.muted,
+              color: context.palette.muted,
               letterSpacing: 1.2,
               fontWeight: FontWeight.w600,
             ),
@@ -294,10 +294,11 @@ class _GoalSection extends StatelessWidget {
       // Greyed out — keeps the goal discoverable (you can still tap the
       // title to navigate) but communicates there's nothing to schedule.
       return ListTile(
-        leading: Icon(Icons.check_circle, color: AppColors.muted),
+        leading: Icon(Icons.check_circle, color: context.palette.muted),
         title: GestureDetector(
           onLongPress: () => _openGoal(context),
-          child: Text(goal.title, style: TextStyle(color: AppColors.muted)),
+          child:
+              Text(goal.title, style: TextStyle(color: context.palette.muted)),
         ),
         subtitle: const Text('No pending subtasks'),
         dense: true,
@@ -366,7 +367,7 @@ class _GoalSection extends StatelessWidget {
               Text(
                 '${focusedPending.length}/${pending.length}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.muted,
+                      color: context.palette.muted,
                     ),
               ),
             ],
@@ -419,15 +420,15 @@ class _PickerDueDateLabel extends StatelessWidget {
       color = Theme.of(context).colorScheme.error;
     } else if (diff == 1) {
       label = 'due tomorrow';
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else if (diff <= 7) {
       label = 'due in ${diff}d';
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else {
       final months = ['Jan','Feb','Mar','Apr','May','Jun',
                       'Jul','Aug','Sep','Oct','Nov','Dec'];
       label = '${months[dueDate.month - 1]} ${dueDate.day}';
-      color = AppColors.muted;
+      color = context.palette.muted;
     }
 
     return Text(
@@ -454,13 +455,13 @@ class _BulkStarButton extends StatelessWidget {
     final Color color;
     if (allFocused) {
       icon = Icons.star_rounded;
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else if (mixed) {
       icon = Icons.star_half_rounded;
-      color = AppColors.accent;
+      color = context.palette.accent;
     } else {
       icon = Icons.star_outline_rounded;
-      color = AppColors.muted;
+      color = context.palette.muted;
     }
     return IconButton(
       icon: Icon(icon, color: color, size: 28),
@@ -503,7 +504,7 @@ class _SequentialRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.muted,
+                  color: context.palette.muted,
                 ),
               ),
             ),
