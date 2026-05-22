@@ -95,6 +95,16 @@ class FocusWidgetProvider : HomeWidgetProvider() {
             views.setPendingIntentTemplate(R.id.focus_list, templatePendingIntent)
 
             appWidgetManager.updateAppWidget(widgetId, views)
+
+            // updateAppWidget refreshes the static views (header, count, empty
+            // state) but does NOT cause the ListView's RemoteViewsFactory to
+            // reload. Without this call the factory keeps serving its cached
+            // rows, so adding / removing goals or toggling "show all goals"
+            // wouldn't appear on the widget until the system happened to rebind
+            // the service (e.g. after a reboot). notifyAppWidgetViewDataChanged
+            // explicitly triggers RemoteViewsFactory.onDataSetChanged, which
+            // re-reads the latest payload from SharedPreferences.
+            appWidgetManager.notifyAppWidgetViewDataChanged(widgetId, R.id.focus_list)
         }
     }
 

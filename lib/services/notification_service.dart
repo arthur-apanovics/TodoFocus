@@ -153,11 +153,13 @@ class NotificationService {
     if (signature == _lastSignature) return;
     _lastSignature = signature;
 
-    // Inbox lines: current step (▶) first, then upcoming pending steps (○).
+    // Inbox lines: current step (○ — the actionable hollow ring, matches the
+    // widget's ic_widget_check_active drawable) first, then upcoming pending
+    // steps (· — small muted dot, matches ic_widget_check_locked).
     const maxLines = 6;
     final lines = <String>[];
     for (var i = 0; i < pendingSteps.length && i < maxLines; i++) {
-      final marker = i == 0 ? '▶' : '○';
+      final marker = i == 0 ? '○' : '·';
       lines.add('$marker  ${pendingSteps[i].description}');
     }
     final hidden = pendingSteps.length - lines.length;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:home_widget/home_widget.dart';
 
 import '../models/enums.dart';
+import '../models/sub_task.dart';
 import 'display_preferences.dart';
 import 'focus_list_service.dart';
 import 'goal_repository.dart';
@@ -99,16 +100,54 @@ class FocusWidgetService {
     // draw a visual separator between goal groups.
     String? lastGoalId;
 
-    void addFallbackRow(ResolvedFocusGroup group) {
-      final next = group.goal.currentSubTask;
-      if (next == null) return;
+    /// Picks the pending subtasks to display for [group], in goal order.
+    ///
+    /// Strategy:
+    ///   1. Focused, still-pending subtasks first (preserve user's intent).
+    ///   2. Backfill from the goal's remaining pending subtasks once the
+    ///      focused ones are exhausted, until [maxRowsPerGoal] is reached.
+    ///
+    /// This keeps the widget's row count stable across completions: completing
+    /// the topmost focused step doesn't shrink the visible list, because the
+    /// next pending step of the same goal slides into the freed slot — exactly
+    /// what users expect of a "what's next" surface. Without the backfill the
+    /// list would degrade by one row every completion, leaving partially
+    /// focused goals with as few as 1-2 visible rows after a few taps.
+    List<SubTask> pickPendingForGoal(ResolvedFocusGroup group) {
+      final picked = <SubTask>[];
+      final added = <String>{};
+
+      // Pass 1: pending subtasks that are explicitly in the focus list.
+      for (final st in group.subtasks) {
+        if (st.state != SubTaskState.pending) continue;
+        if (picked.length >= maxRowsPerGoal) break;
+        picked.add(st);
+        added.add(st.subtaskId);
+      }
+
+      // Pass 2: backfill from the goal's other pending subtasks in sequence
+      // order, in case the focus list is empty / has been pruned by completion
+      // / never explicitly included every pending step.
+      if (picked.length < maxRowsPerGoal) {
+        for (final st in group.goal.subtasks) {
+          if (st.state != SubTaskState.pending) continue;
+          if (added.contains(st.subtaskId)) continue;
+          if (picked.length >= maxRowsPerGoal) break;
+          picked.add(st);
+          added.add(st.subtaskId);
+        }
+      }
+      return picked;
+    }
+
+    void addRow(ResolvedFocusGroup group, SubTask st, bool isCurrent) {
       rows.add({
         'goalId': group.goal.goalId,
-        'subtaskId': next.subtaskId,
+        'subtaskId': st.subtaskId,
         'goalTitle': group.goal.title,
         'goalEmoji': group.goal.emoji ?? '',
-        'step': next.description,
-        'isCurrent': rows.isEmpty,
+        'step': st.description,
+        'isCurrent': isCurrent,
         'isFirstInGroup': group.goal.goalId != lastGoalId,
       });
       lastGoalId = group.goal.goalId;
@@ -117,52 +156,17 @@ class FocusWidgetService {
     if (showAllGoals) {
       // One slice per goal — each goal contributes up to maxRowsPerGoal rows.
       for (final group in focus.resolveGroups(repo)) {
-        int addedForGroup = 0;
-        for (final st in group.subtasks) {
-          if (st.state != SubTaskState.pending) continue;
-          rows.add({
-            'goalId': group.goal.goalId,
-            'subtaskId': st.subtaskId,
-            'goalTitle': group.goal.title,
-            'goalEmoji': group.goal.emoji ?? '',
-            'step': st.description,
-            'isCurrent': addedForGroup == 0,
-            'isFirstInGroup': group.goal.goalId != lastGoalId,
-          });
-          lastGoalId = group.goal.goalId;
-          addedForGroup++;
-          if (addedForGroup >= maxRowsPerGoal) break;
-        }
-        // Partially-focused goal with no pending focused subtasks: fall back
-        // to the goal's next pending step so the widget never goes blank.
-        if (addedForGroup == 0 && !group.group.isFullyFocused) {
-          addFallbackRow(group);
+        final picks = pickPendingForGoal(group);
+        for (var i = 0; i < picks.length; i++) {
+          addRow(group, picks[i], i == 0);
         }
       }
     } else {
       // Single-goal mode: global cap across all goals.
       outer:
       for (final group in focus.resolveGroups(repo)) {
-        var addedForGroup = 0;
-        for (final st in group.subtasks) {
-          if (st.state != SubTaskState.pending) continue;
-          rows.add({
-            'goalId': group.goal.goalId,
-            'subtaskId': st.subtaskId,
-            'goalTitle': group.goal.title,
-            'goalEmoji': group.goal.emoji ?? '',
-            'step': st.description,
-            'isCurrent': rows.isEmpty,
-            'isFirstInGroup': group.goal.goalId != lastGoalId,
-          });
-          lastGoalId = group.goal.goalId;
-          addedForGroup++;
-          if (rows.length >= maxRowsPerGoal) break outer;
-        }
-        // Partially-focused goal with no pending focused subtasks: fall back
-        // to the goal's next pending step so the widget never goes blank.
-        if (addedForGroup == 0 && !group.group.isFullyFocused) {
-          addFallbackRow(group);
+        for (final st in pickPendingForGoal(group)) {
+          addRow(group, st, rows.isEmpty);
           if (rows.length >= maxRowsPerGoal) break outer;
         }
       }
