@@ -128,5 +128,95 @@ void main() {
       expect(row['subtaskId'], 's2');
       expect(row['isCurrent'], isTrue);
     });
+
+    test(
+        'partial focus: selected step completed → falls back to next pending',
+        () async {
+      // Simulate: user focuses only s1 (partial, not fully-focused), then
+      // completes s1 (via widget tap or in-app). The focus group retains the
+      // stale s1 entry. buildPayload should fall back to s2 (currentSubTask).
+      final repo = InMemoryGoalRepository.empty();
+      final goal = makeGoal(subtasks: [
+        makeSubTask('s1'), // pending initially so focusSubtask accepts it
+        makeSubTask('s2'),
+        makeSubTask('s3'),
+      ]);
+      repo.save(goal);
+      final focus = FocusListService.inMemory();
+      await focus.focusSubtask('g1', 's1', repo);
+
+      // Simulate s1 being completed — update the repo directly.
+      goal.completeCurrentSubTask(); // s1 → completed, s2 becomes current
+      repo.save(goal);
+
+      final payload = decode(
+        FocusWidgetService.buildPayload(FocusLayout.currentPlus2, focus, repo),
+      );
+
+      // Should fall back to the goal's currentSubTask (s2), not go blank.
+      expect(payload.rows.length, 1);
+      final row = payload.rows.first as Map<String, dynamic>;
+      expect(row['subtaskId'], 's2');
+      expect(row['isCurrent'], isTrue);
+    });
+
+    test('partial focus: all subtasks done → no rows for that goal', () async {
+      final repo = InMemoryGoalRepository.empty();
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]);
+      repo.save(goal);
+      final focus = FocusListService.inMemory();
+      await focus.focusSubtask('g1', 's1', repo);
+
+      // Complete the only subtask.
+      goal.completeCurrentSubTask();
+      repo.save(goal);
+
+      final payload = decode(
+        FocusWidgetService.buildPayload(FocusLayout.currentPlus2, focus, repo),
+      );
+
+      // Goal completed; fallback currentSubTask is null → no rows.
+      expect(payload.rows, isEmpty);
+    });
+
+    test(
+        'mixed: partial goal stale + fully-focused goal — both render correctly',
+        () async {
+      final repo = InMemoryGoalRepository.empty();
+      final goalA = makeGoal(
+        id: 'g1',
+        title: 'Goal A',
+        subtasks: [makeSubTask('s1'), makeSubTask('s2')],
+      );
+      repo.save(goalA);
+      repo.save(makeGoal(
+        id: 'g2',
+        title: 'Goal B',
+        subtasks: [makeSubTask('s3')],
+      ));
+      final focus = FocusListService.inMemory();
+      await focus.focusSubtask('g1', 's1', repo); // partial focus on g1
+      await focus.focusGoalFully('g2', repo); // fully focused g2
+
+      // Complete s1 so g1's focus group has no more pending focused steps.
+      goalA.completeCurrentSubTask();
+      repo.save(goalA);
+
+      final payload = decode(
+        FocusWidgetService.buildPayload(FocusLayout.currentPlus2, focus, repo),
+      );
+
+      // Row 0: g1's fallback (s2), isCurrent=true
+      // Row 1: g2's s3, isCurrent=false
+      expect(payload.rows.length, 2);
+      final r0 = payload.rows[0] as Map<String, dynamic>;
+      final r1 = payload.rows[1] as Map<String, dynamic>;
+      expect(r0['goalId'], 'g1');
+      expect(r0['subtaskId'], 's2');
+      expect(r0['isCurrent'], isTrue);
+      expect(r1['goalId'], 'g2');
+      expect(r1['subtaskId'], 's3');
+      expect(r1['isCurrent'], isFalse);
+    });
   });
 }

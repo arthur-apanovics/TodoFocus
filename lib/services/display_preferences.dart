@@ -119,7 +119,7 @@ class DisplayPreferences extends ChangeNotifier {
       focusScreenLayout:
           readFocusLayout(_focusScreenLayoutKey, FocusLayout.currentPlus2),
       focusWidgetLayout:
-          readFocusLayout(_focusWidgetLayoutKey, FocusLayout.current),
+          readFocusLayout(_focusWidgetLayoutKey, FocusLayout.currentPlus2),
       focusWidgetShowAllGoals: showAllGoals,
     );
   }

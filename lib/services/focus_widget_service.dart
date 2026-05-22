@@ -75,7 +75,7 @@ class FocusWidgetService {
   /// { "layout": "current",
   ///   "rows": [
   ///     {"goalId":"..","subtaskId":"..","goalTitle":"..",
-  ///      "goalEmoji":"..","step":"..","isCurrent":true}
+  ///      "goalEmoji":"..","step":"..","isCurrent":true,"isFirstInGroup":true}
   ///   ] }
   /// ```
   ///
@@ -99,34 +99,53 @@ class FocusWidgetService {
     // draw a visual separator between goal groups.
     String? lastGoalId;
 
+    void addFallbackRow(ResolvedFocusGroup group) {
+      final next = group.goal.currentSubTask;
+      if (next == null) return;
+      rows.add({
+        'goalId': group.goal.goalId,
+        'subtaskId': next.subtaskId,
+        'goalTitle': group.goal.title,
+        'goalEmoji': group.goal.emoji ?? '',
+        'step': next.description,
+        'isCurrent': rows.isEmpty,
+        'isFirstInGroup': group.goal.goalId != lastGoalId,
+      });
+      lastGoalId = group.goal.goalId;
+    }
+
     if (showAllGoals) {
       // One slice per goal — each goal contributes up to maxRowsPerGoal rows.
       for (final group in focus.resolveGroups(repo)) {
-        int rowsForThisGoal = 0;
+        int addedForGroup = 0;
         for (final st in group.subtasks) {
           if (st.state != SubTaskState.pending) continue;
-          final isFirstInGroup = group.goal.goalId != lastGoalId;
           rows.add({
             'goalId': group.goal.goalId,
             'subtaskId': st.subtaskId,
             'goalTitle': group.goal.title,
             'goalEmoji': group.goal.emoji ?? '',
             'step': st.description,
-            'isCurrent': rowsForThisGoal == 0,
-            'isFirstInGroup': isFirstInGroup,
+            'isCurrent': addedForGroup == 0,
+            'isFirstInGroup': group.goal.goalId != lastGoalId,
           });
           lastGoalId = group.goal.goalId;
-          rowsForThisGoal++;
-          if (rowsForThisGoal >= maxRowsPerGoal) break;
+          addedForGroup++;
+          if (addedForGroup >= maxRowsPerGoal) break;
+        }
+        // Partially-focused goal with no pending focused subtasks: fall back
+        // to the goal's next pending step so the widget never goes blank.
+        if (addedForGroup == 0 && !group.group.isFullyFocused) {
+          addFallbackRow(group);
         }
       }
     } else {
       // Single-goal mode: global cap across all goals.
       outer:
       for (final group in focus.resolveGroups(repo)) {
+        var addedForGroup = 0;
         for (final st in group.subtasks) {
           if (st.state != SubTaskState.pending) continue;
-          final isFirstInGroup = group.goal.goalId != lastGoalId;
           rows.add({
             'goalId': group.goal.goalId,
             'subtaskId': st.subtaskId,
@@ -134,9 +153,16 @@ class FocusWidgetService {
             'goalEmoji': group.goal.emoji ?? '',
             'step': st.description,
             'isCurrent': rows.isEmpty,
-            'isFirstInGroup': isFirstInGroup,
+            'isFirstInGroup': group.goal.goalId != lastGoalId,
           });
           lastGoalId = group.goal.goalId;
+          addedForGroup++;
+          if (rows.length >= maxRowsPerGoal) break outer;
+        }
+        // Partially-focused goal with no pending focused subtasks: fall back
+        // to the goal's next pending step so the widget never goes blank.
+        if (addedForGroup == 0 && !group.group.isFullyFocused) {
+          addFallbackRow(group);
           if (rows.length >= maxRowsPerGoal) break outer;
         }
       }
