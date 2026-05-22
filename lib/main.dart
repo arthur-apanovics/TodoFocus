@@ -50,12 +50,6 @@ void main() async {
   final schedulingService = SchedulingService(goalRepository);
   schedulingService.checkAndProcess();
 
-  // Schedule morning prompt if configured.
-  if (dailyResetService.morningPromptEnabled) {
-    final t = dailyResetService.morningPromptTime;
-    await notificationService.scheduleMorningPrompt(t.hour, t.minute);
-  }
-
   // Home-screen widget bridge. Mirrors the notification: re-rendered whenever
   // focus or goal data changes, or the widget layout preference is edited.
   final focusWidgetService = FocusWidgetService(
@@ -69,7 +63,10 @@ void main() async {
   // focus list or the underlying goal data changes. Either source can shift
   // which subtask is "current".
   void refreshFocusSurfaces() {
-    notificationService.update(focusListService.resolveGroups(goalRepository));
+    notificationService.update(
+      focusListService.resolveGroups(goalRepository),
+      showEmptyPrompt: dailyResetService.morningPromptEnabled,
+    );
     focusWidgetService.update();
   }
 
@@ -271,14 +268,14 @@ class _AppShellState extends State<AppShell>
     // changes what the notification should show.
     scheduling.checkAndProcess();
 
-    final wasReset = await resetService.checkAndReset();
+    // Run the daily reset before resolving groups — it may clear the focus
+    // list, which flips the notification to its empty state.
+    await resetService.checkAndReset();
     final groups = focus.resolveGroups(repo);
-
-    if (wasReset && groups.isEmpty) {
-      await notif.showAssignTasksPrompt();
-    } else {
-      await notif.update(groups);
-    }
+    await notif.update(
+      groups,
+      showEmptyPrompt: resetService.morningPromptEnabled,
+    );
     // Keep the home-screen widget in step with whatever the resume sweep did.
     await focusWidget.update();
   }

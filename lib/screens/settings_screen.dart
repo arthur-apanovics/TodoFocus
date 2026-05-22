@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../services/daily_reset_service.dart';
 import '../services/display_preferences.dart';
+import '../services/focus_list_service.dart';
+import '../services/goal_repository.dart';
 import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import 'data_settings_screen.dart';
@@ -34,7 +36,6 @@ class SettingsScreen extends StatelessWidget {
               _DailyResetToggleTile(),
               _DailyResetTimeTile(),
               _MorningPromptToggleTile(),
-              _MorningPromptTimeTile(),
               _UrgencyDaysTile(),
             ],
           ),
@@ -302,50 +303,22 @@ class _MorningPromptToggleTile extends StatelessWidget {
     if (!service.resetEnabled) return const SizedBox.shrink();
     return SwitchListTile(
       secondary: const Icon(Icons.notifications_outlined),
-      title: const Text('Morning prompt'),
+      title: const Text('Plan-your-day reminder'),
       subtitle: const Text(
-        'Daily notification reminding you to assign tasks for the day',
+        'Show a reminder in the focus notification when nothing is assigned',
       ),
       value: service.morningPromptEnabled,
       onChanged: (value) async {
         final notif = context.read<NotificationService>();
+        final focus = context.read<FocusListService>();
+        final repo = context.read<GoalRepository>();
         await service.setMorningPromptEnabled(value);
-        if (value) {
-          final t = service.morningPromptTime;
-          await notif.scheduleMorningPrompt(t.hour, t.minute);
-        } else {
-          await notif.cancelMorningPrompt();
-        }
-      },
-    );
-  }
-}
-
-class _MorningPromptTimeTile extends StatelessWidget {
-  const _MorningPromptTimeTile();
-
-  @override
-  Widget build(BuildContext context) {
-    final service = context.watch<DailyResetService>();
-    if (!service.resetEnabled || !service.morningPromptEnabled) {
-      return const SizedBox.shrink();
-    }
-    final t = service.morningPromptTime;
-    return ListTile(
-      leading: const Icon(Icons.wb_sunny_outlined),
-      title: const Text('Prompt time'),
-      subtitle: Text(t.format(context)),
-      onTap: () async {
-        final notif = context.read<NotificationService>();
-        final picked = await showTimePicker(
-          context: context,
-          initialTime: t,
-          helpText: 'Choose when to receive the morning prompt',
+        // Reflect the toggle immediately: re-render the persistent
+        // notification so the empty-state reminder appears / disappears.
+        await notif.update(
+          focus.resolveGroups(repo),
+          showEmptyPrompt: value,
         );
-        if (picked != null) {
-          await service.setMorningPromptTime(picked);
-          await notif.scheduleMorningPrompt(picked.hour, picked.minute);
-        }
       },
     );
   }

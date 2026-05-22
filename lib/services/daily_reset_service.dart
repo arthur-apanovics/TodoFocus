@@ -12,8 +12,6 @@ class DailyResetService extends ChangeNotifier {
   static const _lastResetDateKey = 'daily_reset_last_date';
   static const _prevAssignedKey = 'daily_reset_prev_assigned';
   static const _morningPromptEnabledKey = 'morning_prompt_enabled';
-  static const _morningPromptHourKey = 'morning_prompt_hour';
-  static const _morningPromptMinuteKey = 'morning_prompt_minute';
   static const _urgencyDaysKey = 'urgency_days';
 
   final Box<String> _box;
@@ -25,8 +23,6 @@ class DailyResetService extends ChangeNotifier {
   String? _lastResetDate;
   List<String> _previouslyAssigned;
   bool _morningPromptEnabled;
-  int _morningPromptHour;
-  int _morningPromptMinute;
   int _urgencyDays;
   DailyResetService._({
     required Box<String> box,
@@ -37,8 +33,6 @@ class DailyResetService extends ChangeNotifier {
     required String? lastResetDate,
     required List<String> previouslyAssigned,
     required bool morningPromptEnabled,
-    required int morningPromptHour,
-    required int morningPromptMinute,
     required int urgencyDays,
   })  : _box = box,
         _focus = focus,
@@ -48,15 +42,14 @@ class DailyResetService extends ChangeNotifier {
         _lastResetDate = lastResetDate,
         _previouslyAssigned = previouslyAssigned,
         _morningPromptEnabled = morningPromptEnabled,
-        _morningPromptHour = morningPromptHour,
-        _morningPromptMinute = morningPromptMinute,
         _urgencyDays = urgencyDays;
 
   bool get resetEnabled => _resetEnabled;
   TimeOfDay get resetTime => TimeOfDay(hour: _resetHour, minute: _resetMinute);
+
+  /// When true, the persistent notification shows a "plan your day" reminder
+  /// while the focus list is empty (e.g. after a daily reset).
   bool get morningPromptEnabled => _morningPromptEnabled;
-  TimeOfDay get morningPromptTime =>
-      TimeOfDay(hour: _morningPromptHour, minute: _morningPromptMinute);
   int get urgencyDays => _urgencyDays;
   List<String> get previouslyAssigned => List.unmodifiable(_previouslyAssigned);
 
@@ -77,14 +70,6 @@ class DailyResetService extends ChangeNotifier {
   Future<void> setMorningPromptEnabled(bool value) async {
     _morningPromptEnabled = value;
     await _box.put(_morningPromptEnabledKey, value.toString());
-    notifyListeners();
-  }
-
-  Future<void> setMorningPromptTime(TimeOfDay time) async {
-    _morningPromptHour = time.hour;
-    _morningPromptMinute = time.minute;
-    await _box.put(_morningPromptHourKey, time.hour.toString());
-    await _box.put(_morningPromptMinuteKey, time.minute.toString());
     notifyListeners();
   }
 
@@ -271,9 +256,6 @@ class DailyResetService extends ChangeNotifier {
       lastResetDate: box.get(_lastResetDateKey),
       previouslyAssigned: previouslyAssigned,
       morningPromptEnabled: box.get(_morningPromptEnabledKey) == 'true',
-      morningPromptHour: int.tryParse(box.get(_morningPromptHourKey) ?? '') ?? 8,
-      morningPromptMinute:
-          int.tryParse(box.get(_morningPromptMinuteKey) ?? '') ?? 0,
       urgencyDays: int.tryParse(box.get(_urgencyDaysKey) ?? '') ?? 3,
     );
   }
