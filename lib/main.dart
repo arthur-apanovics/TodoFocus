@@ -346,36 +346,15 @@ class _AppShellState extends State<AppShell>
     }
   }
 
-  // The FAB varies by tab: the Focus tab gains a second "Pick subtasks"
-  // button stacked above "Create goal"; every other tab shows just the
-  // create button. Rebuilt via the AnimatedBuilder on [_tabController].
+  /// Primary FAB shown on every tab. Same widget instance so it morphs into
+  /// the pushed screens' FABs on navigation. The Focus screen owns its own
+  /// secondary "Pick subtasks" action at bottom-LEFT (rendered inside its
+  /// own body so it lives and dies with the screen).
   Widget _buildFab(BuildContext context) {
-    // createFab keeps the default hero tag so it still morphs into the
-    // pushed screens' FABs. Only the extra "Pick" FAB needs an explicit
-    // tag — two FABs on one screen can't share the default.
-    final createFab = FloatingActionButton.extended(
+    return FloatingActionButton.extended(
       onPressed: _openNewGoalSheet,
       icon: const Icon(Icons.add),
       label: const Text('Create goal'),
-    );
-    if (_tabController.index != 0) return createFab;
-
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        FloatingActionButton.extended(
-          heroTag: 'fab_pick_subtasks',
-          backgroundColor: cs.secondaryContainer,
-          foregroundColor: cs.onSecondaryContainer,
-          onPressed: () => FocusScreen.openPicker(context),
-          icon: const Icon(Icons.add_task),
-          label: const Text('Pick subtasks'),
-        ),
-        const SizedBox(height: 12),
-        createFab,
-      ],
     );
   }
 
@@ -413,10 +392,7 @@ class _AppShellState extends State<AppShell>
           const InboxScreen(),
         ],
       ),
-      floatingActionButton: AnimatedBuilder(
-        animation: _tabController,
-        builder: (context, _) => _buildFab(context),
-      ),
+      floatingActionButton: _buildFab(context),
     );
   }
 }

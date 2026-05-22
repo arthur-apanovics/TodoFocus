@@ -2,14 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import '../models/enums.dart';
-import '../models/goal.dart';
-import '../services/goal_repository.dart';
-import '../services/goal_service.dart';
 import '../services/settings/llm_profile.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_palette.dart';
-import 'widgets/icon_catalog.dart';
 
 // LLM configuration screen. Add new profile types by:
 //   1. Adding a subtype in llm_profile.dart
@@ -80,24 +75,28 @@ Future<List<_OrModel>> _fetchOrModels() async {
 // Screen
 // ---------------------------------------------------------------------------
 
-class LlmSettingsScreen extends StatefulWidget {
-  const LlmSettingsScreen({super.key});
+/// "Connection" half of the LLM settings split.
+///
+/// Owns how the app **reaches** the model — provider preset, endpoint URL,
+/// model id, API key, sampling temperature, request timeout, and debug
+/// mode. The **generation** half (icon toggle, system prompt, difficulty
+/// ranges) lives in [LlmGenerationScreen]. Both edit the same underlying
+/// [OpenAiCompatibleProfile]; each screen only writes back its own subset
+/// by merging the draft via [OpenAiCompatibleProfile.copyWith], so changes
+/// made on the other screen aren't clobbered.
+class LlmConnectionScreen extends StatefulWidget {
+  const LlmConnectionScreen({super.key});
 
   @override
-  State<LlmSettingsScreen> createState() => _LlmSettingsScreenState();
+  State<LlmConnectionScreen> createState() => _LlmConnectionScreenState();
 }
 
-class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
+class _LlmConnectionScreenState extends State<LlmConnectionScreen> {
   static const _presets = ['OpenAI Compatible', 'OpenRouter'];
 
-  late bool _generateEmojis;
   late bool _debugMode;
-
-  // Draft for the OpenAI Compatible profile while editing.
   late OpenAiCompatibleProfile _openAiDraft;
   late String _selectedPreset;
-
-  LlmProfile get _draft => _openAiDraft;
 
   // When switching to the OpenRouter preset, pre-fill the URL if it's blank.
   void _onPresetChangedWithDefaults(String preset) {
@@ -110,16 +109,14 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
         );
       });
     }
-    _onPresetChanged(preset);
+    setState(() => _selectedPreset = preset);
   }
 
   @override
   void initState() {
     super.initState();
     final service = context.read<LlmSettingsService>();
-    _generateEmojis = service.generateEmojis;
     _debugMode = service.debugMode;
-
     _openAiDraft = service.openAiProfile;
 
     _selectedPreset = switch (service.activeProfile) {
@@ -130,119 +127,46 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
     };
   }
 
-  bool get _effectiveGenerateEmojis => _generateEmojis;
-
-  void _onPresetChanged(String preset) {
-    setState(() { _selectedPreset = preset; });
-  }
-
   Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
-    final wasEmojisEnabled = service.generateEmojis;
-    final nowEmojisEnabled = _effectiveGenerateEmojis;
-
-    await service.setGenerateEmojis(nowEmojisEnabled);
     await service.setDebugMode(_debugMode);
-    await service.setProfile(_draft);
+    // Only the connection fields are written back; generation-side fields
+    // (systemPrompt, difficulty ranges) are read from the current profile so
+    // simultaneous edits on LlmGenerationScreen aren't overwritten.
+    final latest = service.openAiProfile;
+    await service.setProfile(latest.copyWith(
+      endpointUrl: _openAiDraft.endpointUrl,
+      modelId: _openAiDraft.modelId,
+      apiKey: _openAiDraft.apiKey,
+      temperature: _openAiDraft.temperature,
+      timeout: _openAiDraft.timeout,
+    ));
     if (!mounted) return;
-
-    // When emoji generation is newly switched on, offer to backfill existing goals.
-    if (!wasEmojisEnabled && nowEmojisEnabled) {
-      await _offerBulkEmojiGeneration(service);
-      if (!mounted) return;
-    }
-
     Navigator.pop(context);
-  }
-
-  Future<void> _offerBulkEmojiGeneration(LlmSettingsService service) async {
-    final repo = context.read<GoalRepository>();
-    final goalsWithoutEmoji = repo.all
-        .where((g) =>
-            g.emoji == null &&
-            g.status != GoalStatus.inbox &&
-            g.status != GoalStatus.archived)
-        .cast<Goal>()
-        .toList();
-
-    if (goalsWithoutEmoji.isEmpty) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Generate emojis for existing goals?'),
-        content: Text(
-          'You have ${goalsWithoutEmoji.length} goal${goalsWithoutEmoji.length == 1 ? '' : 's'} '
-          'without an icon. Generate one for each now?\n\n'
-          'This sends a single request and runs in the background.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Skip'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Generate'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    // Run bulk generation in background — no await, no loading indicator.
-    _runBulkGeneration(service, goalsWithoutEmoji);
-  }
-
-  void _runBulkGeneration(LlmSettingsService service, List<Goal> goals) {
-    final client = service.buildClient();
-    if (client == null) return;
-    final goalService = context.read<GoalService>();
-    final titles = goals.map((g) => g.title).toList();
-    final ids = goals.map((g) => g.goalId).toList();
-
-    final names = iconByName.keys.toList();
-    client.suggestIconBulk(titles, names).then((emojis) {
-      final batch = <String, String>{};
-      for (var i = 0; i < ids.length && i < emojis.length; i++) {
-        final emoji = emojis[i];
-        if (emoji != null) batch[ids[i]] = emoji;
-      }
-      if (batch.isNotEmpty) goalService.bulkSetEmojis(batch);
-    }).catchError((_) {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('LLM Configuration'),
+        title: const Text('Connection'),
         actions: [TextButton(onPressed: _save, child: const Text('Save'))],
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
-          // ── Preferences ──────────────────────────────────────────────────
-          _SectionHeader(label: 'Preferences'),
-          SwitchListTile(
-            title: const Text('Generate goal icons'),
-            subtitle: const Text(
-              'Adds a visual icon to each goal using AI',
-            ),
-            value: _effectiveGenerateEmojis,
-            onChanged: (v) => setState(() { _generateEmojis = v; }),
-          ),
-          const Divider(height: 1),
-          // ── Technical ────────────────────────────────────────────────────
-          _SectionHeader(label: 'Technical'),
+          _SectionHeader(label: 'Provider'),
           _PresetTile(
             selected: _selectedPreset,
             options: _presets,
             onChanged: _onPresetChangedWithDefaults,
           ),
           const Divider(height: 1),
-          _buildForm(),
+          _OpenAiCompatibleForm(
+            profile: _openAiDraft,
+            onChanged: (p) => setState(() => _openAiDraft = p),
+            isOpenRouter: _selectedPreset == 'OpenRouter',
+          ),
           const Divider(height: 1),
           SwitchListTile(
             title: const Text('Debug mode'),
@@ -250,24 +174,12 @@ class _LlmSettingsScreenState extends State<LlmSettingsScreen> {
               'Show full error details in failure notifications',
             ),
             value: _debugMode,
-            onChanged: (v) => setState(() { _debugMode = v; }),
+            onChanged: (v) => setState(() => _debugMode = v),
           ),
         ],
       ),
     );
   }
-
-  Widget _buildForm() => switch (_selectedPreset) {
-    'OpenRouter' => _OpenAiCompatibleForm(
-      profile: _openAiDraft,
-      onChanged: (p) => setState(() { _openAiDraft = p; }),
-      isOpenRouter: true,
-    ),
-    _ => _OpenAiCompatibleForm(
-      profile: _openAiDraft,
-      onChanged: (p) => setState(() { _openAiDraft = p; }),
-    ),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +262,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
   late final TextEditingController _urlController;
   late final TextEditingController _modelController;
   late final TextEditingController _apiKeyController;
-  late final TextEditingController _promptController;
   bool _apiKeyVisible = false;
 
   // OpenRouter model list state
@@ -365,9 +276,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _modelController = TextEditingController(text: widget.profile.modelId);
     _apiKeyController = TextEditingController(
       text: widget.profile.apiKey ?? '',
-    );
-    _promptController = TextEditingController(
-      text: widget.profile.systemPrompt,
     );
     if (widget.isOpenRouter) _loadOrModels();
   }
@@ -391,7 +299,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     _urlController.dispose();
     _modelController.dispose();
     _apiKeyController.dispose();
-    _promptController.dispose();
     super.dispose();
   }
 
@@ -469,16 +376,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
         apiKey: _apiKeyController.text.trim().isEmpty
             ? null
             : _apiKeyController.text.trim(),
-        systemPrompt: _promptController.text,
-      ),
-    );
-  }
-
-  void _restoreDefaultPrompt() {
-    _promptController.text = OpenAiCompatibleProfile.defaultSystemPrompt;
-    widget.onChanged(
-      widget.profile.copyWith(
-        systemPrompt: OpenAiCompatibleProfile.defaultSystemPrompt,
       ),
     );
   }
@@ -647,27 +544,12 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           child: FilledButton.tonal(
             onPressed: _testConnection,
             child: const Text('Test connection'),
           ),
         ),
-        _PromptSection(
-          label: 'Goal generation prompt',
-          helper: 'Used when a new goal is broken into subtasks.',
-          controller: _promptController,
-          isDefault:
-              widget.profile.systemPrompt ==
-              OpenAiCompatibleProfile.defaultSystemPrompt,
-          onRestore: _restoreDefaultPrompt,
-          onChanged: _notifyFields,
-        ),
-        _DifficultyRangesSection(
-          profile: widget.profile,
-          onChanged: widget.onChanged,
-        ),
-        const SizedBox(height: 8),
       ],
     );
   }
@@ -725,68 +607,6 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
         hintText: 'Tap to choose…',
         border: OutlineInputBorder(),
         suffixIcon: Icon(Icons.arrow_drop_down),
-      ),
-    );
-  }
-}
-
-class _PromptSection extends StatelessWidget {
-  final String label;
-  final String helper;
-  final TextEditingController controller;
-  final bool isDefault;
-  final VoidCallback onRestore;
-  final VoidCallback onChanged;
-
-  const _PromptSection({
-    required this.label,
-    required this.helper,
-    required this.controller,
-    required this.isDefault,
-    required this.onRestore,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.bodyMedium),
-              if (!isDefault)
-                TextButton(
-                  onPressed: onRestore,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text('Restore default'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            helper,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: controller,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            maxLines: null,
-            minLines: 3,
-            textCapitalization: TextCapitalization.sentences,
-            onChanged: (_) => onChanged(),
-          ),
-        ],
       ),
     );
   }
@@ -1135,174 +955,3 @@ class _TestDialogState extends State<_TestDialog> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Difficulty subtask count ranges
-// ---------------------------------------------------------------------------
-
-class _DifficultyRangesSection extends StatefulWidget {
-  final OpenAiCompatibleProfile profile;
-  final ValueChanged<OpenAiCompatibleProfile> onChanged;
-
-  const _DifficultyRangesSection({
-    required this.profile,
-    required this.onChanged,
-  });
-
-  @override
-  State<_DifficultyRangesSection> createState() =>
-      _DifficultyRangesSectionState();
-}
-
-class _DifficultyRangesSectionState extends State<_DifficultyRangesSection> {
-  late final TextEditingController _easyMinCtrl;
-  late final TextEditingController _easyMaxCtrl;
-  late final TextEditingController _hardMinCtrl;
-  late final TextEditingController _hardMaxCtrl;
-  late final TextEditingController _impossibleMinCtrl;
-  late final TextEditingController _impossibleMaxCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    final p = widget.profile;
-    _easyMinCtrl = TextEditingController(text: '${p.easyMin}');
-    _easyMaxCtrl = TextEditingController(text: '${p.easyMax}');
-    _hardMinCtrl = TextEditingController(text: '${p.hardMin}');
-    _hardMaxCtrl = TextEditingController(text: '${p.hardMax}');
-    _impossibleMinCtrl = TextEditingController(text: '${p.impossibleMin}');
-    _impossibleMaxCtrl = TextEditingController(text: '${p.impossibleMax}');
-  }
-
-  @override
-  void dispose() {
-    _easyMinCtrl.dispose();
-    _easyMaxCtrl.dispose();
-    _hardMinCtrl.dispose();
-    _hardMaxCtrl.dispose();
-    _impossibleMinCtrl.dispose();
-    _impossibleMaxCtrl.dispose();
-    super.dispose();
-  }
-
-  void _notify() {
-    final p = widget.profile;
-    widget.onChanged(p.copyWith(
-      easyMin: int.tryParse(_easyMinCtrl.text) ?? p.easyMin,
-      easyMax: int.tryParse(_easyMaxCtrl.text) ?? p.easyMax,
-      hardMin: int.tryParse(_hardMinCtrl.text) ?? p.hardMin,
-      hardMax: int.tryParse(_hardMaxCtrl.text) ?? p.hardMax,
-      impossibleMin: int.tryParse(_impossibleMinCtrl.text) ?? p.impossibleMin,
-      impossibleMax: int.tryParse(_impossibleMaxCtrl.text) ?? p.impossibleMax,
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Subtask count by difficulty',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Min and max subtasks the LLM generates for each difficulty level.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _DifficultyRangeRow(
-            label: 'Easy',
-            minCtrl: _easyMinCtrl,
-            maxCtrl: _easyMaxCtrl,
-            onChanged: _notify,
-          ),
-          const SizedBox(height: 8),
-          _DifficultyRangeRow(
-            label: 'Hard',
-            minCtrl: _hardMinCtrl,
-            maxCtrl: _hardMaxCtrl,
-            onChanged: _notify,
-          ),
-          const SizedBox(height: 8),
-          _DifficultyRangeRow(
-            label: 'Impossible',
-            minCtrl: _impossibleMinCtrl,
-            maxCtrl: _impossibleMaxCtrl,
-            onChanged: _notify,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DifficultyRangeRow extends StatelessWidget {
-  final String label;
-  final TextEditingController minCtrl;
-  final TextEditingController maxCtrl;
-  final VoidCallback onChanged;
-
-  const _DifficultyRangeRow({
-    required this.label,
-    required this.minCtrl,
-    required this.maxCtrl,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const fieldWidth = 64.0;
-    const inputDecoration = InputDecoration(
-      border: OutlineInputBorder(),
-      isDense: true,
-      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-    );
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        ),
-        SizedBox(
-          width: fieldWidth,
-          child: TextField(
-            controller: minCtrl,
-            keyboardType: TextInputType.number,
-            decoration: inputDecoration,
-            onChanged: (_) => onChanged(),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Text(
-            '–',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-        SizedBox(
-          width: fieldWidth,
-          child: TextField(
-            controller: maxCtrl,
-            keyboardType: TextInputType.number,
-            decoration: inputDecoration,
-            onChanged: (_) => onChanged(),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: Text(
-            'subtasks',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}

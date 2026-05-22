@@ -12,7 +12,6 @@ class DailyResetService extends ChangeNotifier {
   static const _lastResetDateKey = 'daily_reset_last_date';
   static const _prevAssignedKey = 'daily_reset_prev_assigned';
   static const _morningPromptEnabledKey = 'morning_prompt_enabled';
-  static const _urgencyDaysKey = 'urgency_days';
 
   final Box<String> _box;
   final FocusListService _focus;
@@ -23,7 +22,6 @@ class DailyResetService extends ChangeNotifier {
   String? _lastResetDate;
   List<String> _previouslyAssigned;
   bool _morningPromptEnabled;
-  int _urgencyDays;
   DailyResetService._({
     required Box<String> box,
     required FocusListService focus,
@@ -33,7 +31,6 @@ class DailyResetService extends ChangeNotifier {
     required String? lastResetDate,
     required List<String> previouslyAssigned,
     required bool morningPromptEnabled,
-    required int urgencyDays,
   })  : _box = box,
         _focus = focus,
         _resetEnabled = resetEnabled,
@@ -41,8 +38,7 @@ class DailyResetService extends ChangeNotifier {
         _resetMinute = resetMinute,
         _lastResetDate = lastResetDate,
         _previouslyAssigned = previouslyAssigned,
-        _morningPromptEnabled = morningPromptEnabled,
-        _urgencyDays = urgencyDays;
+        _morningPromptEnabled = morningPromptEnabled;
 
   bool get resetEnabled => _resetEnabled;
   TimeOfDay get resetTime => TimeOfDay(hour: _resetHour, minute: _resetMinute);
@@ -50,7 +46,6 @@ class DailyResetService extends ChangeNotifier {
   /// When true, the persistent notification shows a "plan your day" reminder
   /// while the focus list is empty (e.g. after a daily reset).
   bool get morningPromptEnabled => _morningPromptEnabled;
-  int get urgencyDays => _urgencyDays;
   List<String> get previouslyAssigned => List.unmodifiable(_previouslyAssigned);
 
   Future<void> setResetEnabled(bool value) async {
@@ -70,12 +65,6 @@ class DailyResetService extends ChangeNotifier {
   Future<void> setMorningPromptEnabled(bool value) async {
     _morningPromptEnabled = value;
     await _box.put(_morningPromptEnabledKey, value.toString());
-    notifyListeners();
-  }
-
-  Future<void> setUrgencyDays(int days) async {
-    _urgencyDays = days;
-    await _box.put(_urgencyDaysKey, days.toString());
     notifyListeners();
   }
 
@@ -112,8 +101,9 @@ class DailyResetService extends ChangeNotifier {
 
   /// Returns [goals] sorted according to [order].
   /// Date-added preserves the repository's insertion order unchanged.
-  /// Urgency and smart use identical logic: near-deadline goals first (by
-  /// due date ascending), then previously-assigned goals, then the rest.
+  /// Urgency and smart use identical logic: goals with a due date come
+  /// first (earliest deadline first), then previously-assigned goals, then
+  /// the rest.
   ///
   /// Across every sort order, goals **on hold** (current subtask snoozed)
   /// are demoted to the bottom — they have nothing actionable, so they
@@ -133,24 +123,22 @@ class DailyResetService extends ChangeNotifier {
   ///   • **Resumed**     — a subtask just woke up OR the recurrence just
   ///                       reset within the last 24h. These are intentionally
   ///                       at the top so the user notices "this is back".
-  ///   • **Urgent**      — due within [urgencyDays] days (sorted by due date).
-  ///   • **In progress** — previously assigned to today's focus but not urgent.
+  ///   • **In progress** — previously assigned to today's focus.
   ///   • **Other**       — everything else.
   ///   • **On hold**     — current subtask is snoozed; nothing actionable.
   ///
   /// Empty categories are omitted. Within each bucket goals are ordered by
-  /// [_applyUrgencySort] so the relative priority matches the flat sort.
+  /// [_applyUrgencySort] so goals with earlier due dates rise to the top —
+  /// the dedicated "Urgent" bucket was removed since the sort already brings
+  /// urgent goals to the top of whichever bucket they belong to.
   List<({String label, List<Goal> goals})> categorizeForSmart(
       List<Goal> goals) {
-    final now = DateTime.now();
-    final cutoff = DateTime(now.year, now.month, now.day + _urgencyDays);
     // "Recently resumed" window: a goal that woke up within this duration
     // gets its own top bucket. 24h covers the common "I snoozed it until
     // tomorrow" pattern without lingering for days.
-    final resumeCutoff = now.subtract(const Duration(hours: 24));
+    final resumeCutoff = DateTime.now().subtract(const Duration(hours: 24));
 
     final resumed = <Goal>[];
-    final urgent = <Goal>[];
     final inProgress = <Goal>[];
     final other = <Goal>[];
     final onHold = <Goal>[];
@@ -161,8 +149,6 @@ class DailyResetService extends ChangeNotifier {
       } else if (g.lastResumedAt != null &&
           g.lastResumedAt!.isAfter(resumeCutoff)) {
         resumed.add(g);
-      } else if (g.dueDate != null && !g.dueDate!.isAfter(cutoff)) {
-        urgent.add(g);
       } else if (_previouslyAssigned.contains(g.goalId)) {
         inProgress.add(g);
       } else {
@@ -170,16 +156,15 @@ class DailyResetService extends ChangeNotifier {
       }
     }
 
-    // Within each non-on-hold bucket, apply urgency ordering for consistency.
+    // Within each non-on-hold bucket, apply urgency ordering so goals with
+    // earlier deadlines float to the top.
     _applyUrgencySort(resumed);
-    _applyUrgencySort(urgent);
     _applyUrgencySort(inProgress);
-    // "other" stays in insertion order (stable).
+    _applyUrgencySort(other);
     // "onHold" stays in insertion order — nothing actionable, no ranking needed.
 
     return [
       if (resumed.isNotEmpty) (label: 'Resumed', goals: resumed),
-      if (urgent.isNotEmpty) (label: 'Urgent', goals: urgent),
       if (inProgress.isNotEmpty) (label: 'In progress', goals: inProgress),
       if (other.isNotEmpty) (label: 'Other', goals: other),
       if (onHold.isNotEmpty) (label: 'On hold', goals: onHold),
@@ -198,36 +183,38 @@ class DailyResetService extends ChangeNotifier {
     return [...active, ...held];
   }
 
+  /// Sorts a list in place. Priority order:
+  ///   1. Goals with a due date — earliest deadline first.
+  ///   2. Recently resumed (snooze just elapsed / recurrence cycled, within
+  ///      the last 24h) — more recently resumed first.
+  ///   3. Previously assigned to today's focus.
+  ///   4. Everything else (stable, preserves insertion order).
   void _applyUrgencySort(List<Goal> goals) {
-    final now = DateTime.now();
-    final cutoff = DateTime(now.year, now.month, now.day + _urgencyDays);
-    // Goals woken / reset within this window get a priority boost so the
-    // user notices "hey, this is back" the next time they look at the list.
-    final resumeCutoff = now.subtract(const Duration(hours: 24));
+    final resumeCutoff = DateTime.now().subtract(const Duration(hours: 24));
 
     goals.sort((a, b) {
-      // 1. Recently resumed goals (snooze just elapsed / recurrence cycled)
-      //    rise above everything except more-urgent due dates below.
+      // 1. Due date — any goal with a deadline beats one without, and earlier
+      //    deadlines beat later ones. No "urgency window" gate; the natural
+      //    ordering already brings the most urgent work to the top.
+      final aHasDue = a.dueDate != null;
+      final bHasDue = b.dueDate != null;
+      if (aHasDue != bHasDue) return aHasDue ? -1 : 1;
+      if (aHasDue) {
+        final cmp = a.dueDate!.compareTo(b.dueDate!);
+        if (cmp != 0) return cmp;
+      }
+
+      // 2. Recently resumed.
       final aResumed = a.lastResumedAt != null &&
           a.lastResumedAt!.isAfter(resumeCutoff);
       final bResumed = b.lastResumedAt != null &&
           b.lastResumedAt!.isAfter(resumeCutoff);
-
-      // 2. Urgent = has a due date within the urgency window.
-      final aUrgent = a.dueDate != null && !a.dueDate!.isAfter(cutoff);
-      final bUrgent = b.dueDate != null && !b.dueDate!.isAfter(cutoff);
-
-      // Urgent always wins over Resumed — a deadline beats a wake-up.
-      if (aUrgent != bUrgent) return aUrgent ? -1 : 1;
-      if (aUrgent) return a.dueDate!.compareTo(b.dueDate!);
-
-      // Resumed beats In-progress and Other.
       if (aResumed != bResumed) return aResumed ? -1 : 1;
       if (aResumed) {
-        // More recently resumed first.
         return b.lastResumedAt!.compareTo(a.lastResumedAt!);
       }
 
+      // 3. Previously assigned to today's focus.
       final aPrev = _previouslyAssigned.contains(a.goalId);
       final bPrev = _previouslyAssigned.contains(b.goalId);
       if (aPrev != bPrev) return aPrev ? -1 : 1;
@@ -247,6 +234,8 @@ class DailyResetService extends ChangeNotifier {
         ? <String>[]
         : rawPrev.split(',').where((s) => s.isNotEmpty).toList();
 
+    // The 'urgency_days' Hive key is deliberately abandoned, not deleted:
+    // leaving stale data on disk is harmless and saves a destructive migration.
     return DailyResetService._(
       box: box,
       focus: focus,
@@ -256,7 +245,6 @@ class DailyResetService extends ChangeNotifier {
       lastResetDate: box.get(_lastResetDateKey),
       previouslyAssigned: previouslyAssigned,
       morningPromptEnabled: box.get(_morningPromptEnabledKey) == 'true',
-      urgencyDays: int.tryParse(box.get(_urgencyDaysKey) ?? '') ?? 3,
     );
   }
 }

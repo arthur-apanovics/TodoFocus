@@ -1697,7 +1697,7 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final service = context.read<GoalService>();
     final isCurrent = goal.isCurrentSubTask(subtask);
     final isCompleted = subtask.isCompleted;
-    final isPending = !isCompleted;
+    final stepNumber = goal.subtasks.indexOf(subtask) + 1;
 
     // Slidable instead of Dismissible:
     //  - Doesn't try to auto-remove the row, so it never collides with the
@@ -1711,13 +1711,23 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final tile = Opacity(
       opacity: _isBreakingDown ? 0.6 : 1.0,
       child: ListTile(
-        // Compact leading star toggles individual focus for this subtask.
-        // Filled when in today's focus, outlined otherwise. Hidden in read-
-        // only mode since focus only makes sense for editable goals.
-        leading: readOnly ? null : _SubtaskFocusStar(goal: goal, subtask: subtask),
+        // Leading: step number, replacing the old per-subtask focus star.
+        // The focus toggle moved into the actions sheet (opened by tapping
+        // the title) so the tile leading slot can carry positional context
+        // instead — "you're on step 4 of 8".
+        leading: _SubtaskNumberBadge(
+          number: stepNumber,
+          isCurrent: isCurrent,
+          isCompleted: isCompleted,
+        ),
+        // Tap the title to open the unified actions sheet (edit, break down,
+        // focus, snooze, delete, …). Replaces the old behaviour where tap
+        // opened an edit-only sheet and a three-dot button opened the full
+        // actions menu — now there's one entry point with no extra trailing
+        // affordance to clutter the row.
         title: GestureDetector(
-          onTap: (isPending && !_isBreakingDown && !readOnly)
-              ? () => _showEditSheet(context, service)
+          onTap: (!_isBreakingDown && !readOnly)
+              ? () => _showActionsSheet(context, service, isCurrent)
               : null,
           child: Text(
             subtask.description,
@@ -1854,33 +1864,17 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    final moreButton = IconButton(
-      icon: const Icon(Icons.more_vert),
-      tooltip: 'Step actions',
-      onPressed: () => _showActionsSheet(context, service, isCurrent),
-    );
-
-    if (isCompleted) {
-      if (!widget.showCompletion) return null;
-      return moreButton;
-    }
-
-    // Active mode, current step: show complete + more.
-    if (isCurrent && widget.showCompletion) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          moreButton,
-          IconButton(
-            icon: Icon(AppIcons.complete, color: context.palette.strong),
-            tooltip: 'Mark complete',
-            onPressed: () => service.completeCurrentSubTask(goal.goalId),
-          ),
-        ],
+    // The three-dot menu used to live here; it's now the tile-title tap.
+    // The only trailing affordance left is the complete circle on the
+    // current step (in active mode).
+    if (!isCompleted && isCurrent && widget.showCompletion) {
+      return IconButton(
+        icon: Icon(AppIcons.complete, color: context.palette.strong),
+        tooltip: 'Mark complete',
+        onPressed: () => service.completeCurrentSubTask(goal.goalId),
       );
     }
-
-    return moreButton;
+    return null;
   }
 
   /// Unified action sheet for a subtask — consolidates edit, breakdown,
@@ -1894,6 +1888,9 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final isSnoozed = subtask.state == SubTaskState.snoozed;
     final isPending = !isCompleted && !isSnoozed;
     final hasAutoSleep = subtask.autoSleepDuration != null;
+    final focus = context.read<FocusListService>();
+    final inFocus = !isCompleted &&
+        focus.isInFocus(goal.goalId, subtask.subtaskId);
 
     showModalBottomSheet<void>(
       context: context,
@@ -1909,6 +1906,31 @@ class _SubTaskTileState extends State<SubTaskTile> {
               onTap: () {
                 Navigator.pop(sheetCtx);
                 _showEditSheet(context, service);
+              },
+            ),
+
+          // Focus toggle — moved here from the old leading star. Doesn't show
+          // for completed subtasks (focusing a done step is meaningless).
+          if (!isCompleted)
+            ListTile(
+              leading: Icon(
+                inFocus ? Icons.star_rounded : Icons.star_outline_rounded,
+                color: inFocus ? context.palette.accent : null,
+              ),
+              title: Text(
+                inFocus
+                    ? "Remove from today's focus"
+                    : "Add to today's focus",
+              ),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                final f = context.read<FocusListService>();
+                final repo = context.read<GoalRepository>();
+                if (inFocus) {
+                  f.unfocusSubtask(goal.goalId, subtask.subtaskId, repo);
+                } else {
+                  f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
+                }
               },
             ),
 
@@ -2547,38 +2569,70 @@ class _EmptySubtaskState extends StatelessWidget {
   }
 }
 
-// Tiny leading star on each SubTaskTile that toggles per-subtask focus
-// membership. Sized to sit comfortably in a ListTile.leading slot.
-class _SubtaskFocusStar extends StatelessWidget {
-  final Goal goal;
-  final SubTask subtask;
+/// Leading position indicator on each SubTaskTile. Shows the step number
+/// (1-based index in goal.subtasks) instead of the old focus-toggle star.
+///
+/// Styling tracks the row state so the badge reads at a glance:
+///   • current  → accent-coloured filled circle, white number, bold
+///   • completed → muted outlined circle, strikethrough number
+///   • pending  → outlined circle, neutral number
+///
+/// The focus toggle this badge replaces moved into the actions sheet
+/// (opened by tapping the tile title).
+class _SubtaskNumberBadge extends StatelessWidget {
+  final int number;
+  final bool isCurrent;
+  final bool isCompleted;
 
-  const _SubtaskFocusStar({required this.goal, required this.subtask});
+  const _SubtaskNumberBadge({
+    required this.number,
+    required this.isCurrent,
+    required this.isCompleted,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final focus = context.watch<FocusListService>();
-    final inFocus = focus.isInFocus(goal.goalId, subtask.subtaskId);
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      tooltip:
-          inFocus ? 'Remove from today\'s focus' : 'Add to today\'s focus',
-      icon: Icon(
-        inFocus ? Icons.star_rounded : Icons.star_outline_rounded,
-        size: 20,
-        color: inFocus ? context.palette.accent : context.palette.muted,
+    final cs = Theme.of(context).colorScheme;
+    final Color background;
+    final Color foreground;
+    final Color border;
+
+    if (isCurrent) {
+      background = context.palette.accent;
+      foreground = cs.onPrimary;
+      border = context.palette.accent;
+    } else if (isCompleted) {
+      background = Colors.transparent;
+      foreground = context.palette.muted;
+      border = cs.outlineVariant;
+    } else {
+      background = Colors.transparent;
+      foreground = context.palette.muted;
+      border = cs.outlineVariant;
+    }
+
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: background,
+          shape: BoxShape.circle,
+          border: Border.all(color: border, width: 1.5),
+        ),
+        child: Text(
+          '$number',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
+            color: foreground,
+            decoration:
+                isCompleted ? TextDecoration.lineThrough : TextDecoration.none,
+            decorationColor: foreground,
+          ),
+        ),
       ),
-      onPressed: () {
-        final f = context.read<FocusListService>();
-        final repo = context.read<GoalRepository>();
-        if (inFocus) {
-          f.unfocusSubtask(goal.goalId, subtask.subtaskId, repo);
-        } else {
-          f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
-        }
-      },
     );
   }
 }
