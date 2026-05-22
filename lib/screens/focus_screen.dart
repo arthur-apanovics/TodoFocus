@@ -17,11 +17,6 @@ import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/snooze_picker_sheet.dart';
 
-/// Bottom inset for the Focus list. Wider than the shared
-/// [kFabSafeBottomPadding] because the Focus tab stacks a second
-/// "Pick subtasks" FAB above the "Create goal" FAB.
-const double _kFocusFabSafePadding = kFabSafeBottomPadding + 64;
-
 /// "Today's Focus" tab.
 ///
 /// Each goal in focus renders as a stacked card with its subtasks listed in
@@ -54,15 +49,8 @@ class FocusScreen extends StatelessWidget {
     final partition = _partitionForToday(allGroups);
 
     return Scaffold(
-      // Bottom-LEFT secondary FAB for picking subtasks. The AppShell's
-      // primary "Create goal" FAB lives on the *outer* Scaffold at the
-      // default bottom-right, so the two actions occupy opposite corners
-      // and don't visually fight for the same space.
-      //
       // Hidden when the focus list is empty — the empty-state already
-      // surfaces a centred "Pick subtasks" CTA, so a corner FAB would just
-      // duplicate it.
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      // surfaces a centred "Pick subtasks" CTA so the FAB would duplicate it.
       floatingActionButton:
           partition.isEmpty ? null : const _PickSubtasksFab(),
       body: partition.isEmpty
@@ -267,7 +255,7 @@ class _GroupsList extends StatelessWidget {
               // When nothing follows, the active list owns the bottom of
               // the screen — add FAB-safe inset.
               partition.laterToday.isEmpty && partition.completed.isEmpty
-                  ? _kFocusFabSafePadding
+                  ? kFabSafeBottomPadding
                   : 8,
             ),
             sliver: SliverReorderableList(
@@ -318,7 +306,7 @@ class _GroupsList extends StatelessWidget {
               12,
               0,
               12,
-              partition.completed.isEmpty ? _kFocusFabSafePadding : 8,
+              partition.completed.isEmpty ? kFabSafeBottomPadding : 8,
             ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
@@ -351,7 +339,7 @@ class _GroupsList extends StatelessWidget {
             ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(
-                12, 0, 12, _kFocusFabSafePadding),
+                12, 0, 12, kFabSafeBottomPadding),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) {
@@ -957,22 +945,20 @@ class _SnoozeChip extends StatelessWidget {
   }
 }
 
-/// Small bottom-left FAB on the Focus screen. Opens the focus-picker
-/// bottom sheet. The primary "Create goal" FAB is at bottom-right (on the
-/// AppShell's Scaffold) — these two corners stay deliberately separate.
 class _PickSubtasksFab extends StatelessWidget {
   const _PickSubtasksFab();
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return FloatingActionButton.small(
+    return FloatingActionButton.extended(
       heroTag: 'fab_pick_subtasks',
       tooltip: 'Pick subtasks for today',
       backgroundColor: cs.secondaryContainer,
       foregroundColor: cs.onSecondaryContainer,
       onPressed: () => FocusScreen.openPicker(context),
-      child: const Icon(Icons.add_task),
+      icon: const Icon(Icons.add_task),
+      label: const Text('Pick subtasks'),
     );
   }
 }

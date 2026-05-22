@@ -39,7 +39,7 @@ class GoalPlanningScreen extends StatefulWidget {
   State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
 
-enum _GoalAction { archive, delete, sendToPlanning }
+enum _GoalAction { archive, delete, sendToPlanning, clearSubtasks }
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
@@ -343,6 +343,15 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
+                if (goal.subtasks.isNotEmpty)
+                  const PopupMenuItem(
+                    value: _GoalAction.clearSubtasks,
+                    child: ListTile(
+                      leading: Icon(Icons.clear_all),
+                      title: Text('Clear subtasks'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 PopupMenuItem(
                   value: _GoalAction.delete,
                   child: ListTile(
@@ -359,8 +368,8 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           if (isActive)
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
+              itemBuilder: (_) => [
+                const PopupMenuItem(
                   value: _GoalAction.archive,
                   child: ListTile(
                     leading: Icon(Icons.archive_outlined),
@@ -368,6 +377,15 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+                if (goal.subtasks.isNotEmpty)
+                  const PopupMenuItem(
+                    value: _GoalAction.clearSubtasks,
+                    child: ListTile(
+                      leading: Icon(Icons.clear_all),
+                      title: Text('Clear subtasks'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
               ],
             ),
           if (isCompleted)
@@ -521,7 +539,40 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
       case _GoalAction.sendToPlanning:
         service.sendToPlanning(goal.goalId);
         Navigator.pop(context);
+      case _GoalAction.clearSubtasks:
+        _clearSubtasks(context, goal, service);
     }
+  }
+
+  Future<void> _clearSubtasks(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) async {
+    if (goal.status == GoalStatus.active) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Clear all subtasks?'),
+          content: const Text(
+            'All subtasks will be permanently removed. '
+            'Your progress on this goal will be lost.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Clear'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+    }
+    service.clearSubtasks(goal.goalId);
   }
 
   /// Bottom bar varies by goal status:
@@ -1041,10 +1092,13 @@ class _SpeedDialState extends State<_SpeedDial> {
   void _openDial() {
     _overlayEntry?.remove();
     final entry = OverlayEntry(
-      builder: (_) => _SpeedDialOverlay(
-        onAddManual: () => _closeAndRun(widget.onAddManual),
-        onAddWithAI: () => _closeAndRun(widget.onAddWithAI),
-        onDismiss: _close,
+      builder: (_) => Material(
+        type: MaterialType.transparency,
+        child: _SpeedDialOverlay(
+          onAddManual: () => _closeAndRun(widget.onAddManual),
+          onAddWithAI: () => _closeAndRun(widget.onAddWithAI),
+          onDismiss: _close,
+        ),
       ),
     );
     Overlay.of(context, rootOverlay: true).insert(entry);

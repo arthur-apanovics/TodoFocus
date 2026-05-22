@@ -165,6 +165,11 @@ class Goal {
     _recalculateStatus();
   }
 
+  void clearSubtasks() {
+    subtasks.clear();
+    _recalculateStatus();
+  }
+
   // Complete the current subtask — next pending one becomes current implicitly
   void completeCurrentSubTask() {
     final current = currentSubTask;

@@ -347,18 +347,6 @@ class _AppShellState extends State<AppShell>
     }
   }
 
-  /// Primary FAB shown on every tab. Same widget instance so it morphs into
-  /// the pushed screens' FABs on navigation. The Focus screen owns its own
-  /// secondary "Pick subtasks" action at bottom-LEFT (rendered inside its
-  /// own body so it lives and dies with the screen).
-  Widget _buildFab(BuildContext context) {
-    return FloatingActionButton.extended(
-      onPressed: _openNewGoalSheet,
-      icon: const Icon(Icons.add),
-      label: const Text('Create goal'),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -388,15 +376,58 @@ class _AppShellState extends State<AppShell>
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          const FocusScreen(),
-          const GoalsScreen(),
-          const InboxScreen(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: const [
+                FocusScreen(),
+                GoalsScreen(),
+                InboxScreen(),
+              ],
+            ),
+          ),
+          _NewGoalHandle(onOpen: _openNewGoalSheet),
         ],
       ),
-      floatingActionButton: _buildFab(context),
+    );
+  }
+}
+
+/// Thin handle strip at the bottom of the AppShell body. Tapping or swiping
+/// up opens the new-goal sheet. Sits in-flow (below the TabBarView), so it
+/// doesn't float over any screen content.
+class _NewGoalHandle extends StatelessWidget {
+  final VoidCallback onOpen;
+
+  const _NewGoalHandle({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context)
+        .colorScheme
+        .onSurfaceVariant
+        .withValues(alpha: 0.35);
+    return GestureDetector(
+      onTap: onOpen,
+      onVerticalDragEnd: (details) {
+        if ((details.primaryVelocity ?? 0) < -200) onOpen();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 40,
+        child: Center(
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -416,12 +447,12 @@ class _PlanningTabLabel extends StatelessWidget {
     final inboxCount =
         repo.all.where((g) => g.status == GoalStatus.inbox).length;
     if (inboxCount == 0) return const Text('Planning');
-    return Badge.count(
-      count: inboxCount,
-      alignment: AlignmentDirectional.centerEnd,
-      // Push the badge out a touch so it doesn't visually crowd the label.
-      offset: const Offset(14, -6),
-      child: const Text('Planning'),
+    return Badge(
+      label: Text('$inboxCount'),
+      child: const Padding(
+        padding: EdgeInsets.only(right: 10),
+        child: Text('Planning'),
+      ),
     );
   }
 }
