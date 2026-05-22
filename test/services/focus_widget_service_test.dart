@@ -130,11 +130,14 @@ void main() {
     });
 
     test(
-        'partial focus: selected step completed → falls back to next pending',
+        'partial focus: selected step completed → backfills from goal\'s remaining pending',
         () async {
       // Simulate: user focuses only s1 (partial, not fully-focused), then
       // completes s1 (via widget tap or in-app). The focus group retains the
-      // stale s1 entry. buildPayload should fall back to s2 (currentSubTask).
+      // stale s1 entry. Pass 1 of pickPendingForGoal finds nothing pending in
+      // the focus list, so Pass 2 backfills from the goal's remaining pending
+      // subtasks up to maxRowsPerGoal — preventing the visible-row count from
+      // collapsing every time the user completes a focused step.
       final repo = InMemoryGoalRepository.empty();
       final goal = makeGoal(subtasks: [
         makeSubTask('s1'), // pending initially so focusSubtask accepts it
@@ -153,11 +156,15 @@ void main() {
         FocusWidgetService.buildPayload(FocusLayout.currentPlus2, focus, repo),
       );
 
-      // Should fall back to the goal's currentSubTask (s2), not go blank.
-      expect(payload.rows.length, 1);
-      final row = payload.rows.first as Map<String, dynamic>;
-      expect(row['subtaskId'], 's2');
-      expect(row['isCurrent'], isTrue);
+      // currentPlus2 → maxRowsPerGoal = 3. Pass 1: nothing (s1 is completed,
+      // s2/s3 not focused). Pass 2 backfills with s2, s3 in goal order.
+      expect(payload.rows.length, 2);
+      final first = payload.rows[0] as Map<String, dynamic>;
+      final second = payload.rows[1] as Map<String, dynamic>;
+      expect(first['subtaskId'], 's2');
+      expect(first['isCurrent'], isTrue);
+      expect(second['subtaskId'], 's3');
+      expect(second['isCurrent'], isFalse);
     });
 
     test('partial focus: all subtasks done → no rows for that goal', () async {
