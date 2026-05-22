@@ -14,6 +14,7 @@ import 'services/decomposition_state.dart';
 import 'services/display_preferences.dart';
 import 'services/draft_service.dart';
 import 'services/focus_list_service.dart';
+import 'services/focus_widget_service.dart';
 import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
@@ -49,21 +50,31 @@ void main() async {
   final schedulingService = SchedulingService(goalRepository);
   schedulingService.checkAndProcess();
 
-  // Schedule morning prompt if configured.
-  if (dailyResetService.morningPromptEnabled) {
-    final t = dailyResetService.morningPromptTime;
-    await notificationService.scheduleMorningPrompt(t.hour, t.minute);
+  // Home-screen widget bridge. Mirrors the notification: re-rendered whenever
+  // focus or goal data changes, or the widget layout preference is edited.
+  final focusWidgetService = FocusWidgetService(
+    repository: goalRepository,
+    focus: focusListService,
+    prefs: displayPreferences,
+  );
+  await FocusWidgetService.registerBackgroundCallback();
+
+  // Re-post the notification AND re-render the home-screen widget whenever the
+  // focus list or the underlying goal data changes. Either source can shift
+  // which subtask is "current".
+  void refreshFocusSurfaces() {
+    notificationService.update(
+      focusListService.resolveGroups(goalRepository),
+      showEmptyPrompt: dailyResetService.morningPromptEnabled,
+    );
+    focusWidgetService.update();
   }
 
-  // Re-post the notification whenever the focus list or the underlying
-  // goal data changes. Either source can shift which subtask is "current".
-  void refreshNotification() {
-    notificationService.update(focusListService.resolveGroups(goalRepository));
-  }
-
-  goalRepository.addListener(refreshNotification);
-  focusListService.addListener(refreshNotification);
-  refreshNotification();
+  goalRepository.addListener(refreshFocusSurfaces);
+  focusListService.addListener(refreshFocusSurfaces);
+  // The widget layout preference also changes what the widget renders.
+  displayPreferences.addListener(focusWidgetService.update);
+  refreshFocusSurfaces();
 
   runApp(
     TodoApp(
@@ -73,6 +84,7 @@ void main() async {
       dailyResetService: dailyResetService,
       displayPreferences: displayPreferences,
       notificationService: notificationService,
+      focusWidgetService: focusWidgetService,
       schedulingService: schedulingService,
       tabNotifier: tabNotifier,
       goalNavNotifier: goalNavNotifier,
@@ -87,6 +99,7 @@ class TodoApp extends StatelessWidget {
   final DailyResetService dailyResetService;
   final DisplayPreferences displayPreferences;
   final NotificationService notificationService;
+  final FocusWidgetService focusWidgetService;
   final SchedulingService schedulingService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?>
@@ -100,6 +113,7 @@ class TodoApp extends StatelessWidget {
     required this.dailyResetService,
     required this.displayPreferences,
     required this.notificationService,
+    required this.focusWidgetService,
     required this.schedulingService,
     required this.tabNotifier,
     required this.goalNavNotifier,
@@ -149,6 +163,8 @@ class TodoApp extends StatelessWidget {
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
+        // Exposed so AppShell can re-render the home-screen widget on resume.
+        Provider<FocusWidgetService>.value(value: focusWidgetService),
         // Exposed so AppShell can re-run the snooze / recurrence sweep on
         // resume, and so screens can call setRecurrence / snooze flows.
         ChangeNotifierProvider<SchedulingService>.value(
@@ -242,6 +258,7 @@ class _AppShellState extends State<AppShell>
     final repo = context.read<GoalRepository>();
     final focus = context.read<FocusListService>();
     final notif = context.read<NotificationService>();
+    final focusWidget = context.read<FocusWidgetService>();
     final resetService = context.read<DailyResetService>();
     final scheduling = context.read<SchedulingService>();
 
@@ -251,14 +268,16 @@ class _AppShellState extends State<AppShell>
     // changes what the notification should show.
     scheduling.checkAndProcess();
 
-    final wasReset = await resetService.checkAndReset();
+    // Run the daily reset before resolving groups — it may clear the focus
+    // list, which flips the notification to its empty state.
+    await resetService.checkAndReset();
     final groups = focus.resolveGroups(repo);
-
-    if (wasReset && groups.isEmpty) {
-      await notif.showAssignTasksPrompt();
-    } else {
-      await notif.update(groups);
-    }
+    await notif.update(
+      groups,
+      showEmptyPrompt: resetService.morningPromptEnabled,
+    );
+    // Keep the home-screen widget in step with whatever the resume sweep did.
+    await focusWidget.update();
   }
 
   void _onExternalTabChange() {
@@ -318,11 +337,36 @@ class _AppShellState extends State<AppShell>
     }
   }
 
+  // The FAB varies by tab: the Focus tab gains a second "Pick subtasks"
+  // button stacked above "Create goal"; every other tab shows just the
+  // create button. Rebuilt via the AnimatedBuilder on [_tabController].
   Widget _buildFab(BuildContext context) {
-    return FloatingActionButton.extended(
+    // createFab keeps the default hero tag so it still morphs into the
+    // pushed screens' FABs. Only the extra "Pick" FAB needs an explicit
+    // tag — two FABs on one screen can't share the default.
+    final createFab = FloatingActionButton.extended(
       onPressed: _openNewGoalSheet,
       icon: const Icon(Icons.add),
       label: const Text('Create goal'),
+    );
+    if (_tabController.index != 0) return createFab;
+
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: 'fab_pick_subtasks',
+          backgroundColor: cs.secondaryContainer,
+          foregroundColor: cs.onSecondaryContainer,
+          onPressed: () => FocusScreen.openPicker(context),
+          icon: const Icon(Icons.add_task),
+          label: const Text('Pick subtasks'),
+        ),
+        const SizedBox(height: 12),
+        createFab,
+      ],
     );
   }
 
@@ -330,7 +374,17 @@ class _AppShellState extends State<AppShell>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TodoFocus'),
+        // Tab titles live in the toolbar itself (no app title, no bottom
+        // strip) so the three screens get the vertical space back.
+        titleSpacing: 0,
+        title: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Focus'),
+            Tab(text: 'Goals'),
+            Tab(text: 'Planning'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -341,14 +395,6 @@ class _AppShellState extends State<AppShell>
             ),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Focus'),
-            Tab(text: 'Goals'),
-            Tab(text: 'Planning'),
-          ],
-        ),
       ),
       body: TabBarView(
         controller: _tabController,
@@ -358,7 +404,10 @@ class _AppShellState extends State<AppShell>
           const InboxScreen(),
         ],
       ),
-      floatingActionButton: _buildFab(context),
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabController,
+        builder: (context, _) => _buildFab(context),
+      ),
     );
   }
 }

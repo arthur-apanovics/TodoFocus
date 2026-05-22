@@ -38,6 +38,62 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Resizable Focus home-screen widget. Data is pushed from Dart via
+             the home_widget plugin; FocusWidgetProvider renders it.
+
+             FocusWidgetListService backs the scrollable ListView — it must be
+             exported with BIND_REMOTEVIEWS so the launcher can bind to it.
+
+             WidgetCompleteReceiver handles check-button taps from the ListView;
+             it uses a FLAG_MUTABLE PendingIntent template so per-row fill-in
+             extras work correctly (FLAG_IMMUTABLE prevents this). -->
+        <receiver
+            android:name=".FocusWidgetProvider"
+            android:exported="true"
+            android:label="@string/focus_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/focus_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".FocusWidgetListService"
+            android:exported="true"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <receiver
+            android:name=".WidgetCompleteReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.todo_app.WIDGET_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- home_widget plugin components.
+             The plugin's own AndroidManifest.xml is empty, so the host app
+             must declare these. Without them:
+               • HomeWidgetBackgroundService (a JobIntentService) cannot be
+                 scheduled by the JobScheduler — JobIntentService.enqueueWork
+                 throws IllegalArgumentException: "Tried to schedule job for
+                 non-existent component".
+               • HomeWidgetBackgroundReceiver wouldn't be reachable as the
+                 broadcast target for the check-button taps. -->
+        <service
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

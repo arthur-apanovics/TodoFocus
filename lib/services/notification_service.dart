@@ -1,21 +1,36 @@
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
 import '../models/enums.dart';
-import '../models/goal.dart';
-import '../models/sub_task.dart';
+import '../theme/app_colors.dart';
 import 'focus_list_service.dart';
 import 'goal_repository.dart';
 import 'goal_service.dart';
+import 'hive/hive_goal_repository.dart';
 
+/// Owns the single persistent "focus" notification.
+///
+/// Design intent: this notification is a **passive, silent** reminder that
+/// sits in the shade so the user can glance at what to work on next — it must
+/// never buzz, sound, or pop up as a heads-up. That is why the channel is
+/// [NotificationImportance.Low]. Content updates (a new current subtask, a
+/// finished goal) silently refresh the same notification rather than alerting.
+///
+/// There is exactly one notification slot ([_notifId]). It has two states:
+///   • **focus** — focus list has pending work: a rich, expandable step list.
+///   • **empty** — nothing assigned: a "plan your day" nudge, shown only when
+///     the user has the plan-your-day reminder enabled.
 class NotificationService {
   static const String markDoneActionKey = 'mark_done';
   static const String breakdownActionKey = 'breakdown';
   static const int _notifId = 1;
-  static const int _morningPromptId = 2;
-  static const String _channelKey = 'focus_task';
-  static const String _channelName = 'Focus Task';
-  static const String _morningChannelKey = 'morning_prompt';
-  static const String _morningChannelName = 'Morning Prompt';
+  static const String _channelKey = 'focus_v2';
+
+  // Legacy identifiers cleaned up on init: the old High-importance focus
+  // channel and the standalone scheduled morning-prompt notification, which
+  // is now folded into this notification's empty state.
+  static const String _legacyChannelKey = 'focus_task';
+  static const String _legacyMorningChannelKey = 'morning_prompt';
+  static const int _legacyMorningPromptId = 2;
 
   // Static references used by the action callback. Must be static because
   // awesome_notifications invokes the handler as a top-level entry point.
@@ -25,10 +40,9 @@ class NotificationService {
       _goalNavNotifier;
   static int _navSeq = 0;
 
-  // Track what's currently shown so update() is a no-op when content hasn't
-  // changed — avoids re-triggering sound/vibration on every app resume.
-  String? _shownGoalId;
-  String? _shownSubtaskId;
+  // Signature of what's currently displayed so update() is a no-op when the
+  // visible content hasn't changed — avoids redundant platform calls.
+  String? _lastSignature;
 
   NotificationService({
     required ValueNotifier<({String goalId, int seq, bool breakdown})?>
@@ -47,21 +61,27 @@ class NotificationService {
       [
         NotificationChannel(
           channelKey: _channelKey,
-          channelName: _channelName,
-          channelDescription: 'Shows your current active subtask',
-          importance: NotificationImportance.High,
+          channelName: 'Focus reminder',
+          channelDescription:
+              'Ongoing, silent reminder of your current focus task',
+          importance: NotificationImportance.Low,
           defaultPrivacy: NotificationPrivacy.Public,
-        ),
-        NotificationChannel(
-          channelKey: _morningChannelKey,
-          channelName: _morningChannelName,
-          channelDescription: 'Daily reminder to assign tasks for the day',
-          importance: NotificationImportance.Default,
-          defaultPrivacy: NotificationPrivacy.Public,
+          playSound: false,
+          enableVibration: false,
+          enableLights: false,
+          onlyAlertOnce: true,
+          channelShowBadge: false,
         ),
       ],
       debug: false,
     );
+
+    // Drop pre-redesign artefacts: the old High-importance channel (which
+    // re-alerted on every content change) and the separate scheduled
+    // morning-prompt notification.
+    await AwesomeNotifications().removeChannel(_legacyChannelKey);
+    await AwesomeNotifications().removeChannel(_legacyMorningChannelKey);
+    await AwesomeNotifications().cancel(_legacyMorningPromptId);
 
     await AwesomeNotifications().setListeners(
       onActionReceivedMethod: _onActionReceived,
@@ -81,50 +101,99 @@ class NotificationService {
     }
   }
 
-  /// Rebuilds the persistent notification from the focus list. Walks the
-  /// resolved groups in priority order, picks the first two pending subtasks
-  /// (current + peek), and posts. Both "current" and "peek" may belong to
-  /// the same or different goals.
-  Future<void> update(List<ResolvedFocusGroup> groups) async {
-    final pendings = <({Goal goal, SubTask subtask})>[];
+  /// Rebuilds the persistent notification from the focus list.
+  ///
+  /// Picks the top-priority goal that still has pending work and renders its
+  /// step list as an expandable [NotificationLayout.Inbox]. When nothing is
+  /// actionable the notification either shows the "plan your day" empty state
+  /// (when [showEmptyPrompt] is true) or is dismissed.
+  Future<void> update(
+    List<ResolvedFocusGroup> groups, {
+    bool showEmptyPrompt = false,
+  }) async {
+    // The focus = the first focused goal that still has a pending subtask.
+    ResolvedFocusGroup? currentGroup;
     for (final g in groups) {
-      for (final s in g.subtasks) {
-        if (s.state == SubTaskState.pending) {
-          pendings.add((goal: g.goal, subtask: s));
-          if (pendings.length >= 2) break;
-        }
+      if (g.subtasks.any((s) => s.state == SubTaskState.pending)) {
+        currentGroup = g;
+        break;
       }
-      if (pendings.length >= 2) break;
     }
-    if (pendings.isEmpty) {
-      await dismiss();
+
+    if (currentGroup == null) {
+      if (showEmptyPrompt) {
+        await _postEmptyState();
+      } else {
+        await dismiss();
+      }
       return;
     }
 
-    final current = pendings[0];
-    final next = pendings.length > 1 ? pendings[1] : null;
+    final goal = currentGroup.goal;
+    final pendingSteps =
+        goal.subtasks.where((s) => s.state == SubTaskState.pending).toList();
+    final current = pendingSteps.first;
 
-    // Skip re-posting unchanged content — avoids sound/vibration on resume.
-    if (current.goal.goalId == _shownGoalId &&
-        current.subtask.subtaskId == _shownSubtaskId) {
-      return;
+    // Count other focused goals that still have pending work — surfaced as a
+    // "+N more goals" hint so the user knows the queue isn't just this goal.
+    var otherGoals = 0;
+    for (final g in groups) {
+      if (g.goal.goalId == goal.goalId) continue;
+      if (g.subtasks.any((s) => s.state == SubTaskState.pending)) otherGoals++;
     }
-    _shownGoalId = current.goal.goalId;
-    _shownSubtaskId = current.subtask.subtaskId;
+
+    // Skip the platform call when nothing visible changed.
+    final signature = [
+      goal.goalId,
+      current.subtaskId,
+      pendingSteps.length,
+      goal.subtasks.length,
+      otherGoals,
+    ].join('|');
+    if (signature == _lastSignature) return;
+    _lastSignature = signature;
+
+    // Inbox lines: current step (○ — the actionable hollow ring, matches the
+    // widget's ic_widget_check_active drawable) first, then upcoming pending
+    // steps (· — small muted dot, matches ic_widget_check_locked).
+    const maxLines = 6;
+    final lines = <String>[];
+    for (var i = 0; i < pendingSteps.length && i < maxLines; i++) {
+      final marker = i == 0 ? '○' : '·';
+      lines.add('$marker  ${pendingSteps[i].description}');
+    }
+    final hidden = pendingSteps.length - lines.length;
+    if (hidden > 0) {
+      lines.add('     +$hidden more step${hidden == 1 ? '' : 's'}');
+    }
+
+    final done = goal.completedSubtaskCount;
+    final total = goal.subtasks.length;
+    final progress = '$done of $total steps done';
+    final summary = otherGoals > 0
+        ? '$progress  ·  +$otherGoals more goal${otherGoals == 1 ? '' : 's'}'
+        : progress;
+
+    final emoji = goal.emoji;
+    final title = (emoji != null && emoji.isNotEmpty)
+        ? '$emoji  ${goal.title}'
+        : goal.title;
+    final hasNext = pendingSteps.length > 1;
 
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: _notifId,
         channelKey: _channelKey,
-        title: current.goal.title,
-        body: next != null
-            ? '❯ ${current.subtask.description}\n↳ ${next.subtask.description}'
-            : '❯ ${current.subtask.description}',
+        title: title,
+        body: lines.join('\n'),
+        summary: summary,
+        notificationLayout: NotificationLayout.Inbox,
+        category: NotificationCategory.Reminder,
+        color: AppColors.accent,
         payload: {
-          'goalId': current.goal.goalId,
-          'subtaskId': current.subtask.subtaskId,
+          'goalId': goal.goalId,
+          'subtaskId': current.subtaskId,
         },
-        notificationLayout: NotificationLayout.Default,
         autoDismissible: false,
         locked: true,
         showWhen: false,
@@ -132,70 +201,46 @@ class NotificationService {
       actionButtons: [
         NotificationActionButton(
           key: markDoneActionKey,
-          label: next != null ? 'Next step' : 'Mark done',
+          label: hasNext ? 'Done · next step' : 'Mark done',
           actionType: ActionType.SilentAction,
           autoDismissible: false,
         ),
         NotificationActionButton(
           key: breakdownActionKey,
           label: 'Break it down',
-          actionType: ActionType.SilentAction,
+          actionType: ActionType.Default,
           autoDismissible: false,
         ),
       ],
     );
   }
 
-  /// Shows a persistent "Assign tasks" notification after a daily reset.
-  Future<void> showAssignTasksPrompt() async {
-    _shownGoalId = null;
-    _shownSubtaskId = null;
+  /// Posts the "plan your day" empty state into the same notification slot.
+  /// Used when the focus list is empty and the user wants the reminder.
+  Future<void> _postEmptyState() async {
+    const signature = 'empty';
+    if (signature == _lastSignature) return;
+    _lastSignature = signature;
+
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: _notifId,
         channelKey: _channelKey,
         title: 'Plan your day',
-        body: 'Assign tasks to focus on today',
+        body: 'Nothing in focus yet — tap to pick what to work on today.',
         notificationLayout: NotificationLayout.Default,
-        autoDismissible: true,
-        locked: false,
+        category: NotificationCategory.Reminder,
+        color: AppColors.accent,
+        autoDismissible: false,
+        locked: true,
         showWhen: false,
       ),
     );
   }
 
-  /// Schedules (or re-schedules) the daily morning prompt notification.
-  Future<void> scheduleMorningPrompt(int hour, int minute) async {
-    await AwesomeNotifications().cancel(_morningPromptId);
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: _morningPromptId,
-        channelKey: _morningChannelKey,
-        title: 'Good morning!',
-        body: 'Assign tasks to focus on today',
-        notificationLayout: NotificationLayout.Default,
-      ),
-      schedule: NotificationCalendar(
-        hour: hour,
-        minute: minute,
-        second: 0,
-        millisecond: 0,
-        repeats: true,
-        allowWhileIdle: true,
-        preciseAlarm: false,
-      ),
-    );
-  }
-
-  /// Cancels the morning prompt if it was scheduled.
-  Future<void> cancelMorningPrompt() async {
-    await AwesomeNotifications().cancel(_morningPromptId);
-  }
-
   Future<void> dismiss() async {
     await AwesomeNotifications().cancel(_notifId);
-    _shownGoalId = null;
-    _shownSubtaskId = null;
+    _lastSignature = null;
   }
 
   // Must be a static method annotated with @pragma('vm:entry-point') so the
@@ -207,21 +252,29 @@ class NotificationService {
     final subtaskId = action.payload?['subtaskId'];
 
     if (action.buttonKeyPressed == markDoneActionKey) {
-      if (goalId != null && subtaskId != null && _repository != null) {
-        final svc = _focus != null
-            ? GoalService(_repository!, _focus!)
-            : null;
-        svc?.completeSubTask(goalId, subtaskId);
-        _goalNavNotifier?.value = (
-          goalId: goalId,
-          seq: ++_navSeq,
-          breakdown: false,
-        );
+      if (goalId == null || subtaskId == null) return;
+      var repo = _repository;
+      var focus = _focus;
+      if (repo == null || focus == null) {
+        // The app process is dead — bootstrap a throwaway service stack so
+        // the completion still persists. The notification refreshes itself
+        // the next time the app is opened.
+        repo = await HiveGoalRepository.init();
+        focus = await FocusListService.init();
       }
+      try {
+        GoalService(repo, focus).completeSubTask(goalId, subtaskId);
+      } catch (_) {
+        // Out-of-order completion or a stale id — nothing to do.
+      }
+      // Completing from the notification is deliberately passive: no
+      // navigation. The persistent notification updates in place.
       return;
     }
 
     if (action.buttonKeyPressed == breakdownActionKey) {
+      // Breaking a step down needs the in-app editor, so this button opens
+      // the app (ActionType.Default) and routes to the goal.
       if (goalId != null) {
         _goalNavNotifier?.value = (
           goalId: goalId,
@@ -232,7 +285,7 @@ class NotificationService {
       return;
     }
 
-    // Notification body tapped — navigate to the goal detail screen.
+    // Notification body tapped — navigate to the goal.
     if (goalId != null) {
       _goalNavNotifier?.value = (
         goalId: goalId,

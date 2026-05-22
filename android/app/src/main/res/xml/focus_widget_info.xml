@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Metadata for the resizable Focus home-screen widget. resizeMode allows
+     the user to stretch it both ways; the layout preference (set in-app)
+     controls how many steps are listed, the resize just gives breathing
+     room. updatePeriodMillis is 0 because the app pushes updates explicitly
+     via home_widget whenever focus data changes. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="70dp"
+    android:maxResizeWidth="360dp"
+    android:maxResizeHeight="800dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/focus_widget"
+    android:previewLayout="@layout/focus_widget"
+    android:description="@string/focus_widget_description" />

@@ -103,6 +103,7 @@ class HiveGoalRepository extends GoalRepository {
       nextOccurrenceAt: dto.nextOccurrenceAt,
       lastIterationSummary: dto.lastIterationSummary ?? '',
       lastResumedAt: dto.lastResumedAt,
+      createdAt: dto.createdAt,
     );
   }
 
@@ -141,7 +142,8 @@ class HiveGoalRepository extends GoalRepository {
       ..nextOccurrenceAt = goal.nextOccurrenceAt
       ..lastIterationSummary =
           goal.lastIterationSummary.isEmpty ? null : goal.lastIterationSummary
-      ..lastResumedAt = goal.lastResumedAt;
+      ..lastResumedAt = goal.lastResumedAt
+      ..createdAt = goal.createdAt;
     return dto;
   }
 
@@ -160,11 +162,13 @@ class HiveGoalRepository extends GoalRepository {
   }
 
   // --- Static initialisation helper ---
-  // Called once at app startup before the repository is registered
+  // Called at app startup, and again from the home-widget background isolate.
+  // Adapter registration is guarded so a second call (in a fresh isolate, or
+  // after a hot restart) doesn't throw "already registered".
   static Future<HiveGoalRepository> init() async {
     await Hive.initFlutter();
-    Hive.registerAdapter(GoalDtoAdapter());
-    Hive.registerAdapter(SubTaskDtoAdapter());
+    if (!Hive.isAdapterRegistered(0)) Hive.registerAdapter(GoalDtoAdapter());
+    if (!Hive.isAdapterRegistered(1)) Hive.registerAdapter(SubTaskDtoAdapter());
     final box = await Hive.openBox<GoalDto>(_boxName);
 
     return HiveGoalRepository(box);

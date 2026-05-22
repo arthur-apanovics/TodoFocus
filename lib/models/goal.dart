@@ -43,6 +43,11 @@ class Goal {
   /// to mark goals that have a freshly-revived current step as "Resumed".
   DateTime? lastResumedAt;
 
+  /// When the goal was first captured. Set by the creation paths in
+  /// [GoalDecompositionService]. Null for goals created before this field
+  /// existed — the UI simply omits the "Created" metadata in that case.
+  final DateTime? createdAt;
+
   Goal({
     required this.goalId,
     required this.title,
@@ -56,6 +61,7 @@ class Goal {
     this.nextOccurrenceAt,
     this.lastIterationSummary = '',
     this.lastResumedAt,
+    this.createdAt,
   }) : subtasks = subtasks ?? [];
 
   // --- Computed properties ---
@@ -108,6 +114,18 @@ class Goal {
 
   double get progressPercent =>
       subtasks.isEmpty ? 0 : completedSubtaskCount / subtasks.length;
+
+  /// When the goal was finished — the latest completion date among its
+  /// subtasks. Null unless the goal is currently [GoalStatus.completed].
+  DateTime? get completedAt {
+    if (status != GoalStatus.completed) return null;
+    DateTime? latest;
+    for (final st in subtasks) {
+      final c = st.completionDate;
+      if (c != null && (latest == null || c.isAfter(latest))) latest = c;
+    }
+    return latest;
+  }
 
   // --- Mutations ---
 
@@ -331,6 +349,7 @@ class Goal {
           'lastIterationSummary': lastIterationSummary,
         if (lastResumedAt != null)
           'lastResumedAt': lastResumedAt!.toIso8601String(),
+        if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
       };
 
   factory Goal.fromJson(Map<String, dynamic> json) {
@@ -360,6 +379,9 @@ class Goal {
       lastIterationSummary: json['lastIterationSummary'] as String? ?? '',
       lastResumedAt: json['lastResumedAt'] != null
           ? DateTime.parse(json['lastResumedAt'] as String)
+          : null,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
           : null,
     );
   }

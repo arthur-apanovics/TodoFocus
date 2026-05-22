@@ -40,7 +40,7 @@ class GoalPlanningScreen extends StatefulWidget {
   State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
 
-enum _GoalAction { archive, sendToPlanning }
+enum _GoalAction { archive, delete, sendToPlanning }
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
@@ -338,7 +338,25 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                   : 'Undo (${_undoStack.length})',
               onPressed: _undoStack.isEmpty ? null : _undo,
             ),
-          if (isInbox || isActive)
+          // Planning (inbox) goals haven't been committed to — deleting
+          // them outright is cleaner than archiving an unstarted plan.
+          if (isInbox)
+            PopupMenuButton<_GoalAction>(
+              onSelected: (a) => _handleMenuAction(context, goal, a),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: _GoalAction.delete,
+                  child: ListTile(
+                    leading: Icon(AppIcons.delete,
+                        color: AppColors.destructive),
+                    title: Text('Delete',
+                        style: TextStyle(color: AppColors.destructive)),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          if (isActive)
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => const [
@@ -461,6 +479,8 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     switch (action) {
       case _GoalAction.archive:
         _confirmArchive(context, service);
+      case _GoalAction.delete:
+        _confirmDelete(context, service);
       case _GoalAction.sendToPlanning:
         service.sendToPlanning(goal.goalId);
         Navigator.pop(context);
@@ -629,6 +649,43 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
     if (confirmed == true && context.mounted) {
       service.archiveGoal(goal.goalId);
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final repo = context.read<GoalRepository>();
+    final goal = repo.findById(widget.goalId);
+    if (goal == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete goal?'),
+        content: const Text(
+          'This goal and its plan will be permanently deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.destructive,
+              foregroundColor: AppColors.onDestructive,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      service.removeGoal(goal.goalId);
       Navigator.pop(context);
     }
   }
@@ -1205,11 +1262,54 @@ class _GoalDescriptionCard extends StatelessWidget {
                     _RecurrenceChip(goal: goal),
                   ],
                 ),
+                _GoalMetaLine(goal: goal),
               ],
             ),
           ),
           const Divider(height: 1, thickness: 1),
         ],
+      ),
+    );
+  }
+}
+
+// --- Goal metadata line ---
+
+/// Subtle one-line goal metadata under the description — creation and
+/// completion dates. Renders nothing when neither is known (e.g. a legacy
+/// goal saved before the createdAt field existed).
+class _GoalMetaLine extends StatelessWidget {
+  final Goal goal;
+
+  const _GoalMetaLine({required this.goal});
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _format(DateTime d) {
+    final label = '${d.day} ${_months[d.month - 1]}';
+    return d.year == DateTime.now().year ? label : '$label ${d.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[];
+    final created = goal.createdAt;
+    if (created != null) parts.add('Created ${_format(created)}');
+    final completed = goal.completedAt;
+    if (completed != null) parts.add('Completed ${_format(completed)}');
+    if (parts.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Text(
+        parts.join('   ·   '),
+        style: Theme.of(context)
+            .textTheme
+            .labelSmall
+            ?.copyWith(color: AppColors.muted),
       ),
     );
   }

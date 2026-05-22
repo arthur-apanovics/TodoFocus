@@ -38,6 +38,11 @@ dependencies:
   http: ^1.2.0
   awesome_notifications: ^0.11.0
   file_picker: ^8.0.0
+  # Home-screen widget bridge. Pinned below 0.9.0 on purpose: 0.9.x drags in
+  # a Jetpack Glance *alpha* that forces Android Gradle Plugin 9.x. Our widget
+  # is plain RemoteViews and uses no Glance, so 0.7.0+1 has every API we need
+  # (the interactivity callback has been stable since 0.6.0).
+  home_widget: 0.7.0+1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

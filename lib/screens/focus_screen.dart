@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
+import '../services/display_preferences.dart';
 import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
@@ -13,6 +14,11 @@ import 'goal_planning_screen.dart';
 import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/snooze_picker_sheet.dart';
+
+/// Bottom inset for the Focus list. Wider than the shared
+/// [kFabSafeBottomPadding] because the Focus tab stacks a second
+/// "Pick subtasks" FAB above the "Create goal" FAB.
+const double _kFocusFabSafePadding = kFabSafeBottomPadding + 64;
 
 /// "Today's Focus" tab.
 ///
@@ -50,19 +56,11 @@ class FocusScreen extends StatelessWidget {
           ? const _EmptyFocusState()
           : Column(
               children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 8, 0),
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.add_task, size: 18),
-                      label: const Text('Pick subtasks'),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => FocusScreen.openPicker(context),
-                    ),
-                  ),
+                // Banner is pinned to the top — it no longer scrolls away
+                // with the list.
+                _Banner(
+                  pending: partition.pendingTotal,
+                  completed: partition.completedTotal,
                 ),
                 Expanded(
                   child: _GroupsList(
@@ -87,57 +85,99 @@ class FocusScreen extends StatelessWidget {
   }
 }
 
+/// Popup that switches the in-app Focus tab layout. Mirrors the Goals tab's
+/// layout control, but writes the independent
+/// [DisplayPreferences.focusScreenLayout] — the Focus tab, the home-screen
+/// widget and the Goals list each remember their own density.
+class _FocusLayoutButton extends StatelessWidget {
+  const _FocusLayoutButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return PopupMenuButton<FocusLayout>(
+      icon: const Icon(Icons.view_agenda_outlined),
+      tooltip: 'Focus layout',
+      onSelected: context.read<DisplayPreferences>().setFocusScreenLayout,
+      itemBuilder: (_) => FocusLayout.values
+          .map(
+            (v) => PopupMenuItem(
+              value: v,
+              child: ListTile(
+                title: Text(v.displayName),
+                trailing: prefs.focusScreenLayout == v
+                    ? const Icon(Icons.check, size: 18)
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                minLeadingWidth: 24,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
 /// Result of partitioning the focus list for the today view.
 ///
 /// • [active] preserves user-defined order and is rendered as the
 ///   primary reorderable list at the top.
 /// • [laterToday] is sorted by wake time ASC and rendered as a
 ///   non-reorderable "Later today" section below.
+/// • [completed] holds cards whose every focused subtask is done — they
+///   sink to the bottom so finished work never sits above live work.
 /// • Groups whose front subtask is snoozed past today are excluded entirely.
 class _TodayPartition {
   final List<ResolvedFocusGroup> active;
   final List<ResolvedFocusGroup> laterToday;
+  final List<ResolvedFocusGroup> completed;
 
-  const _TodayPartition({required this.active, required this.laterToday});
+  const _TodayPartition({
+    required this.active,
+    required this.laterToday,
+    required this.completed,
+  });
 
-  bool get isEmpty => active.isEmpty && laterToday.isEmpty;
-  int get pendingTotal =>
-      active.fold<int>(0, (s, g) => s + g.pendingCount) +
-      laterToday.fold<int>(0, (s, g) => s + g.pendingCount);
-  int get completedTotal =>
-      active.fold<int>(0, (s, g) => s + g.completedCount) +
-      laterToday.fold<int>(0, (s, g) => s + g.completedCount);
+  bool get isEmpty =>
+      active.isEmpty && laterToday.isEmpty && completed.isEmpty;
+  int get pendingTotal => _all.fold<int>(0, (s, g) => s + g.pendingCount);
+  int get completedTotal => _all.fold<int>(0, (s, g) => s + g.completedCount);
+
+  Iterable<ResolvedFocusGroup> get _all =>
+      [...active, ...laterToday, ...completed];
 }
 
 /// Walks [groups] in the user's order, classifying each by the state of the
 /// first non-completed subtask (the "front"). Goals whose front is snoozed
 /// beyond end-of-today are dropped; goals whose front is snoozed earlier
-/// today are sunk into [_TodayPartition.laterToday].
+/// today are sunk into [_TodayPartition.laterToday]; goals whose focused
+/// subtasks are all complete sink into [_TodayPartition.completed].
 _TodayPartition _partitionForToday(List<ResolvedFocusGroup> groups) {
   final now = DateTime.now();
   final endOfToday = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
 
   final active = <ResolvedFocusGroup>[];
   final laterToday = <ResolvedFocusGroup>[];
+  final completed = <ResolvedFocusGroup>[];
 
   for (final g in groups) {
     final front = _frontSubtask(g.goal);
-    if (front == null) {
-      // Goal has no non-completed subtask (e.g. fully focused but all done).
-      // Still show it in the active list so the user can clear it.
-      active.add(g);
+    // Snoozed front → the goal is on hold. Drop it if it wakes past today;
+    // otherwise sink it into the "Later today" section.
+    if (front != null && front.state == SubTaskState.snoozed) {
+      final until = front.snoozedUntil;
+      if (until == null || until.isAfter(endOfToday)) continue;
+      laterToday.add(g);
       continue;
     }
-    if (front.state != SubTaskState.snoozed) {
-      active.add(g);
+    // Every focused subtask done → the card is finished; sink it so any
+    // live or newly-added card always sits above it.
+    if (g.subtasks.every((s) => s.state == SubTaskState.completed)) {
+      completed.add(g);
       continue;
     }
-    final until = front.snoozedUntil;
-    if (until == null || until.isAfter(endOfToday)) {
-      // Snoozed indefinitely or past today — drop.
-      continue;
-    }
-    laterToday.add(g);
+    active.add(g);
   }
 
   // Sort the "later today" bucket by wake time ASC so the next-to-wake is
@@ -148,7 +188,11 @@ _TodayPartition _partitionForToday(List<ResolvedFocusGroup> groups) {
     return aw.compareTo(bw);
   });
 
-  return _TodayPartition(active: active, laterToday: laterToday);
+  return _TodayPartition(
+    active: active,
+    laterToday: laterToday,
+    completed: completed,
+  );
 }
 
 /// First non-completed subtask of [goal]. The "front" determines whether the
@@ -162,7 +206,8 @@ SubTask? _frontSubtask(Goal goal) {
 }
 
 class _GroupsList extends StatelessWidget {
-  /// Today-filtered partition rendered into the two sections.
+  /// Today-filtered partition rendered into the active / later-today /
+  /// completed sections.
   final _TodayPartition partition;
 
   /// The original (unfiltered) focus list. Needed because
@@ -188,26 +233,18 @@ class _GroupsList extends StatelessWidget {
 
     return CustomScrollView(
       slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          sliver: SliverToBoxAdapter(
-            child: _Banner(
-              pending: partition.pendingTotal,
-              completed: partition.completedTotal,
-            ),
-          ),
-        ),
-
         // ── Active section: user-reorderable ─────────────────────────────
         if (partition.active.isNotEmpty)
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
               12,
-              4,
+              8,
               12,
-              // When there's no "later today" section below us, the active
-              // list owns the bottom of the screen — add FAB-safe inset.
-              partition.laterToday.isEmpty ? kFabSafeBottomPadding : 8,
+              // When nothing follows, the active list owns the bottom of
+              // the screen — add FAB-safe inset.
+              partition.laterToday.isEmpty && partition.completed.isEmpty
+                  ? _kFocusFabSafePadding
+                  : 8,
             ),
             sliver: SliverReorderableList(
               itemCount: partition.active.length,
@@ -253,8 +290,12 @@ class _GroupsList extends StatelessWidget {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-                12, 0, 12, kFabSafeBottomPadding),
+            padding: EdgeInsets.fromLTRB(
+              12,
+              0,
+              12,
+              partition.completed.isEmpty ? _kFocusFabSafePadding : 8,
+            ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) {
@@ -270,6 +311,38 @@ class _GroupsList extends StatelessWidget {
                   );
                 },
                 childCount: partition.laterToday.length,
+              ),
+            ),
+          ),
+        ],
+
+        // ── Completed: cards whose every focused step is done ────────────
+        if (partition.completed.isNotEmpty) ...[
+          if (partition.active.isNotEmpty || partition.laterToday.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              sliver: SliverToBoxAdapter(
+                child: _SectionDivider(label: 'Completed'),
+              ),
+            ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+                12, 0, 12, _kFocusFabSafePadding),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final resolved = partition.completed[i];
+                  return Padding(
+                    key: ValueKey(resolved.goal.goalId),
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Opacity(
+                      // Dimmed — finished work, kept only until "Clear done".
+                      opacity: 0.6,
+                      child: _GroupCard(resolved: resolved, dragIndex: -1),
+                    ),
+                  );
+                },
+                childCount: partition.completed.length,
               ),
             ),
           ),
@@ -348,31 +421,36 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          pending == 0
-              ? 'All done for today'
-              : pending == 1
-                  ? '1 task to focus on'
-                  : '$pending tasks to focus on',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const Spacer(),
-        if (completed > 0)
-          TextButton(
-            onPressed: () => context
-                .read<FocusListService>()
-                .clearCompleted(context.read<GoalRepository>()),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 4, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              pending == 0
+                  ? 'All done for today'
+                  : pending == 1
+                      ? '1 task to focus on'
+                      : '$pending tasks to focus on',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            child: Text('Clear $completed done'),
           ),
-      ],
+          if (completed > 0)
+            TextButton(
+              onPressed: () => context
+                  .read<FocusListService>()
+                  .clearCompleted(context.read<GoalRepository>()),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text('Clear $completed done'),
+            ),
+          const _FocusLayoutButton(),
+        ],
+      ),
     );
   }
 }
@@ -389,6 +467,8 @@ class _GroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final goal = resolved.goal;
+    final layout = context.watch<DisplayPreferences>().focusScreenLayout;
+    final visible = _visibleSubtasks(layout);
     return Material(
       color: cs.surface,
       shape: RoundedRectangleBorder(
@@ -400,18 +480,77 @@ class _GroupCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _GroupHeader(resolved: resolved),
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: cs.outlineVariant,
-          ),
-          for (var i = 0; i < resolved.subtasks.length; i++) ...[
-            _SubtaskRow(
-              goal: goal,
-              subtask: resolved.subtasks[i],
-              showDivider: i < resolved.subtasks.length - 1,
+          if (layout == FocusLayout.compact)
+            _CompactNextLine(goal: goal)
+          else if (visible.isNotEmpty) ...[
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: cs.outlineVariant,
             ),
+            for (var i = 0; i < visible.length; i++)
+              _SubtaskRow(
+                goal: goal,
+                subtask: visible[i],
+                showDivider: i < visible.length - 1,
+              ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Focused subtasks limited to the chosen [layout]: every completed step
+  /// (frozen progress) stays visible, followed by the current step and up to
+  /// N upcoming pending steps. Compact returns nothing — the header carries
+  /// a one-line summary instead.
+  List<SubTask> _visibleSubtasks(FocusLayout layout) {
+    if (layout == FocusLayout.compact) return const [];
+    final all = resolved.subtasks;
+    final completed =
+        all.where((s) => s.state == SubTaskState.completed).toList();
+    final upcoming =
+        all.where((s) => s.state != SubTaskState.completed).toList();
+    return [...completed, ...upcoming.take(1 + layout.extraSteps)];
+  }
+}
+
+/// One-line "what's next" summary shown under the header in compact layout,
+/// so a collapsed card still tells the user what to do.
+class _CompactNextLine extends StatelessWidget {
+  final Goal goal;
+
+  const _CompactNextLine({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final current = goal.currentSubTask;
+    final String label;
+    final IconData icon;
+    if (current != null) {
+      label = current.description;
+      icon = Icons.arrow_right;
+    } else if (goal.isOnHold) {
+      label = 'On hold — snoozed';
+      icon = Icons.bedtime_outlined;
+    } else {
+      label = 'All steps complete';
+      icon = Icons.check_circle_outline;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppColors.muted),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ),
         ],
       ),
     );
@@ -423,9 +562,40 @@ class _GroupHeader extends StatelessWidget {
 
   const _GroupHeader({required this.resolved});
 
+  /// Opens the snooze picker for the goal's current step. Snoozing it puts
+  /// the whole goal on hold (it sinks into "Later today" or drops off).
+  Future<void> _snooze(BuildContext context) async {
+    final result = await SnoozePickerSheet.show(context);
+    if (result == null || !context.mounted) return;
+    try {
+      context.read<GoalService>().snoozeCurrentSubTask(
+            resolved.goal.goalId,
+            until: result.until,
+            notify: result.notify,
+          );
+    } on StateError catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
+
+  /// Wakes the snoozed front step, taking the goal off hold immediately.
+  void _wake(BuildContext context) {
+    final front = _frontSubtask(resolved.goal);
+    if (front == null) return;
+    context
+        .read<GoalService>()
+        .wakeSubTask(resolved.goal.goalId, front.subtaskId);
+  }
+
   @override
   Widget build(BuildContext context) {
     final goal = resolved.goal;
+    // Snooze/wake toggle on the header: a live current step can be snoozed;
+    // an on-hold goal can be woken. A fully-completed card shows neither.
+    final hasCurrent = goal.currentSubTask != null;
+    final onHold = goal.isOnHold;
     return InkWell(
       onTap: () => Navigator.push(
         context,
@@ -434,7 +604,7 @@ class _GroupHeader extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 4, 10),
         child: Row(
           children: [
             if (goal.emoji != null) ...[
@@ -496,6 +666,20 @@ class _GroupHeader extends StatelessWidget {
                 ],
               ),
             ),
+            if (hasCurrent)
+              IconButton(
+                tooltip: 'Snooze current step',
+                icon: Icon(Icons.bedtime_outlined,
+                    size: 22, color: AppColors.muted),
+                onPressed: () => _snooze(context),
+              )
+            else if (onHold)
+              IconButton(
+                tooltip: 'Wake up — resume now',
+                icon: Icon(Icons.bedtime_off_outlined,
+                    size: 22, color: AppColors.accent),
+                onPressed: () => _wake(context),
+              ),
           ],
         ),
       ),
@@ -600,18 +784,6 @@ class _SubtaskRow extends StatelessWidget {
                   ],
                 ),
               ),
-              // Snooze button — only on the current step. Tucked in beside
-              // the completion circle so it shares the same touch zone.
-              if (isCurrent)
-                IconButton(
-                  tooltip: 'Snooze this step',
-                  icon: Icon(
-                    Icons.bedtime_outlined,
-                    size: 22,
-                    color: AppColors.muted,
-                  ),
-                  onPressed: () => _openSnoozePicker(context),
-                ),
               // Completion circle (always on the right edge).
               IconButton(
                 tooltip: isCompleted
@@ -663,21 +835,6 @@ class _SubtaskRow extends StatelessWidget {
     );
   }
 
-  Future<void> _openSnoozePicker(BuildContext context) async {
-    final result = await SnoozePickerSheet.show(context);
-    if (result == null || !context.mounted) return;
-    try {
-      context.read<GoalService>().snoozeCurrentSubTask(
-            goal.goalId,
-            until: result.until,
-            notify: result.notify,
-          );
-    } on StateError catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
-    }
-  }
 }
 
 /// Small inline chip on a snoozed subtask row showing the wake-up time,

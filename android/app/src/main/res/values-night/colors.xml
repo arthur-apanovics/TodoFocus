@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widget palette (dark). Mirrors values/colors.xml. -->
+    <color name="widget_background">#1E201E</color>
+    <color name="widget_surface">#2A2D2A</color>
+    <color name="widget_divider">#3A3D3A</color>
+    <color name="widget_text">#ECEFEC</color>
+    <color name="widget_text_muted">#9CA09C</color>
+    <color name="widget_accent">#7CC47F</color>
+</resources>
