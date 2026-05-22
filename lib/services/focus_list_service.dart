@@ -174,6 +174,12 @@ class FocusListService extends ChangeNotifier {
   /// goal's sequence (the "cascade up" half of the contiguity invariant).
   /// No-op if the target is completed — there's no reason to focus
   /// something already done.
+  ///
+  /// Inbox / completed / archived goals are not focusable: only active goals
+  /// can have subtasks in today's plan. Trying to focus them is a no-op
+  /// rather than an error because the UI sometimes calls this from a stale
+  /// context (e.g. a goal just got archived in another tab). The "should be
+  /// unrepresentable" invariant lives in [Goal.isDailyAssignable].
   Future<void> focusSubtask(
     String goalId,
     String subtaskId,
@@ -181,6 +187,7 @@ class FocusListService extends ChangeNotifier {
   ) async {
     final goal = repo.findById(goalId);
     if (goal == null) return;
+    if (!goal.isDailyAssignable) return;
     final targetIdx =
         goal.subtasks.indexWhere((s) => s.subtaskId == subtaskId);
     if (targetIdx < 0) return;
@@ -262,9 +269,13 @@ class FocusListService extends ChangeNotifier {
   /// Sticky-focuses the whole goal: marks it fully focused, AND ensures
   /// every currently-pending subtask is in [subtaskIds]. Preserves any
   /// already-stored completed-state entries (historical).
+  ///
+  /// No-op for non-active goals (inbox / completed / archived) — see the
+  /// [focusSubtask] docstring for the rationale.
   Future<void> focusGoalFully(String goalId, GoalRepository repo) async {
     final goal = repo.findById(goalId);
     if (goal == null) return;
+    if (!goal.isDailyAssignable) return;
 
     final existing = _find(goalId);
     final completedHistorical = <String>[];

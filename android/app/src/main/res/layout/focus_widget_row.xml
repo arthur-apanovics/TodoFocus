@@ -31,7 +31,21 @@
             android:layout_height="1dp"
             android:background="@color/widget_divider" />
 
-        <!-- Goal title (with optional emoji prefix) -->
+        <!-- Goal icon — populated from a PNG rendered by Dart via
+             HomeWidget.renderFlutterWidget. Hidden when there's no rendered
+             icon (legacy unicode-emoji goals fall back to a text prefix on
+             the title). -->
+        <ImageView
+            android:id="@+id/row_divider_icon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="2dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/focus_widget_heading"
+            android:visibility="gone" />
+
+        <!-- Goal title (with optional emoji prefix when no icon is rendered) -->
         <TextView
             android:id="@+id/row_divider_title"
             android:layout_width="wrap_content"

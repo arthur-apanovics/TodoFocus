@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:todo_app/models/enums.dart';
 import 'package:todo_app/screens/focus_screen.dart';
 import 'package:todo_app/screens/goal_planning_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
@@ -367,10 +368,13 @@ class _AppShellState extends State<AppShell>
         titleSpacing: 0,
         title: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Focus'),
-            Tab(text: 'Goals'),
-            Tab(text: 'Planning'),
+          tabs: [
+            const Tab(text: 'Focus'),
+            const Tab(text: 'Goals'),
+            // Badge showing how many goals are still in the Inbox waiting to
+            // be planned/queued. Rebuilds via context.watch on the repo so
+            // it stays in sync when goals are added, queued, or deleted.
+            Tab(child: _PlanningTabLabel()),
           ],
         ),
         actions: [
@@ -393,6 +397,31 @@ class _AppShellState extends State<AppShell>
         ],
       ),
       floatingActionButton: _buildFab(context),
+    );
+  }
+}
+
+/// "Planning" tab label with a Material badge showing how many goals are
+/// sitting in the inbox waiting to be planned. The badge only renders when
+/// the count is > 0, so an empty inbox shows a plain label.
+class _PlanningTabLabel extends StatelessWidget {
+  const _PlanningTabLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    // Watching the repository (not GoalQueries) because GoalQueries is a
+    // pass-through and isn't itself a ChangeNotifier — the repo is the real
+    // source of mutations.
+    final repo = context.watch<GoalRepository>();
+    final inboxCount =
+        repo.all.where((g) => g.status == GoalStatus.inbox).length;
+    if (inboxCount == 0) return const Text('Planning');
+    return Badge.count(
+      count: inboxCount,
+      alignment: AlignmentDirectional.centerEnd,
+      // Push the badge out a touch so it doesn't visually crowd the label.
+      offset: const Offset(14, -6),
+      child: const Text('Planning'),
     );
   }
 }

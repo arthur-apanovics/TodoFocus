@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../models/enums.dart';
 import '../models/sub_task.dart';
+import '../screens/widgets/icon_catalog.dart';
 import 'display_preferences.dart';
 import 'focus_list_service.dart';
 import 'goal_repository.dart';
@@ -57,8 +60,23 @@ class FocusWidgetService {
     );
   }
 
+  /// Prefix for the per-icon SharedPreferences key the native side reads to
+  /// resolve a goal's icon-name to a PNG path. e.g. `Goal.emoji == 'rocket'`
+  /// → key `goal_icon_rocket` → value is the absolute path to the rendered
+  /// PNG. Kept here so both the Dart writer and the Kotlin reader stay in
+  /// lock-step.
+  static const String iconKeyPrefix = 'goal_icon_';
+
   /// Re-renders the home-screen widget from the current focus queue.
   Future<void> update() async {
+    // Make sure every icon used by a focused goal has been rasterised to PNG
+    // before pushing the payload — RemoteViews can't inflate Flutter icons,
+    // it can only setImageViewBitmap from a file on disk. Rendering is
+    // best-effort: in the background isolate `renderFlutterWidget` may fail
+    // because there's no implicit view, and the cache from prior foreground
+    // renders is what carries icons through.
+    await _ensureIconsRendered();
+
     final payload = buildPayload(
       _displayPrefs.focusWidgetLayout,
       _focusList,
@@ -67,6 +85,47 @@ class FocusWidgetService {
     );
     await HomeWidget.saveWidgetData<String>(payloadKey, payload);
     await HomeWidget.updateWidget(androidName: androidProviderName);
+  }
+
+  /// Walks the focused goals, collects every distinct icon name they use,
+  /// and rasterises each one that isn't already on disk. The PNG path is
+  /// saved under [iconKeyPrefix] + name via [HomeWidget.saveWidgetData] so
+  /// the Kotlin factory can look it up at render time.
+  ///
+  /// Cheap on the warm path: the cache hits (`File.existsSync`) skip the
+  /// expensive Flutter render pipeline; we only re-rasterise icons we've
+  /// never seen before or whose file got cleared.
+  Future<void> _ensureIconsRendered() async {
+    final iconNames = <String>{};
+    for (final group in _focusList.resolveGroups(_repo)) {
+      final e = group.goal.emoji;
+      if (e != null && e.isNotEmpty) iconNames.add(e);
+    }
+
+    for (final name in iconNames) {
+      final iconData = iconDataForName(name);
+      // Legacy Unicode-emoji strings (no catalog entry) skip rasterisation —
+      // the native side renders them inline as text instead.
+      if (iconData == null) continue;
+
+      final key = '$iconKeyPrefix$name';
+      try {
+        final existing = await HomeWidget.getWidgetData<String>(key);
+        if (existing != null && existing.isNotEmpty && File(existing).existsSync()) {
+          continue;
+        }
+        await HomeWidget.renderFlutterWidget(
+          _WidgetIconCanvas(iconData: iconData),
+          key: key,
+          logicalSize: const Size(48, 48),
+          pixelRatio: 3,
+        );
+      } catch (_) {
+        // Background isolate, missing PlatformDispatcher view, or any other
+        // hostile environment — leave the cache as-is and let the native
+        // side fall back to the text-prefix path.
+      }
+    }
   }
 
   /// Builds the JSON payload the native widget renders.
@@ -205,4 +264,30 @@ Future<void> focusWidgetBackgroundCallback(Uri? uri) async {
 
   await FocusWidgetService(repository: repo, focus: focus, prefs: prefs)
       .update();
+}
+
+/// Minimal off-stage widget rasterised to PNG by [HomeWidget.renderFlutterWidget]
+/// for use as a row-divider icon on the home-screen widget.
+///
+/// Rendered at a single neutral grey so the same PNG is legible on both the
+/// light and dark widget backgrounds — the home-screen widget can't follow
+/// the app's MediaQuery brightness, so a colour that reads on both is the
+/// pragmatic compromise.
+class _WidgetIconCanvas extends StatelessWidget {
+  final IconData iconData;
+
+  const _WidgetIconCanvas({required this.iconData});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Icon(
+        iconData,
+        size: 40,
+        color: const Color(0xFF8A8A8A),
+      ),
+    );
+  }
 }

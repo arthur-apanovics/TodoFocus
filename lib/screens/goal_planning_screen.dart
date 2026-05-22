@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
@@ -431,6 +430,10 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                 final service = context.read<GoalService>();
                 service.reorderSubTask(widget.goalId, oldIndex, newIndex);
               },
+              // Subtle elevation + scale lift while a row is being dragged
+              // — same affordance the Focus screen uses for goal cards, so
+              // the gesture feels consistent across surfaces.
+              proxyDecorator: _draggedSubtaskDecorator,
               itemBuilder: (context, index) {
                 final subtask = goal.subtasks[index];
                 // Pending subtasks of editable goals are draggable. Completed
@@ -453,6 +456,10 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                 );
               },
             ),
+          // FAB-safe bottom inset so the last subtask can scroll above the
+          // floating action button — without it the FAB hovers over and
+          // intercepts taps on the bottom subtask's action buttons.
+          const SliverToBoxAdapter(child: SizedBox(height: 88)),
         ],
       ),
       bottomNavigationBar: _buildBottomBar(context, goal),
@@ -468,6 +475,35 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                   tooltip: 'Add subtask',
                   child: const Icon(AppIcons.addSubtask),
                 ),
+    );
+  }
+
+  /// Wraps a subtask row mid-drag with a Material lift: rising elevation,
+  /// a tiny scale-up, and a rounded shadow. The animation parameter is
+  /// driven by `SliverReorderableList` as the row picks up / settles back,
+  /// so the lift fades in and out instead of snapping.
+  Widget _draggedSubtaskDecorator(
+    Widget child,
+    int index,
+    Animation<double> animation,
+  ) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (_, _) {
+        final t = Curves.easeInOut.transform(animation.value);
+        final elevation = 12.0 * t;
+        final scale = 1.0 + 0.02 * t;
+        return Transform.scale(
+          scale: scale,
+          child: Material(
+            elevation: elevation,
+            color: Theme.of(context).colorScheme.surface,
+            shadowColor: Colors.black.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(10),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -993,69 +1029,123 @@ class _SpeedDial extends StatefulWidget {
 class _SpeedDialState extends State<_SpeedDial> {
   bool _open = false;
 
-  void _toggle() => setState(() => _open = !_open);
+  // When the dial opens, an Overlay entry is inserted that holds both the
+  // expanded item buttons AND a tap-outside barrier behind them. Hoisting
+  // the items into the overlay means taps land on items, not on the barrier
+  // — and any tap on empty space dismisses the dial, matching the standard
+  // popup-menu UX.
+  OverlayEntry? _overlayEntry;
+
+  void _toggle() => _open ? _close() : _openDial();
+
+  void _openDial() {
+    _overlayEntry?.remove();
+    final entry = OverlayEntry(
+      builder: (_) => _SpeedDialOverlay(
+        onAddManual: () => _closeAndRun(widget.onAddManual),
+        onAddWithAI: () => _closeAndRun(widget.onAddWithAI),
+        onDismiss: _close,
+      ),
+    );
+    Overlay.of(context, rootOverlay: true).insert(entry);
+    _overlayEntry = entry;
+    setState(() => _open = true);
+  }
+
+  void _close() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+    if (mounted) setState(() => _open = false);
+  }
 
   void _closeAndRun(VoidCallback action) {
-    setState(() => _open = false);
+    _close();
     action();
   }
 
   @override
+  void dispose() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // IntrinsicWidth forces the Column to be exactly as wide as its widest
-    // child (the label+mini-FAB rows) rather than expanding to screen width,
-    // which is what happens in the FAB slot's unbounded layout environment.
-    return IntrinsicWidth(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // AnimatedSize shrinks/grows from the bottom-right so items slide
-          // in from just above the FAB rather than from the top of the screen.
-          AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-            alignment: Alignment.bottomRight,
-            child: AnimatedOpacity(
-              opacity: _open ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              child: _open
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        _SpeedDialItem(
-                          icon: const Icon(AppIcons.aiGenerate),
-                          label: 'Add with AI',
-                          heroTag: 'speed_dial_ai',
-                          onTap: () => _closeAndRun(widget.onAddWithAI),
-                        ),
-                        const SizedBox(height: 12),
-                        _SpeedDialItem(
-                          icon: const Icon(AppIcons.addSubtask),
-                          label: 'Add manually',
-                          heroTag: 'speed_dial_manual',
-                          onTap: () => _closeAndRun(widget.onAddManual),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ),
-          FloatingActionButton(
-            onPressed: _toggle,
-            tooltip: _open ? 'Close' : 'Add subtask',
-            child: AnimatedRotation(
-              turns: _open ? 0.125 : 0,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              child: const Icon(Icons.add),
-            ),
-          ),
-        ],
+    // Only the toggle button lives in the FAB slot — the expanded items are
+    // rendered into the global Overlay when open (see [_SpeedDialOverlay]).
+    return FloatingActionButton(
+      onPressed: _toggle,
+      tooltip: _open ? 'Close' : 'Add subtask',
+      child: AnimatedRotation(
+        turns: _open ? 0.125 : 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: const Icon(Icons.add),
       ),
+    );
+  }
+}
+
+/// Full-screen overlay shown while the speed dial is open. Layered as:
+///
+///   • [Positioned.fill] tap-barrier (translucent) → dismisses on any tap
+///     outside the items.
+///   • Floating column of [_SpeedDialItem]s anchored to the bottom-right,
+///     just above the FAB, so visual continuity with the toggle button is
+///     preserved.
+///
+/// Sitting above the Scaffold's FAB slot means taps on the toggle FAB are
+/// captured by the barrier first — closing the dial — which is the desired
+/// "tap-anywhere-to-close" behaviour.
+class _SpeedDialOverlay extends StatelessWidget {
+  final VoidCallback onAddManual;
+  final VoidCallback onAddWithAI;
+  final VoidCallback onDismiss;
+
+  const _SpeedDialOverlay({
+    required this.onAddManual,
+    required this.onAddWithAI,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: onDismiss,
+          ),
+        ),
+        Positioned(
+          right: 16,
+          // Above the standard 56dp FAB + its 16dp Scaffold inset, plus a
+          // little breathing room. Includes safe-area inset for devices
+          // with a home-indicator (gesture nav bar).
+          bottom: 16 + 56 + 12 + MediaQuery.of(context).padding.bottom,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _SpeedDialItem(
+                icon: const Icon(AppIcons.aiGenerate),
+                label: 'Add with AI',
+                heroTag: 'speed_dial_ai',
+                onTap: onAddWithAI,
+              ),
+              const SizedBox(height: 12),
+              _SpeedDialItem(
+                icon: const Icon(AppIcons.addSubtask),
+                label: 'Add manually',
+                heroTag: 'speed_dial_manual',
+                onTap: onAddManual,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1699,13 +1789,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final isCompleted = subtask.isCompleted;
     final stepNumber = goal.subtasks.indexOf(subtask) + 1;
 
-    // Slidable instead of Dismissible:
-    //  - Doesn't try to auto-remove the row, so it never collides with the
-    //    Provider rebuild that follows service.deleteSubTask().
-    //  - Has narrower gesture territory than Dismissible, so the trailing
-    //    IconButton's tap recogniser actually wins the gesture arena
-    //    instead of being swallowed by a horizontal-pan recogniser
-    //    watching the whole tile.
     final readOnly = widget.readOnly;
 
     final tile = Opacity(
@@ -1717,8 +1800,17 @@ class _SubTaskTileState extends State<SubTaskTile> {
         // instead — "you're on step 4 of 8".
         leading: _SubtaskNumberBadge(
           number: stepNumber,
+          goal: goal,
+          subtask: subtask,
           isCurrent: isCurrent,
           isCompleted: isCompleted,
+          // Focus toggle is only meaningful for editable, non-completed
+          // subtasks on a daily-assignable goal (active). Inbox / completed /
+          // archived goals are not focusable at the domain layer
+          // (FocusListService guards against it), so we hide the affordance
+          // here too rather than letting the user tap a no-op.
+          focusToggleEnabled:
+              !readOnly && !isCompleted && goal.isDailyAssignable,
         ),
         // Tap the title to open the unified actions sheet (edit, break down,
         // focus, snooze, delete, …). Replaces the old behaviour where tap
@@ -1758,39 +1850,13 @@ class _SubTaskTileState extends State<SubTaskTile> {
       ),
     );
 
-    if (readOnly) {
-      // No swipe-to-delete on completed goals — the work is done, the plan
-      // is frozen for posterity.
-      return Material(
-        color: Theme.of(context).colorScheme.surface,
-        child: tile,
-      );
-    }
-
+    // Swipe-to-delete is intentionally gone — delete now lives only in the
+    // unified actions sheet (tap the tile title). The previous swipe
+    // gesture made the row visually noisy and competed with the reorder
+    // long-press for the same horizontal pan territory.
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      child: Slidable(
-        key: ValueKey(subtask.subtaskId),
-        // Disable swipe-to-delete during breakdown — otherwise the user could
-        // delete the row while the result is in flight and the response would
-        // silently miss its target.
-        enabled: !_isBreakingDown,
-        endActionPane: ActionPane(
-          motion: const BehindMotion(),
-          extentRatio: 0.25,
-          children: [
-            SlidableAction(
-              onPressed: (_) =>
-                  service.deleteSubTask(goal.goalId, subtask.subtaskId),
-              backgroundColor: context.palette.destructive,
-              foregroundColor: context.palette.onDestructive,
-              icon: AppIcons.delete,
-              label: 'Delete',
-            ),
-          ],
-        ),
-        child: tile,
-      ),
+      child: tile,
     );
   }
 
@@ -1888,9 +1954,6 @@ class _SubTaskTileState extends State<SubTaskTile> {
     final isSnoozed = subtask.state == SubTaskState.snoozed;
     final isPending = !isCompleted && !isSnoozed;
     final hasAutoSleep = subtask.autoSleepDuration != null;
-    final focus = context.read<FocusListService>();
-    final inFocus = !isCompleted &&
-        focus.isInFocus(goal.goalId, subtask.subtaskId);
 
     showModalBottomSheet<void>(
       context: context,
@@ -1909,30 +1972,11 @@ class _SubTaskTileState extends State<SubTaskTile> {
               },
             ),
 
-          // Focus toggle — moved here from the old leading star. Doesn't show
-          // for completed subtasks (focusing a done step is meaningless).
-          if (!isCompleted)
-            ListTile(
-              leading: Icon(
-                inFocus ? Icons.star_rounded : Icons.star_outline_rounded,
-                color: inFocus ? context.palette.accent : null,
-              ),
-              title: Text(
-                inFocus
-                    ? "Remove from today's focus"
-                    : "Add to today's focus",
-              ),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                final f = context.read<FocusListService>();
-                final repo = context.read<GoalRepository>();
-                if (inFocus) {
-                  f.unfocusSubtask(goal.goalId, subtask.subtaskId, repo);
-                } else {
-                  f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
-                }
-              },
-            ),
+          // (Focus toggle used to live here as a list tile, but it moved
+          // into the step-number badge in the tile's leading slot — tap the
+          // number to add/remove the subtask from today's plan. The badge
+          // shows the focus state visually, so no separate sheet entry is
+          // needed.)
 
           // Break down
           if (isPending || isSnoozed)
@@ -2570,68 +2614,144 @@ class _EmptySubtaskState extends StatelessWidget {
 }
 
 /// Leading position indicator on each SubTaskTile. Shows the step number
-/// (1-based index in goal.subtasks) instead of the old focus-toggle star.
+/// (1-based index in goal.subtasks) and doubles as the per-subtask
+/// today's-focus toggle (replacing the old leading star).
 ///
-/// Styling tracks the row state so the badge reads at a glance:
-///   • current  → accent-coloured filled circle, white number, bold
-///   • completed → muted outlined circle, strikethrough number
-///   • pending  → outlined circle, neutral number
+/// Visual states, in priority order:
+///   1. **Completed** → outlined circle, strikethrough number, muted. Not
+///      tappable — completed steps are immutable history.
+///   2. **Current & focused** → solid accent circle, white bold number,
+///      thin outline halo. The "this is what you're doing next *and* it's
+///      in today's plan" state. Tap to drop from focus.
+///   3. **Current, not focused** → solid accent circle, white bold number,
+///      no halo. The natural anchor — tap to add to focus.
+///   4. **Focused, not current** → soft accent-tinted circle, accent
+///      number. "Queued for today" but not at the front. Tap to drop.
+///   5. **Pending, not focused** → outlined circle, neutral number.
+///      Tap to add to today's focus.
 ///
-/// The focus toggle this badge replaces moved into the actions sheet
-/// (opened by tapping the tile title).
+/// When [focusToggleEnabled] is false (e.g. inbox goals or read-only
+/// completed goals) the badge still renders state 1/3/5 visually but the
+/// tap target is removed — the domain rejects focus on non-active goals
+/// and we don't want users hunting a dead button.
 class _SubtaskNumberBadge extends StatelessWidget {
   final int number;
+  final Goal goal;
+  final SubTask subtask;
   final bool isCurrent;
   final bool isCompleted;
+  final bool focusToggleEnabled;
 
   const _SubtaskNumberBadge({
     required this.number,
+    required this.goal,
+    required this.subtask,
     required this.isCurrent,
     required this.isCompleted,
+    required this.focusToggleEnabled,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Watching FocusListService keeps the badge reactive — toggling focus
+    // from anywhere else in the app repaints the visual state immediately.
+    final focus = context.watch<FocusListService>();
+    final inFocus =
+        !isCompleted && focus.isInFocus(goal.goalId, subtask.subtaskId);
+
     final cs = Theme.of(context).colorScheme;
+    final palette = context.palette;
+
+    // Resolve a (background, foreground, border) triplet per state.
     final Color background;
     final Color foreground;
     final Color border;
+    final double borderWidth;
+    final bool bold;
 
-    if (isCurrent) {
-      background = context.palette.accent;
+    if (isCompleted) {
+      background = Colors.transparent;
+      foreground = palette.muted;
+      border = cs.outlineVariant;
+      borderWidth = 1.5;
+      bold = false;
+    } else if (isCurrent && inFocus) {
+      // Strongest emphasis: current step that's actively focused for today.
+      background = palette.accent;
       foreground = cs.onPrimary;
-      border = context.palette.accent;
-    } else if (isCompleted) {
-      background = Colors.transparent;
-      foreground = context.palette.muted;
-      border = cs.outlineVariant;
+      border = palette.accent;
+      borderWidth = 2.5;
+      bold = true;
+    } else if (isCurrent) {
+      // Current but not yet in today's focus.
+      background = palette.accent;
+      foreground = cs.onPrimary;
+      border = palette.accent;
+      borderWidth = 1.5;
+      bold = true;
+    } else if (inFocus) {
+      // Queued for today but not the current step.
+      background = palette.accent.withValues(alpha: 0.18);
+      foreground = palette.accent;
+      border = palette.accent;
+      borderWidth = 1.5;
+      bold = true;
     } else {
+      // Plain pending step, not in focus.
       background = Colors.transparent;
-      foreground = context.palette.muted;
+      foreground = palette.muted;
       border = cs.outlineVariant;
+      borderWidth = 1.5;
+      bold = false;
     }
 
-    return SizedBox(
+    final badge = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
       width: 32,
       height: 32,
-      child: Container(
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: background,
-          shape: BoxShape.circle,
-          border: Border.all(color: border, width: 1.5),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+        border: Border.all(color: border, width: borderWidth),
+      ),
+      child: Text(
+        '$number',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+          color: foreground,
+          decoration:
+              isCompleted ? TextDecoration.lineThrough : TextDecoration.none,
+          decorationColor: foreground,
         ),
-        child: Text(
-          '$number',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
-            color: foreground,
-            decoration:
-                isCompleted ? TextDecoration.lineThrough : TextDecoration.none,
-            decorationColor: foreground,
-          ),
-        ),
+      ),
+    );
+
+    if (!focusToggleEnabled || isCompleted) {
+      // Decorative only — no interaction. SizedBox preserves the leading slot
+      // width so all rows align vertically regardless of tappability.
+      return SizedBox(width: 32, height: 32, child: badge);
+    }
+
+    return Semantics(
+      label: inFocus
+          ? "Remove step $number from today's focus"
+          : "Add step $number to today's focus",
+      button: true,
+      child: InkResponse(
+        radius: 22,
+        onTap: () {
+          final f = context.read<FocusListService>();
+          final repo = context.read<GoalRepository>();
+          if (inFocus) {
+            f.unfocusSubtask(goal.goalId, subtask.subtaskId, repo);
+          } else {
+            f.focusSubtask(goal.goalId, subtask.subtaskId, repo);
+          }
+        },
+        child: badge,
       ),
     );
   }

@@ -293,8 +293,16 @@ class _FocusWidgetLayoutTile extends StatelessWidget {
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('Widget layout'),
+        // Compact is intentionally excluded — on the home-screen widget the
+        // header-only variant collapses to an unactionable rectangle (no
+        // completion button to tap, unlike the in-app Focus tab's compact
+        // mode). Single step is the practical floor.
         children: [
-          for (final layout in FocusLayout.values)
+          for (final layout in const [
+            FocusLayout.current,
+            FocusLayout.currentPlus2,
+            FocusLayout.currentPlus4,
+          ])
             ListTile(
               title: Text(layout.displayName),
               trailing: prefs.focusWidgetLayout == layout
