@@ -324,6 +324,14 @@ class GoalService {
     _focus.removeDanglingEntry(goalId, subtaskId);
   }
 
+  void clearSubtasks(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.clearSubtasks();
+    _focus.dropGoal(goalId);
+    _repository.save(goal);
+  }
+
   void updateSubTaskDescription(
     String goalId,
     String subtaskId,

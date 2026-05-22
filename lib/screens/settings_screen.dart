@@ -9,7 +9,9 @@ import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../services/theme_controller.dart';
 import '../theme/app_theme.dart';
+import 'archived_goals_screen.dart';
 import 'data_settings_screen.dart';
+import 'llm_generation_screen.dart';
 import 'llm_settings_screen.dart';
 
 // Settings are organised into named sections. To add a new setting:
@@ -29,7 +31,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'AI Assistant',
             children: [
-              _LlmConfigTile(),
+              _LlmConnectionTile(),
+              _LlmGenerationTile(),
             ],
           ),
           _SettingsSection(
@@ -38,7 +41,6 @@ class SettingsScreen extends StatelessWidget {
               _DailyResetToggleTile(),
               _DailyResetTimeTile(),
               _MorningPromptToggleTile(),
-              _UrgencyDaysTile(),
             ],
           ),
           _SettingsSection(
@@ -56,15 +58,9 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
           _SettingsSection(
-            title: 'Home screen widget',
-            children: [
-              _FocusWidgetShowAllGoalsTile(),
-              _FocusWidgetLayoutTile(),
-            ],
-          ),
-          _SettingsSection(
             title: 'Data',
             children: [
+              _ArchivedGoalsTile(),
               _DataTile(),
             ],
           ),
@@ -206,21 +202,48 @@ class _ColorSwatch extends StatelessWidget {
 // AI Assistant section
 // ---------------------------------------------------------------------------
 
-class _LlmConfigTile extends StatelessWidget {
-  const _LlmConfigTile();
+/// Provider + endpoint + API key + sampling + timeout + debug.
+/// "How the app talks to the model."
+class _LlmConnectionTile extends StatelessWidget {
+  const _LlmConnectionTile();
 
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<LlmSettingsService>();
     final profile = settings.activeProfile;
     return ListTile(
-      leading: const Icon(Icons.psychology_outlined),
-      title: const Text('LLM configuration'),
+      leading: const Icon(Icons.cable_outlined),
+      title: const Text('Connection'),
       subtitle: Text(profile != null ? profile.displayName : 'Not configured'),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LlmSettingsScreen()),
+        MaterialPageRoute(builder: (_) => const LlmConnectionScreen()),
+      ),
+    );
+  }
+}
+
+/// Icon toggle + system prompt + difficulty subtask-count ranges.
+/// "What the model is asked to produce."
+class _LlmGenerationTile extends StatelessWidget {
+  const _LlmGenerationTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<LlmSettingsService>();
+    return ListTile(
+      leading: const Icon(Icons.auto_awesome_outlined),
+      title: const Text('Generation'),
+      subtitle: Text(
+        settings.generateEmojis
+            ? 'Goal icons on · custom prompt and difficulty ranges'
+            : 'Goal icons off · custom prompt and difficulty ranges',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LlmGenerationScreen()),
       ),
     );
   }
@@ -270,8 +293,16 @@ class _FocusWidgetLayoutTile extends StatelessWidget {
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('Widget layout'),
+        // Compact is intentionally excluded — on the home-screen widget the
+        // header-only variant collapses to an unactionable rectangle (no
+        // completion button to tap, unlike the in-app Focus tab's compact
+        // mode). Single step is the practical floor.
         children: [
-          for (final layout in FocusLayout.values)
+          for (final layout in const [
+            FocusLayout.current,
+            FocusLayout.currentPlus2,
+            FocusLayout.currentPlus4,
+          ])
             ListTile(
               title: Text(layout.displayName),
               trailing: prefs.focusWidgetLayout == layout
@@ -292,6 +323,24 @@ class _FocusWidgetLayoutTile extends StatelessWidget {
 // Data section
 // ---------------------------------------------------------------------------
 
+class _ArchivedGoalsTile extends StatelessWidget {
+  const _ArchivedGoalsTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.archive_outlined),
+      title: const Text('Archived goals'),
+      subtitle: const Text('Browse, restore or delete archived goals'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ArchivedGoalsScreen()),
+      ),
+    );
+  }
+}
+
 class _DataTile extends StatelessWidget {
   const _DataTile();
 
@@ -300,7 +349,7 @@ class _DataTile extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.storage_outlined),
       title: const Text('Data'),
-      subtitle: const Text('Backup, restore, archive and clear'),
+      subtitle: const Text('Backup, restore, sample data and clear'),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => Navigator.push(
         context,
@@ -386,65 +435,3 @@ class _MorningPromptToggleTile extends StatelessWidget {
   }
 }
 
-class _UrgencyDaysTile extends StatelessWidget {
-  const _UrgencyDaysTile();
-
-  @override
-  Widget build(BuildContext context) {
-    final service = context.watch<DailyResetService>();
-    return ListTile(
-      leading: const Icon(Icons.flag_outlined),
-      title: const Text('Urgency window'),
-      subtitle: Text(
-        'Goals due within ${service.urgencyDays} day${service.urgencyDays == 1 ? '' : 's'} are prioritised',
-      ),
-      onTap: () => _showUrgencyDialog(context, service),
-    );
-  }
-
-  void _showUrgencyDialog(BuildContext context, DailyResetService service) {
-    var days = service.urgencyDays;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Urgency window'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$days day${days == 1 ? '' : 's'}',
-                style: Theme.of(ctx).textTheme.headlineSmall,
-              ),
-              Slider(
-                value: days.toDouble(),
-                min: 1,
-                max: 14,
-                divisions: 13,
-                label: '$days',
-                onChanged: (v) => setState(() => days = v.round()),
-              ),
-              Text(
-                'Goals with a deadline within this many days will be sorted to the top.',
-                style: Theme.of(ctx).textTheme.bodySmall,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                service.setUrgencyDays(days);
-                Navigator.pop(ctx);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

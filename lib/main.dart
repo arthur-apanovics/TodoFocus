@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:todo_app/models/enums.dart';
 import 'package:todo_app/screens/focus_screen.dart';
 import 'package:todo_app/screens/goal_planning_screen.dart';
 import 'package:todo_app/screens/goals_screen.dart';
@@ -346,39 +347,6 @@ class _AppShellState extends State<AppShell>
     }
   }
 
-  // The FAB varies by tab: the Focus tab gains a second "Pick subtasks"
-  // button stacked above "Create goal"; every other tab shows just the
-  // create button. Rebuilt via the AnimatedBuilder on [_tabController].
-  Widget _buildFab(BuildContext context) {
-    // createFab keeps the default hero tag so it still morphs into the
-    // pushed screens' FABs. Only the extra "Pick" FAB needs an explicit
-    // tag — two FABs on one screen can't share the default.
-    final createFab = FloatingActionButton.extended(
-      onPressed: _openNewGoalSheet,
-      icon: const Icon(Icons.add),
-      label: const Text('Create goal'),
-    );
-    if (_tabController.index != 0) return createFab;
-
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        FloatingActionButton.extended(
-          heroTag: 'fab_pick_subtasks',
-          backgroundColor: cs.secondaryContainer,
-          foregroundColor: cs.onSecondaryContainer,
-          onPressed: () => FocusScreen.openPicker(context),
-          icon: const Icon(Icons.add_task),
-          label: const Text('Pick subtasks'),
-        ),
-        const SizedBox(height: 12),
-        createFab,
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -388,10 +356,13 @@ class _AppShellState extends State<AppShell>
         titleSpacing: 0,
         title: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Focus'),
-            Tab(text: 'Goals'),
-            Tab(text: 'Planning'),
+          tabs: [
+            const Tab(text: 'Focus'),
+            const Tab(text: 'Goals'),
+            // Badge showing how many goals are still in the Inbox waiting to
+            // be planned/queued. Rebuilds via context.watch on the repo so
+            // it stays in sync when goals are added, queued, or deleted.
+            Tab(child: _PlanningTabLabel()),
           ],
         ),
         actions: [
@@ -405,17 +376,82 @@ class _AppShellState extends State<AppShell>
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          const FocusScreen(),
-          const GoalsScreen(),
-          const InboxScreen(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: const [
+                FocusScreen(),
+                GoalsScreen(),
+                InboxScreen(),
+              ],
+            ),
+          ),
+          _NewGoalHandle(onOpen: _openNewGoalSheet),
         ],
       ),
-      floatingActionButton: AnimatedBuilder(
-        animation: _tabController,
-        builder: (context, _) => _buildFab(context),
+    );
+  }
+}
+
+/// Thin handle strip at the bottom of the AppShell body. Tapping or swiping
+/// up opens the new-goal sheet. Sits in-flow (below the TabBarView), so it
+/// doesn't float over any screen content.
+class _NewGoalHandle extends StatelessWidget {
+  final VoidCallback onOpen;
+
+  const _NewGoalHandle({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context)
+        .colorScheme
+        .onSurfaceVariant
+        .withValues(alpha: 0.35);
+    return GestureDetector(
+      onTap: onOpen,
+      onVerticalDragEnd: (details) {
+        if ((details.primaryVelocity ?? 0) < -200) onOpen();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 40,
+        child: Center(
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Planning" tab label with a Material badge showing how many goals are
+/// sitting in the inbox waiting to be planned. The badge only renders when
+/// the count is > 0, so an empty inbox shows a plain label.
+class _PlanningTabLabel extends StatelessWidget {
+  const _PlanningTabLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    // Watching the repository (not GoalQueries) because GoalQueries is a
+    // pass-through and isn't itself a ChangeNotifier — the repo is the real
+    // source of mutations.
+    final repo = context.watch<GoalRepository>();
+    final inboxCount =
+        repo.all.where((g) => g.status == GoalStatus.inbox).length;
+    if (inboxCount == 0) return const Text('Planning');
+    return Badge(
+      label: Text('$inboxCount'),
+      child: const Padding(
+        padding: EdgeInsets.only(right: 10),
+        child: Text('Planning'),
       ),
     );
   }

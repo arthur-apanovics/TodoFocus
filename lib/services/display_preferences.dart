@@ -100,13 +100,21 @@ class DisplayPreferences extends ChangeNotifier {
           )
         : GoalListLayout.compact;
 
-    FocusLayout readFocusLayout(String key, FocusLayout fallback) {
+    FocusLayout readFocusLayout(
+      String key,
+      FocusLayout fallback, {
+      Set<FocusLayout> exclude = const {},
+    }) {
       final name = box.get(key);
       if (name == null) return fallback;
-      return FocusLayout.values.firstWhere(
+      final parsed = FocusLayout.values.firstWhere(
         (e) => e.name == name,
         orElse: () => fallback,
       );
+      // Silently upgrade prefs that point at a now-unsupported option for
+      // this surface (e.g. an old Compact value for the home-screen widget,
+      // which no longer exposes Compact in its picker).
+      return exclude.contains(parsed) ? fallback : parsed;
     }
 
     final showAllGoalsRaw = box.get(_focusWidgetShowAllGoalsKey);
@@ -118,8 +126,11 @@ class DisplayPreferences extends ChangeNotifier {
       layout: layout,
       focusScreenLayout:
           readFocusLayout(_focusScreenLayoutKey, FocusLayout.currentPlus2),
-      focusWidgetLayout:
-          readFocusLayout(_focusWidgetLayoutKey, FocusLayout.currentPlus2),
+      focusWidgetLayout: readFocusLayout(
+        _focusWidgetLayoutKey,
+        FocusLayout.currentPlus2,
+        exclude: const {FocusLayout.compact},
+      ),
       focusWidgetShowAllGoals: showAllGoals,
     );
   }

@@ -2,11 +2,14 @@ package com.example.todo_app
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import es.antonborri.home_widget.HomeWidgetPlugin
 import org.json.JSONObject
+import java.io.File
 
 /**
  * RemoteViewsService that supplies an adapter for the Focus widget's ListView.
@@ -45,10 +48,22 @@ private class FocusWidgetRowFactory(
     private var rows: List<JSONObject> = emptyList()
     private var layoutName: String = ""
 
+    // Per-render bitmap cache so the same icon isn't decoded once per row.
+    // Cleared on every onDataSetChanged so updated PNGs are picked up.
+    private val iconBitmapCache = HashMap<String, Bitmap?>()
+
+    // Keep the icon-key prefix in lock-step with FocusWidgetService.iconKeyPrefix.
+    companion object {
+        private const val ICON_KEY_PREFIX = "goal_icon_"
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
     override fun onCreate() { load() }
-    override fun onDataSetChanged() { load() }
+    override fun onDataSetChanged() {
+        iconBitmapCache.clear()
+        load()
+    }
     override fun onDestroy() {}
 
     // ── Data loading ──────────────────────────────────────────────────────
@@ -69,6 +84,28 @@ private class FocusWidgetRowFactory(
         } catch (_: Exception) {
             rows = emptyList()
         }
+    }
+
+    /// Resolves an `emoji` name (e.g. "rocket") to a decoded bitmap rendered
+    /// by Dart side via HomeWidget.renderFlutterWidget. Returns null when:
+    ///   • the name is blank,
+    ///   • no PNG has been rasterised for it yet (cold start, or legacy
+    ///     unicode-emoji string with no catalog entry — Dart skips those),
+    ///   • the file moved or got purged since it was written.
+    /// Caller falls back to the text-prefix path on null.
+    private fun loadIconBitmap(name: String): Bitmap? {
+        if (name.isEmpty()) return null
+        iconBitmapCache[name]?.let { return it }
+        if (iconBitmapCache.containsKey(name)) return null
+        val prefs = HomeWidgetPlugin.getData(context)
+        val path = prefs.getString("$ICON_KEY_PREFIX$name", null)
+        val bitmap = if (!path.isNullOrEmpty() && File(path).exists()) {
+            try { BitmapFactory.decodeFile(path) } catch (_: Exception) { null }
+        } else {
+            null
+        }
+        iconBitmapCache[name] = bitmap
+        return bitmap
     }
 
     // ── RemoteViewsFactory ────────────────────────────────────────────────
@@ -104,10 +141,23 @@ private class FocusWidgetRowFactory(
         // density, mirroring how compact already suppresses goal context.
         if (isFirstInGroup && !compact) {
             rv.setViewVisibility(R.id.row_divider, View.VISIBLE)
-            rv.setTextViewText(
-                R.id.row_divider_title,
-                if (goalEmoji.isNotEmpty()) "$goalEmoji  $goalTitle" else goalTitle,
-            )
+            // Try to render the icon as a bitmap (the proper, themed path).
+            // If we have no bitmap (no rendered PNG yet, or legacy unicode
+            // emoji string), prefix the title with the raw `goalEmoji`
+            // string so Unicode-emoji goals still display something.
+            val iconBitmap = loadIconBitmap(goalEmoji)
+            if (iconBitmap != null) {
+                rv.setViewVisibility(R.id.row_divider_icon, View.VISIBLE)
+                rv.setImageViewBitmap(R.id.row_divider_icon, iconBitmap)
+                rv.setTextViewText(R.id.row_divider_title, goalTitle)
+            } else {
+                rv.setViewVisibility(R.id.row_divider_icon, View.GONE)
+                rv.setTextViewText(
+                    R.id.row_divider_title,
+                    if (goalEmoji.isNotEmpty()) "$goalEmoji  $goalTitle"
+                    else goalTitle,
+                )
+            }
         } else {
             rv.setViewVisibility(R.id.row_divider, View.GONE)
         }

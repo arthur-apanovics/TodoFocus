@@ -10,16 +10,12 @@ import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
 import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/snooze_picker_sheet.dart';
-
-/// Bottom inset for the Focus list. Wider than the shared
-/// [kFabSafeBottomPadding] because the Focus tab stacks a second
-/// "Pick subtasks" FAB above the "Create goal" FAB.
-const double _kFocusFabSafePadding = kFabSafeBottomPadding + 64;
 
 /// "Today's Focus" tab.
 ///
@@ -53,6 +49,10 @@ class FocusScreen extends StatelessWidget {
     final partition = _partitionForToday(allGroups);
 
     return Scaffold(
+      // Hidden when the focus list is empty — the empty-state already
+      // surfaces a centred "Pick subtasks" CTA so the FAB would duplicate it.
+      floatingActionButton:
+          partition.isEmpty ? null : const _PickSubtasksFab(),
       body: partition.isEmpty
           ? const _EmptyFocusState()
           : Column(
@@ -90,8 +90,19 @@ class FocusScreen extends StatelessWidget {
 /// layout control, but writes the independent
 /// [DisplayPreferences.focusScreenLayout] — the Focus tab, the home-screen
 /// widget and the Goals list each remember their own density.
+///
+/// `FocusLayout.current` is intentionally excluded here: with the updated
+/// compact layout offering its own inline completion button, "Single step"
+/// is now visually identical to compact and shouldn't be exposed twice. The
+/// enum value still exists for the widget settings, which sees all options.
 class _FocusLayoutButton extends StatelessWidget {
   const _FocusLayoutButton();
+
+  static const _focusScreenOptions = <FocusLayout>[
+    FocusLayout.compact,
+    FocusLayout.currentPlus2,
+    FocusLayout.currentPlus4,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +111,7 @@ class _FocusLayoutButton extends StatelessWidget {
       icon: const Icon(Icons.view_agenda_outlined),
       tooltip: 'Focus layout',
       onSelected: context.read<DisplayPreferences>().setFocusScreenLayout,
-      itemBuilder: (_) => FocusLayout.values
+      itemBuilder: (_) => _focusScreenOptions
           .map(
             (v) => PopupMenuItem(
               value: v,
@@ -244,7 +255,7 @@ class _GroupsList extends StatelessWidget {
               // When nothing follows, the active list owns the bottom of
               // the screen — add FAB-safe inset.
               partition.laterToday.isEmpty && partition.completed.isEmpty
-                  ? _kFocusFabSafePadding
+                  ? kFabSafeBottomPadding
                   : 8,
             ),
             sliver: SliverReorderableList(
@@ -295,7 +306,7 @@ class _GroupsList extends StatelessWidget {
               12,
               0,
               12,
-              partition.completed.isEmpty ? _kFocusFabSafePadding : 8,
+              partition.completed.isEmpty ? kFabSafeBottomPadding : 8,
             ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
@@ -328,7 +339,7 @@ class _GroupsList extends StatelessWidget {
             ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(
-                12, 0, 12, _kFocusFabSafePadding),
+                12, 0, 12, kFabSafeBottomPadding),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) {
@@ -501,23 +512,64 @@ class _GroupCard extends StatelessWidget {
     );
   }
 
-  /// Focused subtasks limited to the chosen [layout]: every completed step
-  /// (frozen progress) stays visible, followed by the current step and up to
-  /// N upcoming pending steps. Compact returns nothing — the header carries
-  /// a one-line summary instead.
+  /// Builds the visible-row window for this goal's card.
+  ///
+  /// Returns at most `1 + layout.extraSteps` rows. The window is **anchored
+  /// on the current step** (first non-completed subtask) and biased forward:
+  ///
+  /// 1. Add the current step, then upcoming pending steps after it, until
+  ///    the window fills or the goal runs out of pending work.
+  /// 2. If there's still room, backfill with completed steps that sit
+  ///    immediately *before* the current step (most-recent first), so the
+  ///    user gets the context "you just finished X, now Y".
+  ///
+  /// Compact returns nothing — its header carries the next-step summary
+  /// and an inline completion button instead. If every step is done, the
+  /// window shows the last N completed steps so finished cards aren't blank.
   List<SubTask> _visibleSubtasks(FocusLayout layout) {
     if (layout == FocusLayout.compact) return const [];
     final all = resolved.subtasks;
-    final completed =
-        all.where((s) => s.state == SubTaskState.completed).toList();
-    final upcoming =
-        all.where((s) => s.state != SubTaskState.completed).toList();
-    return [...completed, ...upcoming.take(1 + layout.extraSteps)];
+    final total = 1 + layout.extraSteps;
+    if (all.isEmpty || total <= 0) return const [];
+
+    // First non-completed subtask (current / pending / snoozed).
+    final currentIdx =
+        all.indexWhere((s) => s.state != SubTaskState.completed);
+
+    if (currentIdx < 0) {
+      // Everything's done — show the trailing tail of completed steps.
+      return all.length <= total ? all : all.sublist(all.length - total);
+    }
+
+    // Forward pass: current + pending/snoozed steps after it.
+    final window = <SubTask>[];
+    for (var i = currentIdx; i < all.length && window.length < total; i++) {
+      if (all[i].state == SubTaskState.completed) continue;
+      window.add(all[i]);
+    }
+
+    // Backfill pass: completed steps immediately before current, most-recent
+    // first. We collect in reverse, then reverse again to preserve goal
+    // order when prepending — so the final window is always in sequence
+    // order [oldest completed … current … pending].
+    if (window.length < total) {
+      final needed = total - window.length;
+      final backfill = <SubTask>[];
+      for (var i = currentIdx - 1; i >= 0 && backfill.length < needed; i--) {
+        if (all[i].state == SubTaskState.completed) backfill.add(all[i]);
+      }
+      window.insertAll(0, backfill.reversed);
+    }
+    return window;
   }
 }
 
 /// One-line "what's next" summary shown under the header in compact layout,
-/// so a collapsed card still tells the user what to do.
+/// so a collapsed card still tells the user what to do — and, when a step is
+/// actually actionable, lets them complete it inline without expanding the
+/// card. The trailing tick replaces what used to be the "Current step"
+/// layout: tick + step text == compact, so the dedicated single-step option
+/// became redundant and is hidden from the Focus tab picker.
 class _CompactNextLine extends StatelessWidget {
   final Goal goal;
 
@@ -539,7 +591,7 @@ class _CompactNextLine extends StatelessWidget {
       icon = Icons.check_circle_outline;
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      padding: const EdgeInsets.fromLTRB(14, 0, 4, 4),
       child: Row(
         children: [
           Icon(icon, size: 16, color: context.palette.muted),
@@ -552,6 +604,15 @@ class _CompactNextLine extends StatelessWidget {
               style: TextStyle(fontSize: 13, color: context.palette.muted),
             ),
           ),
+          if (current != null)
+            IconButton(
+              icon: Icon(AppIcons.complete, color: context.palette.strong),
+              tooltip: 'Mark complete',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => context
+                  .read<GoalService>()
+                  .completeCurrentSubTask(goal.goalId),
+            ),
         ],
       ),
     );
@@ -881,6 +942,24 @@ class _SnoozeChip extends StatelessWidget {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return 'wakes ${days[dt.weekday - 1]} ${dt.day} ${months[dt.month - 1]} $hhmm';
+  }
+}
+
+class _PickSubtasksFab extends StatelessWidget {
+  const _PickSubtasksFab();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return FloatingActionButton.extended(
+      heroTag: 'fab_pick_subtasks',
+      tooltip: 'Pick subtasks for today',
+      backgroundColor: cs.secondaryContainer,
+      foregroundColor: cs.onSecondaryContainer,
+      onPressed: () => FocusScreen.openPicker(context),
+      icon: const Icon(Icons.add_task),
+      label: const Text('Pick subtasks'),
+    );
   }
 }
 

@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:provider/provider.dart';
 import '../models/enums.dart';
-import '../models/goal.dart';
 import '../services/backup_service.dart';
 import '../services/focus_list_service.dart';
-import '../services/goal_queries.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/sample_data.dart';
-import '../theme/app_palette.dart';
 
 class DataSettingsScreen extends StatelessWidget {
   const DataSettingsScreen({super.key});
@@ -28,28 +24,8 @@ class _DataBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final archived = context.watch<GoalQueries>().archivedGoals;
-
     return CustomScrollView(
       slivers: [
-        // ── Archive ──────────────────────────────────────────────────────────
-        _SliverSectionHeader(title: 'Archive'),
-        if (archived.isEmpty)
-          const SliverToBoxAdapter(child: _EmptyArchive())
-        else ...[
-          SliverList.builder(
-            itemCount: archived.length,
-            itemBuilder: (ctx, i) => _ArchiveTile(goal: archived[i]),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: _ClearArchiveButton(),
-            ),
-          ),
-        ],
-        const SliverToBoxAdapter(child: Divider(height: 1)),
-
         // ── Backup ───────────────────────────────────────────────────────────
         _SliverSectionHeader(title: 'Backup'),
         const SliverToBoxAdapter(child: _ExportTile()),
@@ -90,117 +66,6 @@ class _SliverSectionHeader extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Archive widgets
-// ---------------------------------------------------------------------------
-
-class _EmptyArchive extends StatelessWidget {
-  const _EmptyArchive();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Text(
-        'No archived goals',
-        style: TextStyle(color: context.palette.muted),
-      ),
-    );
-  }
-}
-
-class _ArchiveTile extends StatelessWidget {
-  final Goal goal;
-
-  const _ArchiveTile({required this.goal});
-
-  @override
-  Widget build(BuildContext context) {
-    final service = context.read<GoalService>();
-    return Slidable(
-      key: ValueKey(goal.goalId),
-      // Swipe right → Restore
-      startActionPane: ActionPane(
-        motion: const BehindMotion(),
-        extentRatio: 0.28,
-        children: [
-          SlidableAction(
-            onPressed: (_) => service.restoreGoal(goal.goalId),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            foregroundColor: Theme.of(context).colorScheme.onPrimary,
-            icon: Icons.restore_outlined,
-            label: 'Restore',
-          ),
-        ],
-      ),
-      // Swipe left → Delete
-      endActionPane: ActionPane(
-        motion: const BehindMotion(),
-        extentRatio: 0.28,
-        children: [
-          SlidableAction(
-            onPressed: (_) => service.removeGoal(goal.goalId),
-            backgroundColor: context.palette.destructive,
-            foregroundColor: context.palette.onDestructive,
-            icon: Icons.delete_outline,
-            label: 'Delete',
-          ),
-        ],
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.archive_outlined),
-        title: Text(goal.title),
-        subtitle: Text(
-          goal.subtasks.isEmpty
-              ? 'No subtasks'
-              : '${goal.completedSubtaskCount} of ${goal.subtasks.length} complete',
-        ),
-      ),
-    );
-  }
-}
-
-class _ClearArchiveButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: () => _confirm(context),
-      icon: const Icon(Icons.delete_sweep_outlined),
-      label: const Text('Delete all archived goals'),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Theme.of(context).colorScheme.error,
-        side: BorderSide(color: Theme.of(context).colorScheme.error),
-      ),
-    );
-  }
-
-  Future<void> _confirm(BuildContext context) async {
-    final service = context.read<GoalService>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete all archived goals?'),
-        content: const Text('This cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete all'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) service.clearArchive();
   }
 }
 
