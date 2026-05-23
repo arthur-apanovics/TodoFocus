@@ -5,6 +5,7 @@ import 'package:todo_app/models/sub_task.dart';
 import 'package:todo_app/services/focus_list_service.dart';
 import 'package:todo_app/services/goal_repository.dart';
 import 'package:todo_app/services/goal_service.dart';
+import 'package:todo_app/services/llm/decomposed_step.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -214,7 +215,10 @@ void main() {
         makeSubTask('s3'),
       ]);
       final (service, repo) = makeService(seed: [goal]);
-      service.replacePendingSubTasks('g1', ['New step A', 'New step B']);
+      service.replacePendingSubTasks('g1', const [
+        DecomposedStep('New step A'),
+        DecomposedStep('New step B'),
+      ]);
       final loaded = repo.findById('g1')!;
       expect(loaded.subtasks.length, 3); // 1 completed + 2 new
       expect(loaded.subtasks[0].subtaskId, 's1');
@@ -225,24 +229,114 @@ void main() {
     test('replaces all subtasks when none are completed', () {
       final goal = makeGoal(subtasks: [makeSubTask('s1'), makeSubTask('s2')]);
       final (service, repo) = makeService(seed: [goal]);
-      service.replacePendingSubTasks('g1', ['Only step']);
+      service.replacePendingSubTasks('g1', const [DecomposedStep('Only step')]);
       final loaded = repo.findById('g1')!;
       expect(loaded.subtasks.length, 1);
       expect(loaded.subtasks.first.description, 'Only step');
     });
 
-    test('is a no-op when descriptions list is empty', () {
+    test('is a no-op when steps list is empty', () {
       final goal = makeGoal(subtasks: [makeSubTask('s1')]);
       final (service, repo) = makeService(seed: [goal]);
-      service.replacePendingSubTasks('g1', []);
+      service.replacePendingSubTasks('g1', const []);
       final loaded = repo.findById('g1')!;
       expect(loaded.subtasks.length, 1); // unchanged
     });
 
     test('is a no-op for an unknown goalId', () {
       final (service, repo) = makeService();
-      service.replacePendingSubTasks('nonexistent', ['Step']);
+      service.replacePendingSubTasks(
+          'nonexistent', const [DecomposedStep('Step')]);
       expect(repo.all, isEmpty);
+    });
+
+    test('threads LLM-supplied time estimates into new subtasks', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.replacePendingSubTasks('g1', const [
+        DecomposedStep('Step with estimate', estimatedMinutes: 25),
+      ]);
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, 25);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Time estimates
+  // -------------------------------------------------------------------------
+
+  group('setSubTaskEstimate', () {
+    test('sets the estimate on a pending subtask', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.setSubTaskEstimate('g1', 's1', 30);
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, 30);
+    });
+
+    test('clears the estimate when passed null', () {
+      final st = makeSubTask('s1');
+      st.estimatedMinutes = 45;
+      final (service, repo) = makeService(seed: [makeGoal(subtasks: [st])]);
+      service.setSubTaskEstimate('g1', 's1', null);
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, isNull);
+    });
+
+    test('is a no-op for an unknown subtaskId', () {
+      final goal = makeGoal(subtasks: [makeSubTask('s1')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.setSubTaskEstimate('g1', 'unknown', 30);
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, isNull);
+    });
+
+    test('is a no-op for an unknown goalId', () {
+      final (service, repo) = makeService();
+      service.setSubTaskEstimate('nope', 's1', 30);
+      expect(repo.all, isEmpty);
+    });
+  });
+
+  group('bulkSetSubTaskEstimates', () {
+    test('applies estimates to matching subtasks', () {
+      final goal = makeGoal(subtasks: [
+        makeSubTask('a'),
+        makeSubTask('b'),
+        makeSubTask('c'),
+      ]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.bulkSetSubTaskEstimates('g1', const {'a': 10, 'b': 20});
+      final loaded = repo.findById('g1')!.subtasks;
+      expect(loaded[0].estimatedMinutes, 10);
+      expect(loaded[1].estimatedMinutes, 20);
+      expect(loaded[2].estimatedMinutes, isNull); // not in map
+    });
+
+    test('silently skips IDs that do not match any subtask', () {
+      final goal = makeGoal(subtasks: [makeSubTask('a')]);
+      final (service, repo) = makeService(seed: [goal]);
+      service.bulkSetSubTaskEstimates('g1', const {'a': 5, 'bogus': 99});
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, 5);
+    });
+
+    test('is a no-op when map is empty', () {
+      final st = makeSubTask('a');
+      st.estimatedMinutes = 42;
+      final (service, repo) = makeService(seed: [makeGoal(subtasks: [st])]);
+      service.bulkSetSubTaskEstimates('g1', const {});
+      expect(repo.findById('g1')!.subtasks.first.estimatedMinutes, 42);
+    });
+  });
+
+  group('setShowTimeEstimatesOverride', () {
+    test('sets the per-goal override', () {
+      final (service, repo) = makeService(seed: [makeGoal()]);
+      service.setShowTimeEstimatesOverride('g1', true);
+      expect(repo.findById('g1')!.showTimeEstimatesOverride, isTrue);
+    });
+
+    test('clears the override when passed null', () {
+      final g = makeGoal()..showTimeEstimatesOverride = false;
+      final (service, repo) = makeService(seed: [g]);
+      service.setShowTimeEstimatesOverride('g1', null);
+      expect(repo.findById('g1')!.showTimeEstimatesOverride, isNull);
     });
   });
 

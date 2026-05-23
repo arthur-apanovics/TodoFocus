@@ -5,6 +5,7 @@ import '../models/recurrence.dart';
 import '../models/sub_task.dart';
 import 'focus_list_service.dart';
 import 'goal_repository.dart';
+import 'llm/decomposed_step.dart';
 
 class GoalService {
   final GoalRepository _repository;
@@ -240,13 +241,11 @@ class GoalService {
   // Appends multiple new subtasks to the end of the pending list.
   // Used by the AI "add steps" flow when the user asks for specific additions
   // rather than a full re-decomposition.
-  void appendSubTasks(String goalId, List<String> descriptions) {
-    if (descriptions.isEmpty) return;
+  void appendSubTasks(String goalId, List<DecomposedStep> steps) {
+    if (steps.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    final newSubtasks = descriptions
-        .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
-        .toList();
+    final newSubtasks = steps.map(_stepToSubTask).toList();
     for (final st in newSubtasks) {
       goal.addSubTask(st);
     }
@@ -255,32 +254,24 @@ class GoalService {
         goalId, newSubtasks.map((s) => s.subtaskId).toList());
   }
 
-  // Replaces all subtasks on a goal with a fresh set of descriptions.
+  // Replaces all subtasks on a goal with a fresh set of steps.
   // Used by the re-decompose flow to swap in AI-generated steps.
-  void replaceAllSubTasks(String goalId, List<String> descriptions) {
-    if (descriptions.isEmpty) return;
+  void replaceAllSubTasks(String goalId, List<DecomposedStep> steps) {
+    if (steps.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    goal.replaceAllSubTasks(
-      descriptions
-          .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
-          .toList(),
-    );
+    goal.replaceAllSubTasks(steps.map(_stepToSubTask).toList());
     _repository.save(goal);
     _focus.reconcileAfterBulkMutation(goal);
   }
 
   // Replaces only the pending subtasks, preserving any already-completed steps.
   // Used by the re-decompose flow when the user opts to keep completed steps.
-  void replacePendingSubTasks(String goalId, List<String> descriptions) {
-    if (descriptions.isEmpty) return;
+  void replacePendingSubTasks(String goalId, List<DecomposedStep> steps) {
+    if (steps.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    goal.replacePendingSubTasks(
-      descriptions
-          .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
-          .toList(),
-    );
+    goal.replacePendingSubTasks(steps.map(_stepToSubTask).toList());
     _repository.save(goal);
     _focus.reconcileAfterBulkMutation(goal);
   }
@@ -291,14 +282,12 @@ class GoalService {
   void splitSubTask(
     String goalId,
     String subtaskId,
-    List<String> descriptions,
+    List<DecomposedStep> steps,
   ) {
-    if (descriptions.isEmpty) return;
+    if (steps.isEmpty) return;
     final goal = _repository.findById(goalId);
     if (goal == null) return;
-    final newSubtasks = descriptions
-        .map((d) => SubTask(subtaskId: _uuid.v4(), description: d))
-        .toList();
+    final newSubtasks = steps.map(_stepToSubTask).toList();
     final wasFocused = _focus.isInFocus(goalId, subtaskId);
     final goalFull = _focus.isGoalFullyFocused(goalId);
     goal.replaceSubTask(subtaskId, newSubtasks);
@@ -314,6 +303,12 @@ class GoalService {
       _focus.removeDanglingEntry(goalId, subtaskId);
     }
   }
+
+  SubTask _stepToSubTask(DecomposedStep step) => SubTask(
+        subtaskId: _uuid.v4(),
+        description: step.description,
+        estimatedMinutes: step.estimatedMinutes,
+      );
 
   void deleteSubTask(String goalId, String subtaskId) {
     final goal = _repository.findById(goalId);
@@ -377,4 +372,47 @@ class GoalService {
     _repository.save(goal);
   }
 
+  // --- Time estimates ---
+
+  /// Sets or clears the time estimate (in minutes) for a single subtask.
+  /// Pass null to clear an existing estimate. No-op when the goal or
+  /// subtask cannot be found.
+  void setSubTaskEstimate(String goalId, String subtaskId, int? minutes) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    final subtask = goal.subtasks
+        .where((s) => s.subtaskId == subtaskId)
+        .firstOrNull;
+    if (subtask == null) return;
+    subtask.estimatedMinutes = minutes;
+    _repository.save(goal);
+  }
+
+  /// Bulk-sets time estimates for multiple subtasks in a single save —
+  /// used by the "Re-estimate with AI" flow on the goal three-dot menu.
+  /// Map keys that don't match any subtask on the goal are silently skipped.
+  void bulkSetSubTaskEstimates(
+    String goalId,
+    Map<String, int?> subtaskIdToMinutes,
+  ) {
+    if (subtaskIdToMinutes.isEmpty) return;
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    for (final subtask in goal.subtasks) {
+      if (subtaskIdToMinutes.containsKey(subtask.subtaskId)) {
+        subtask.estimatedMinutes = subtaskIdToMinutes[subtask.subtaskId];
+      }
+    }
+    _repository.save(goal);
+  }
+
+  /// Per-goal override for time-estimate visibility. Pass null to clear the
+  /// override (the goal follows the global preference again); pass true/false
+  /// to force show / hide for this goal regardless of the global setting.
+  void setShowTimeEstimatesOverride(String goalId, bool? value) {
+    final goal = _repository.findById(goalId);
+    if (goal == null) return;
+    goal.showTimeEstimatesOverride = value;
+    _repository.save(goal);
+  }
 }

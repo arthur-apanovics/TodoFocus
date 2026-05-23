@@ -5,17 +5,20 @@ import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
+import '../services/display_preferences.dart';
 import '../services/draft_service.dart';
 import '../services/focus_list_service.dart' show FocusListService;
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/llm/decomposed_step.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
 import 'widgets/app_bottom_sheet.dart';
 import 'widgets/auto_sleep_picker_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
+import 'widgets/estimate_picker_sheet.dart';
 import 'widgets/snooze_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/recurrence_picker_sheet.dart';
@@ -39,7 +42,20 @@ class GoalPlanningScreen extends StatefulWidget {
   State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
 
-enum _GoalAction { archive, delete, sendToPlanning, clearSubtasks }
+enum _GoalAction {
+  archive,
+  delete,
+  sendToPlanning,
+  clearSubtasks,
+  toggleTimeEstimates,
+  reestimateWithAI,
+}
+
+/// Resolves whether the time-estimate UI should be visible for [goal]:
+///   • per-goal override wins when set (true/false)
+///   • otherwise falls back to the global [DisplayPreferences.showTimeEstimates]
+bool showEstimatesForGoal(Goal goal, DisplayPreferences prefs) =>
+    goal.showTimeEstimatesOverride ?? prefs.showTimeEstimates;
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
@@ -288,6 +304,8 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
     final llmEnabled =
         context.watch<LlmSettingsService>().buildClient() != null;
+    final displayPrefs = context.watch<DisplayPreferences>();
+    final estimatesVisible = showEstimatesForGoal(goal, displayPrefs);
 
     final isInbox = goal.status == GoalStatus.inbox;
     final isActive = goal.status == GoalStatus.active;
@@ -343,6 +361,16 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
+                _timeEstimatesMenuItem(context, goal),
+                if (llmEnabled && goal.subtasks.isNotEmpty)
+                  const PopupMenuItem(
+                    value: _GoalAction.reestimateWithAI,
+                    child: ListTile(
+                      leading: Icon(Icons.auto_awesome_outlined),
+                      title: Text('Re-estimate with AI'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 if (goal.subtasks.isNotEmpty)
                   const PopupMenuItem(
                     value: _GoalAction.clearSubtasks,
@@ -369,6 +397,16 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
+                _timeEstimatesMenuItem(context, goal),
+                if (llmEnabled && goal.subtasks.isNotEmpty)
+                  const PopupMenuItem(
+                    value: _GoalAction.reestimateWithAI,
+                    child: ListTile(
+                      leading: Icon(Icons.auto_awesome_outlined),
+                      title: Text('Re-estimate with AI'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: _GoalAction.archive,
                   child: ListTile(
@@ -409,6 +447,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           SliverToBoxAdapter(
             child: _GoalDescriptionCard(
               goal: goal,
+              showEstimates: estimatesVisible,
               onEdit: isEditable
                   ? () => _showEditGoalSheet(
                         context,
@@ -470,6 +509,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                     // Completed → read-only, no completion or breakdown.
                     showCompletion: isActive,
                     readOnly: isCompleted,
+                    showEstimate: estimatesVisible,
                   ),
                 );
               },
@@ -541,6 +581,103 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         Navigator.pop(context);
       case _GoalAction.clearSubtasks:
         _clearSubtasks(context, goal, service);
+      case _GoalAction.toggleTimeEstimates:
+        _toggleTimeEstimates(context, goal, service);
+      case _GoalAction.reestimateWithAI:
+        _reestimateWithAI(context, goal, service);
+    }
+  }
+
+  /// Menu item that shows or hides the time-estimate UI for this goal. The
+  /// label/icon reflects the *current* effective visibility (global + override),
+  /// so the user sees "Hide" when estimates are currently visible and "Show"
+  /// otherwise. Selecting it flips the per-goal override to force the
+  /// opposite state regardless of the global setting.
+  PopupMenuItem<_GoalAction> _timeEstimatesMenuItem(
+    BuildContext context,
+    Goal goal,
+  ) {
+    final prefs = context.read<DisplayPreferences>();
+    final visible = showEstimatesForGoal(goal, prefs);
+    return PopupMenuItem(
+      value: _GoalAction.toggleTimeEstimates,
+      child: ListTile(
+        leading: Icon(visible
+            ? Icons.visibility_off_outlined
+            : Icons.visibility_outlined),
+        title: Text(visible ? 'Hide time estimates' : 'Show time estimates'),
+        contentPadding: EdgeInsets.zero,
+      ),
+    );
+  }
+
+  void _toggleTimeEstimates(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) {
+    final prefs = context.read<DisplayPreferences>();
+    final currentlyVisible = showEstimatesForGoal(goal, prefs);
+    // Flip to the opposite state. If the flip would just match the global
+    // default, clear the override instead so the goal goes back to "follow
+    // global" (cleaner state, no stale override left over after the user
+    // toggles the global setting later).
+    final desired = !currentlyVisible;
+    final override = desired == prefs.showTimeEstimates ? null : desired;
+    service.setShowTimeEstimatesOverride(goal.goalId, override);
+  }
+
+  Future<void> _reestimateWithAI(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final decompState = context.read<DecompositionState>();
+    final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
+
+    if (!decomp.canAutoBreakdown) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Configure an AI provider in Settings first.'),
+      ));
+      return;
+    }
+    if (goal.subtasks.isEmpty) return;
+
+    final descriptions = goal.subtasks.map((s) => s.description).toList();
+
+    Object? llmError;
+    decompState.begin(goal.goalId);
+    try {
+      final estimates = await decomp.estimateMinutes(
+        descriptions,
+        goalTitle: goal.title,
+        goalDescription: goal.notes.isEmpty ? null : goal.notes,
+        onError: (e) => llmError = e,
+      );
+      if (!mounted) return;
+      if (estimates == null) {
+        messenger.showSnackBar(SnackBar(
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : "Couldn't generate estimates"),
+        ));
+        return;
+      }
+      final map = <String, int?>{};
+      for (var i = 0; i < goal.subtasks.length && i < estimates.length; i++) {
+        map[goal.subtasks[i].subtaskId] = estimates[i];
+      }
+      service.bulkSetSubTaskEstimates(goal.goalId, map);
+      // If estimates were hidden because of a per-goal "hide" override, clear
+      // it so the user can actually see what the AI produced. (We don't touch
+      // the global setting — that stays the user's call.)
+      if (goal.showTimeEstimatesOverride == false) {
+        service.setShowTimeEstimatesOverride(goal.goalId, null);
+      }
+    } finally {
+      if (mounted) decompState.end(goal.goalId);
     }
   }
 
@@ -1338,8 +1475,17 @@ class _GoalDescriptionCard extends StatelessWidget {
   // Null when the goal is read-only (completed) — the description still
   // renders, but tapping doesn't open the edit sheet.
   final VoidCallback? onEdit;
+  // Resolved effective visibility for time estimates on this goal — null
+  // when the screen hasn't computed it yet (legacy callers); the header
+  // renders the total/remaining line only when this is true and the goal
+  // has at least one estimate set.
+  final bool showEstimates;
 
-  const _GoalDescriptionCard({required this.goal, this.onEdit});
+  const _GoalDescriptionCard({
+    required this.goal,
+    this.onEdit,
+    this.showEstimates = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1396,6 +1542,10 @@ class _GoalDescriptionCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (showEstimates && goal.hasAnyEstimate) ...[
+                    const SizedBox(height: 6),
+                    _EstimateSummary(goal: goal),
+                  ],
                 ],
                 const SizedBox(height: 8),
                 Wrap(
@@ -1801,6 +1951,84 @@ class _DueDateChip extends StatelessWidget {
   }
 }
 
+// --- Time estimate widgets ---
+
+/// Compact trailing chip showing a subtask's time estimate. Renders as
+/// `⏱ 30 min`. Tapping it opens the estimate picker. Dimmed when the
+/// underlying subtask is completed (so historic estimates still read
+/// without competing for attention).
+class _EstimateChip extends StatelessWidget {
+  final int minutes;
+  final bool dimmed;
+  final VoidCallback onTap;
+
+  const _EstimateChip({
+    required this.minutes,
+    required this.onTap,
+    this.dimmed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = dimmed ? context.palette.muted : context.palette.strong;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.schedule, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              formatEstimate(minutes),
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One-line aggregate displayed under the goal progress bar:
+///   • when work remains  → "Est. 2h 15m total · 45m left"
+///   • when all complete  → "Est. 2h 15m total"
+/// Skipped entirely when no subtask has an estimate (Goal.hasAnyEstimate).
+class _EstimateSummary extends StatelessWidget {
+  final Goal goal;
+
+  const _EstimateSummary({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = goal.totalEstimatedMinutes;
+    final remaining = goal.remainingEstimatedMinutes;
+    final hasRemaining = remaining > 0 && remaining != total;
+
+    return Row(
+      children: [
+        Icon(Icons.schedule, size: 13, color: context.palette.muted),
+        const SizedBox(width: 4),
+        Text(
+          hasRemaining
+              ? 'Est. ${formatEstimate(total)} total · '
+                  '${formatEstimate(remaining)} left'
+              : 'Est. ${formatEstimate(total)} total',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.palette.muted,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
 // --- Subtask tile ---
 
 class SubTaskTile extends StatefulWidget {
@@ -1814,6 +2042,10 @@ class SubTaskTile extends StatefulWidget {
   // When true, the tile is fully read-only: no edit-tap, no swipe-delete,
   // no breakdown, no completion controls. Set for completed goals.
   final bool readOnly;
+  // When true, the time estimate (if set) is rendered as a small chip in
+  // the trailing area. Resolved by the caller from the global preference +
+  // per-goal override.
+  final bool showEstimate;
 
   const SubTaskTile({
     super.key,
@@ -1821,6 +2053,7 @@ class SubTaskTile extends StatefulWidget {
     required this.goal,
     this.showCompletion = true,
     this.readOnly = false,
+    this.showEstimate = false,
   });
 
   @override
@@ -1984,17 +2217,66 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // The three-dot menu used to live here; it's now the tile-title tap.
-    // The only trailing affordance left is the complete circle on the
-    // current step (in active mode).
-    if (!isCompleted && isCurrent && widget.showCompletion) {
-      return IconButton(
-        icon: Icon(AppIcons.complete, color: context.palette.strong),
-        tooltip: 'Mark complete',
-        onPressed: () => service.completeCurrentSubTask(goal.goalId),
+    final estimate = subtask.estimatedMinutes;
+    final showEstimate =
+        widget.showEstimate && estimate != null && !widget.readOnly;
+    final completeButton =
+        !isCompleted && isCurrent && widget.showCompletion
+            ? IconButton(
+                icon: Icon(AppIcons.complete, color: context.palette.strong),
+                tooltip: 'Mark complete',
+                onPressed: () =>
+                    service.completeCurrentSubTask(goal.goalId),
+              )
+            : null;
+
+    // Resolved trailing layout:
+    //   • estimate + complete button → both, with a tap on the chip opening
+    //     the picker so the user can tweak the AI's guess without going
+    //     through the actions sheet.
+    //   • estimate only             → tappable chip alone.
+    //   • complete only             → existing single icon button.
+    //   • neither                   → null.
+    if (showEstimate && completeButton != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _EstimateChip(
+            minutes: estimate,
+            dimmed: isCompleted,
+            onTap: () => _showEstimatePicker(context, service),
+          ),
+          completeButton,
+        ],
       );
     }
-    return null;
+    if (showEstimate) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: _EstimateChip(
+          minutes: estimate,
+          dimmed: isCompleted,
+          onTap: () => _showEstimatePicker(context, service),
+        ),
+      );
+    }
+    return completeButton;
+  }
+
+  Future<void> _showEstimatePicker(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final result = await EstimatePickerSheet.show(
+      context,
+      initial: subtask.estimatedMinutes,
+    );
+    if (result == null || !mounted) return;
+    service.setSubTaskEstimate(
+      goal.goalId,
+      subtask.subtaskId,
+      result.cleared ? null : result.minutes,
+    );
   }
 
   /// Unified action sheet for a subtask — consolidates edit, breakdown,
@@ -2093,6 +2375,39 @@ class _SubTaskTileState extends State<SubTaskTile> {
                   service.setSubTaskAutoSleep(
                       goal.goalId, subtask.subtaskId, result.duration);
                 }
+              },
+            ),
+
+          // Time estimate — pending or snoozed subtasks
+          if (isPending || isSnoozed)
+            ListTile(
+              leading: Icon(
+                Icons.schedule,
+                color: subtask.estimatedMinutes != null
+                    ? context.palette.accent
+                    : null,
+              ),
+              title: Text(subtask.estimatedMinutes != null
+                  ? 'Edit time estimate'
+                  : 'Add time estimate'),
+              subtitle: Text(
+                subtask.estimatedMinutes != null
+                    ? formatEstimate(subtask.estimatedMinutes!)
+                    : 'How long will this step take?',
+              ),
+              onTap: () async {
+                Navigator.pop(sheetCtx);
+                final result = await EstimatePickerSheet.show(
+                  // ignore: use_build_context_synchronously
+                  context,
+                  initial: subtask.estimatedMinutes,
+                );
+                if (result == null || !mounted) return;
+                service.setSubTaskEstimate(
+                  goal.goalId,
+                  subtask.subtaskId,
+                  result.cleared ? null : result.minutes,
+                );
               },
             ),
 
@@ -2443,8 +2758,8 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
     if (step1.isEmpty || step2.isEmpty) return;
 
     widget.goalService.splitSubTask(widget.goalId, widget.subtask.subtaskId, [
-      step1,
-      step2,
+      DecomposedStep(step1),
+      DecomposedStep(step2),
     ]);
 
     if (context.mounted) Navigator.pop(context);

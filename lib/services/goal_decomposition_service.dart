@@ -4,6 +4,7 @@ import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import 'decomposition_state.dart';
+import 'llm/decomposed_step.dart';
 import 'llm/decomposition_client.dart';
 
 class GoalDecompositionService {
@@ -37,7 +38,7 @@ class GoalDecompositionService {
   /// or when no provider is configured — caller should show an error.
   /// [onError] is called with the caught exception before returning null, so
   /// callers can surface debug details without catching themselves.
-  Future<List<String>?> redecomposeSubtasks(
+  Future<List<DecomposedStep>?> redecomposeSubtasks(
     String title, {
     String? description,
     String? additionalInstructions,
@@ -69,7 +70,7 @@ class GoalDecompositionService {
   /// can avoid repeating work that is already done. Returns null on failure or
   /// when no provider is configured — caller should show an error.
   /// [onError] is called with the caught exception before returning null.
-  Future<List<String>?> modifySubtasks(
+  Future<List<DecomposedStep>?> modifySubtasks(
     String title, {
     String? description,
     String? additionalInstructions,
@@ -101,7 +102,7 @@ class GoalDecompositionService {
   /// Existing steps are forwarded so the model doesn't repeat them.
   /// Returns null if no provider is configured or the call failed.
   /// [onError] is called with the caught exception before returning null.
-  Future<List<String>?> addSubtasksFromPrompt(
+  Future<List<DecomposedStep>?> addSubtasksFromPrompt(
     String title, {
     String? description,
     String? userPrompt,
@@ -134,7 +135,7 @@ class GoalDecompositionService {
   /// fit naturally within the broader goal. Returns null if no provider is
   /// configured or the call failed — callers should fall back to a manual flow.
   /// [onError] is called with the caught exception before returning null.
-  Future<List<String>?> breakdownSubtask(
+  Future<List<DecomposedStep>?> breakdownSubtask(
     String description, {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
@@ -246,7 +247,7 @@ class GoalDecompositionService {
     required String goalId,
     required String title,
     String? description,
-    required void Function(List<String> descriptions) onResult,
+    required void Function(List<DecomposedStep> steps) onResult,
     required DecompositionState state,
     VoidCallback? onFallback,
     GoalDifficulty difficulty = GoalDifficulty.easy,
@@ -254,7 +255,7 @@ class GoalDecompositionService {
   }) async {
     if (_client == null) {
       // Synchronous keyword path — no loading indicator needed.
-      onResult(_scaffoldDescriptions(title, description));
+      onResult(_scaffoldSteps(title, description));
       return;
     }
 
@@ -266,21 +267,21 @@ class GoalDecompositionService {
 
     state.begin(goalId);
     try {
-      List<String> descriptions;
+      List<DecomposedStep> steps;
       try {
-        descriptions = await _client.decompose(
+        steps = await _client.decompose(
           title,
           description: description,
           difficulty: difficulty,
         );
-        if (descriptions.isEmpty) throw StateError('empty result');
+        if (steps.isEmpty) throw StateError('empty result');
       } catch (e) {
         debugPrint('LLM decomposition failed, using keyword fallback: $e');
         onFallback?.call();
         state.fail(goalId, errorMessage: e.toString());
-        descriptions = _scaffoldDescriptions(title, description);
+        steps = _scaffoldSteps(title, description);
       }
-      onResult(descriptions);
+      onResult(steps);
 
       // Deliver emoji once decomposition is done (usually already resolved).
       if (emojiFuture != null) {
@@ -294,6 +295,33 @@ class GoalDecompositionService {
     }
   }
 
+  /// Re-estimates time for an existing list of subtask descriptions without
+  /// changing the descriptions themselves. Used by the "Re-estimate with AI"
+  /// flow in the goal three-dot menu. Returns null when no provider is
+  /// configured or the call failed; otherwise returns a list parallel to
+  /// [descriptions] with the new estimates (entries may be null when the
+  /// model couldn't decide).
+  Future<List<int?>?> estimateMinutes(
+    List<String> descriptions, {
+    String? goalTitle,
+    String? goalDescription,
+    void Function(Object error)? onError,
+  }) async {
+    if (_client == null) return null;
+    if (descriptions.isEmpty) return const [];
+    try {
+      return await _client.estimate(
+        descriptions,
+        goalTitle: goalTitle,
+        goalDescription: goalDescription,
+      );
+    } catch (e) {
+      debugPrint('Re-estimate failed: $e');
+      onError?.call(e);
+      return null;
+    }
+  }
+
   Future<List<SubTask>> _buildSubTasks(
     String goalId,
     String title,
@@ -303,13 +331,17 @@ class GoalDecompositionService {
   ) async {
     if (_client != null) {
       try {
-        final descriptions = await _client.decompose(
+        final steps = await _client.decompose(
           title,
           description: description,
           difficulty: difficulty,
         );
-        return descriptions
-            .map((s) => SubTask(subtaskId: _uuid.v4(), description: s))
+        return steps
+            .map((s) => SubTask(
+                  subtaskId: _uuid.v4(),
+                  description: s.description,
+                  estimatedMinutes: s.estimatedMinutes,
+                ))
             .toList();
       } catch (e) {
         debugPrint('Decomposition failed, using keyword fallback: $e');
@@ -319,9 +351,14 @@ class GoalDecompositionService {
     return _scaffoldSubTasks(goalId, title, description);
   }
 
-  List<String> _scaffoldDescriptions(String title, String? description) {
+  // Keyword fallback returns descriptions only — no time estimates, since
+  // hard-coded values would be misleading. The user can still add them
+  // manually via the estimate picker.
+  List<DecomposedStep> _scaffoldSteps(String title, String? description) {
     final intent = _detectIntent(title, description);
-    return _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
+    final templates =
+        _templatesByIntent[intent] ?? _templatesByIntent['fallback']!;
+    return templates.map((d) => DecomposedStep(d)).toList();
   }
 
   List<SubTask> _scaffoldSubTasks(
@@ -329,8 +366,12 @@ class GoalDecompositionService {
     String title,
     String? description,
   ) {
-    return _scaffoldDescriptions(title, description)
-        .map((desc) => SubTask(subtaskId: _uuid.v4(), description: desc))
+    return _scaffoldSteps(title, description)
+        .map((s) => SubTask(
+              subtaskId: _uuid.v4(),
+              description: s.description,
+              estimatedMinutes: s.estimatedMinutes,
+            ))
         .toList();
   }
 

@@ -48,6 +48,11 @@ class Goal {
   /// existed — the UI simply omits the "Created" metadata in that case.
   final DateTime? createdAt;
 
+  /// Per-goal override for time-estimate visibility. Null = follow the
+  /// global [DisplayPreferences.showTimeEstimates] setting; true / false =
+  /// force show / hide for this goal regardless of the global preference.
+  bool? showTimeEstimatesOverride;
+
   Goal({
     required this.goalId,
     required this.title,
@@ -62,6 +67,7 @@ class Goal {
     this.lastIterationSummary = '',
     this.lastResumedAt,
     this.createdAt,
+    this.showTimeEstimatesOverride,
   }) : subtasks = subtasks ?? [];
 
   // --- Computed properties ---
@@ -114,6 +120,23 @@ class Goal {
 
   double get progressPercent =>
       subtasks.isEmpty ? 0 : completedSubtaskCount / subtasks.length;
+
+  /// Sum of all subtask time estimates in minutes. Subtasks without an
+  /// estimate contribute zero. Returns 0 when no subtask has an estimate.
+  int get totalEstimatedMinutes =>
+      subtasks.fold<int>(0, (sum, t) => sum + (t.estimatedMinutes ?? 0));
+
+  /// Sum of time estimates for pending + snoozed subtasks (i.e. work not
+  /// yet completed). Subtasks without an estimate contribute zero.
+  int get remainingEstimatedMinutes => subtasks
+      .where((t) => t.state != SubTaskState.completed)
+      .fold<int>(0, (sum, t) => sum + (t.estimatedMinutes ?? 0));
+
+  /// True when at least one subtask has a time estimate set. Used by the
+  /// UI to decide whether the goal header total/remaining line should
+  /// render at all (no point showing "0 min total").
+  bool get hasAnyEstimate =>
+      subtasks.any((t) => t.estimatedMinutes != null);
 
   /// When the goal was finished — the latest completion date among its
   /// subtasks. Null unless the goal is currently [GoalStatus.completed].
@@ -355,6 +378,8 @@ class Goal {
         if (lastResumedAt != null)
           'lastResumedAt': lastResumedAt!.toIso8601String(),
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+        if (showTimeEstimatesOverride != null)
+          'showTimeEstimatesOverride': showTimeEstimatesOverride,
       };
 
   factory Goal.fromJson(Map<String, dynamic> json) {
@@ -388,6 +413,7 @@ class Goal {
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
+      showTimeEstimatesOverride: json['showTimeEstimatesOverride'] as bool?,
     );
   }
 }

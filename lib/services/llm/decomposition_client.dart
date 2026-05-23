@@ -1,11 +1,13 @@
 import '../../models/enums.dart';
+import 'decomposed_step.dart';
 
 abstract interface class DecompositionClient {
-  /// Decomposes [title] into a list of actionable subtask descriptions.
+  /// Decomposes [title] into a list of actionable subtask steps with optional
+  /// LLM-generated time estimates.
   /// [description] is optional context; providers that don't support it ignore it.
   /// [difficulty] controls how many subtasks are generated; defaults to easy.
   /// Throws on network error or unrecoverable response — callers handle fallback.
-  Future<List<String>> decompose(
+  Future<List<DecomposedStep>> decompose(
     String title, {
     String? description,
     String? additionalInstructions,
@@ -18,7 +20,7 @@ abstract interface class DecompositionClient {
   /// about what has already been done without touching those entries.
   /// Returns only the updated pending steps — completed steps are never
   /// included in the response.
-  Future<List<String>> modify(
+  Future<List<DecomposedStep>> modify(
     String title, {
     String? description,
     String? additionalInstructions,
@@ -34,7 +36,7 @@ abstract interface class DecompositionClient {
   /// [otherPendingSteps]) is forwarded to the model so it can generate steps
   /// that make sense within the broader goal — all are optional.
   /// Throws on network error or unrecoverable response — callers handle fallback.
-  Future<List<String>> breakdown(
+  Future<List<DecomposedStep>> breakdown(
     String subtaskDescription, {
     String? additionalInstructions,
     GoalDifficulty? difficulty,
@@ -48,13 +50,25 @@ abstract interface class DecompositionClient {
   /// Unlike [decompose], this never replaces existing steps — it only produces
   /// additions. [existingPendingSteps] and [existingCompletedSteps] are passed
   /// as "do not repeat" context. Throws on error — callers handle fallback.
-  Future<List<String>> addSteps(
+  Future<List<DecomposedStep>> addSteps(
     String title, {
     String? description,
     String? userPrompt,
     GoalDifficulty? difficulty,
     List<String>? existingPendingSteps,
     List<String>? existingCompletedSteps,
+  });
+
+  /// Generates time estimates for [descriptions] in-place without changing
+  /// the descriptions themselves. The returned list is the same length as
+  /// [descriptions]; each entry is the estimate in minutes (or null when the
+  /// model couldn't decide). Used by the "Re-estimate with AI" flow on the
+  /// goal three-dot menu. Throws on error — callers fall back to keeping
+  /// the existing estimates.
+  Future<List<int?>> estimate(
+    List<String> descriptions, {
+    String? goalTitle,
+    String? goalDescription,
   });
 
   /// Suggests a single icon name from [iconNames] that best represents

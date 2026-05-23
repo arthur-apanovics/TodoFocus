@@ -29,13 +29,14 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..nextOccurrenceAt = fields[11] as DateTime?
       ..lastIterationSummary = fields[12] as String?
       ..lastResumedAt = fields[13] as DateTime?
-      ..createdAt = fields[14] as DateTime?;
+      ..createdAt = fields[14] as DateTime?
+      ..showTimeEstimatesOverride = fields[15] as bool?;
   }
 
   @override
   void write(BinaryWriter writer, GoalDto obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.goalId)
       ..writeByte(1)
@@ -61,7 +62,9 @@ class GoalDtoAdapter extends TypeAdapter<GoalDto> {
       ..writeByte(13)
       ..write(obj.lastResumedAt)
       ..writeByte(14)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(15)
+      ..write(obj.showTimeEstimatesOverride);
   }
 
   @override

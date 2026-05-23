@@ -573,5 +573,74 @@ void main() {
       expect(parsed.lastIterationSummary, isNotEmpty);
       expect(parsed.lastResumedAt, DateTime(2026, 5, 1, 9));
     });
+
+    test('preserves estimatedMinutes on subtask', () {
+      final st = SubTask(
+        subtaskId: 'a',
+        description: 'Step A',
+        estimatedMinutes: 45,
+      );
+      final parsed = SubTask.fromJson(st.toJson());
+      expect(parsed.estimatedMinutes, 45);
+    });
+
+    test('preserves showTimeEstimatesOverride on goal', () {
+      final g = makeGoal()..showTimeEstimatesOverride = true;
+      expect(Goal.fromJson(g.toJson()).showTimeEstimatesOverride, isTrue);
+
+      g.showTimeEstimatesOverride = false;
+      expect(Goal.fromJson(g.toJson()).showTimeEstimatesOverride, isFalse);
+
+      g.showTimeEstimatesOverride = null;
+      expect(Goal.fromJson(g.toJson()).showTimeEstimatesOverride, isNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Time estimate aggregates
+  // -------------------------------------------------------------------------
+
+  group('time estimate aggregates', () {
+    test('totalEstimatedMinutes sums all subtask estimates', () {
+      final g = makeGoal(subtasks: [
+        SubTask(subtaskId: 'a', description: 'A', estimatedMinutes: 30),
+        SubTask(subtaskId: 'b', description: 'B', estimatedMinutes: 15),
+        SubTask(subtaskId: 'c', description: 'C'), // null estimate → 0
+      ]);
+      expect(g.totalEstimatedMinutes, 45);
+    });
+
+    test('remainingEstimatedMinutes excludes completed subtasks', () {
+      final a = SubTask(subtaskId: 'a', description: 'A', estimatedMinutes: 30);
+      final b = SubTask(subtaskId: 'b', description: 'B', estimatedMinutes: 15);
+      a.markComplete();
+      final g = makeGoal(subtasks: [a, b]);
+      expect(g.remainingEstimatedMinutes, 15);
+    });
+
+    test('remainingEstimatedMinutes treats null estimates as zero', () {
+      final g = makeGoal(subtasks: [
+        SubTask(subtaskId: 'a', description: 'A', estimatedMinutes: 20),
+        SubTask(subtaskId: 'b', description: 'B'),
+      ]);
+      expect(g.totalEstimatedMinutes, 20);
+      expect(g.remainingEstimatedMinutes, 20);
+    });
+
+    test('hasAnyEstimate is true when at least one subtask has an estimate', () {
+      final g = makeGoal(subtasks: [
+        SubTask(subtaskId: 'a', description: 'A'),
+        SubTask(subtaskId: 'b', description: 'B', estimatedMinutes: 5),
+      ]);
+      expect(g.hasAnyEstimate, isTrue);
+    });
+
+    test('hasAnyEstimate is false when no subtask has an estimate', () {
+      final g = makeGoal(subtasks: [
+        SubTask(subtaskId: 'a', description: 'A'),
+        SubTask(subtaskId: 'b', description: 'B'),
+      ]);
+      expect(g.hasAnyEstimate, isFalse);
+    });
   });
 }

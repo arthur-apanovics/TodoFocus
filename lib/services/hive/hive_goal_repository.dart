@@ -104,6 +104,7 @@ class HiveGoalRepository extends GoalRepository {
       lastIterationSummary: dto.lastIterationSummary ?? '',
       lastResumedAt: dto.lastResumedAt,
       createdAt: dto.createdAt,
+      showTimeEstimatesOverride: dto.showTimeEstimatesOverride,
     );
   }
 
@@ -121,6 +122,7 @@ class HiveGoalRepository extends GoalRepository {
       autoSleepDuration: dto.autoSleepSeconds != null
           ? Duration(seconds: dto.autoSleepSeconds!)
           : null,
+      estimatedMinutes: dto.estimatedMinutes,
     );
   }
 
@@ -143,7 +145,8 @@ class HiveGoalRepository extends GoalRepository {
       ..lastIterationSummary =
           goal.lastIterationSummary.isEmpty ? null : goal.lastIterationSummary
       ..lastResumedAt = goal.lastResumedAt
-      ..createdAt = goal.createdAt;
+      ..createdAt = goal.createdAt
+      ..showTimeEstimatesOverride = goal.showTimeEstimatesOverride;
     return dto;
   }
 
@@ -158,7 +161,8 @@ class HiveGoalRepository extends GoalRepository {
       ..effortEstimate = subtask.effortEstimate
       ..snoozedUntil = subtask.snoozedUntil
       ..notifyOnWake = subtask.notifyOnWake
-      ..autoSleepSeconds = subtask.autoSleepDuration?.inSeconds;
+      ..autoSleepSeconds = subtask.autoSleepDuration?.inSeconds
+      ..estimatedMinutes = subtask.estimatedMinutes;
   }
 
   // --- Static initialisation helper ---

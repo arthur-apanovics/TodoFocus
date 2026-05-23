@@ -19,7 +19,8 @@ part 'goal_dto.g.dart';
 // 12: lastIterationSummary (active)
 // 13: lastResumedAt       (active)
 // 14: createdAt           (active)
-// Next available: 15
+// 15: showTimeEstimatesOverride (active)
+// Next available: 16
 
 @HiveType(typeId: 0)
 class GoalDto extends HiveObject {
@@ -61,4 +62,7 @@ class GoalDto extends HiveObject {
 
   @HiveField(14)
   DateTime? createdAt;
+
+  @HiveField(15)
+  bool? showTimeEstimatesOverride;
 }

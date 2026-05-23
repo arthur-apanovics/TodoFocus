@@ -48,6 +48,7 @@ class SettingsScreen extends StatelessWidget {
             children: [
               _ThemeModeTile(),
               _ThemeColorTile(),
+              _ShowTimeEstimatesTile(),
             ],
           ),
           _SettingsSection(
@@ -245,6 +246,24 @@ class _LlmGenerationTile extends StatelessWidget {
         context,
         MaterialPageRoute(builder: (_) => const LlmGenerationScreen()),
       ),
+    );
+  }
+}
+
+class _ShowTimeEstimatesTile extends StatelessWidget {
+  const _ShowTimeEstimatesTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.schedule),
+      title: const Text('Show time estimates'),
+      subtitle: const Text(
+        'Display estimated minutes on each subtask · individual goals can override this',
+      ),
+      value: prefs.showTimeEstimates,
+      onChanged: prefs.setShowTimeEstimates,
     );
   }
 }
