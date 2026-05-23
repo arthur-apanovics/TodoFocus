@@ -358,8 +358,15 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
     }
   }
 
-  Future<List<String>> _runDecomposition(String goalTitle) =>
-      widget.profile.buildClient().decompose(goalTitle);
+  /// The test dialog only needs human-readable step text, so we strip the
+  /// new [DecomposedStep] wrapper down to its descriptions here. Time
+  /// estimates returned by the model aren't surfaced in the test UI yet —
+  /// the dialog renders a plain numbered list and that's enough to verify
+  /// the connection actually produces sensible output.
+  Future<List<String>> _runDecomposition(String goalTitle) async {
+    final steps = await widget.profile.buildClient().decompose(goalTitle);
+    return [for (final s in steps) s.description];
+  }
 
   void _testConnection() {
     showDialog<void>(
