@@ -9,6 +9,7 @@ import 'package:todo_app/screens/settings_screen.dart';
 import 'package:todo_app/screens/widgets/new_goal_sheet.dart';
 import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'services/backup_service.dart';
 import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
@@ -499,6 +500,7 @@ class _PlanningTabLabel extends StatelessWidget {
     if (inboxCount == 0) return const Text('Planning');
     return Badge(
       label: Text('$inboxCount'),
+      backgroundColor: context.palette.accent,
       child: const Padding(
         padding: EdgeInsets.only(right: 10),
         child: Text('Planning'),
