@@ -13,7 +13,8 @@ part 'sub_task_dto.g.dart'; // generated file
 // 7: snoozedUntil      (active)
 // 8: notifyOnWake      (active)
 // 9: autoSleepSeconds  (active)
-// Next available: 10
+// 10: estimatedMinutes (active)
+// Next available: 11
 
 @HiveType(typeId: 1)
 class SubTaskDto extends HiveObject {
@@ -46,4 +47,7 @@ class SubTaskDto extends HiveObject {
 
   @HiveField(9)
   int? autoSleepSeconds;
+
+  @HiveField(10)
+  int? estimatedMinutes;
 }

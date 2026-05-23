@@ -16,6 +16,7 @@ class DisplayPreferences extends ChangeNotifier {
   static const _focusScreenLayoutKey = 'focus_screen_layout';
   static const _focusWidgetLayoutKey = 'focus_widget_layout';
   static const _focusWidgetShowAllGoalsKey = 'focus_widget_show_all_goals';
+  static const _showTimeEstimatesKey = 'show_time_estimates';
 
   final Box<String> _box;
   GoalSortOrder _sortOrder;
@@ -23,6 +24,7 @@ class DisplayPreferences extends ChangeNotifier {
   FocusLayout _focusScreenLayout;
   FocusLayout _focusWidgetLayout;
   bool _focusWidgetShowAllGoals;
+  bool _showTimeEstimates;
 
   DisplayPreferences._({
     required Box<String> box,
@@ -31,12 +33,14 @@ class DisplayPreferences extends ChangeNotifier {
     required FocusLayout focusScreenLayout,
     required FocusLayout focusWidgetLayout,
     required bool focusWidgetShowAllGoals,
+    required bool showTimeEstimates,
   })  : _box = box,
         _sortOrder = sortOrder,
         _layout = layout,
         _focusScreenLayout = focusScreenLayout,
         _focusWidgetLayout = focusWidgetLayout,
-        _focusWidgetShowAllGoals = focusWidgetShowAllGoals;
+        _focusWidgetShowAllGoals = focusWidgetShowAllGoals,
+        _showTimeEstimates = showTimeEstimates;
 
   GoalSortOrder get sortOrder => _sortOrder;
   GoalListLayout get layout => _layout;
@@ -50,6 +54,11 @@ class DisplayPreferences extends ChangeNotifier {
   /// When true the widget shows the current step of every focused goal instead
   /// of only the topmost one. Defaults to false (single-goal mode).
   bool get focusWidgetShowAllGoals => _focusWidgetShowAllGoals;
+
+  /// Global default for time-estimate visibility on subtasks and goal headers.
+  /// Defaults to false — opt-in feature. Individual goals may override this
+  /// via [Goal.showTimeEstimatesOverride] (resolved by [showEstimatesForGoal]).
+  bool get showTimeEstimates => _showTimeEstimates;
 
   Future<void> setSortOrder(GoalSortOrder order) async {
     _sortOrder = order;
@@ -78,6 +87,12 @@ class DisplayPreferences extends ChangeNotifier {
   Future<void> setFocusWidgetShowAllGoals(bool value) async {
     _focusWidgetShowAllGoals = value;
     await _box.put(_focusWidgetShowAllGoalsKey, value.toString());
+    notifyListeners();
+  }
+
+  Future<void> setShowTimeEstimates(bool value) async {
+    _showTimeEstimates = value;
+    await _box.put(_showTimeEstimatesKey, value.toString());
     notifyListeners();
   }
 
@@ -120,6 +135,9 @@ class DisplayPreferences extends ChangeNotifier {
     final showAllGoalsRaw = box.get(_focusWidgetShowAllGoalsKey);
     final showAllGoals = showAllGoalsRaw == 'true';
 
+    final showTimeEstimatesRaw = box.get(_showTimeEstimatesKey);
+    final showTimeEstimates = showTimeEstimatesRaw == 'true';
+
     return DisplayPreferences._(
       box: box,
       sortOrder: sortOrder,
@@ -132,6 +150,7 @@ class DisplayPreferences extends ChangeNotifier {
         exclude: const {FocusLayout.compact},
       ),
       focusWidgetShowAllGoals: showAllGoals,
+      showTimeEstimates: showTimeEstimates,
     );
   }
 }

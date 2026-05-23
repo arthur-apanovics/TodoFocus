@@ -13,6 +13,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
+import 'widgets/estimate_picker_sheet.dart';
 import 'widgets/focus_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/snooze_picker_sheet.dart';
@@ -36,6 +37,7 @@ class FocusScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = context.watch<GoalRepository>();
     final focus = context.watch<FocusListService>();
+    final layout = context.watch<DisplayPreferences>().focusScreenLayout;
     final allGroups = focus.resolveGroups(repo);
 
     // Today-view rules (per user feedback):
@@ -47,6 +49,24 @@ class FocusScreen extends StatelessWidget {
     //   3. Otherwise, preserve the user's manual ordering from
     //      FocusListService.reorderGroups.
     final partition = _partitionForToday(allGroups);
+
+    // The "Clear N done" affordance must count and act on only the completed
+    // subtasks the user can actually see in their cards — collecting them
+    // here keeps label and action in lock-step. Iterates every section
+    // (active, laterToday, completed) since each card runs its own window.
+    final visibleCompleted = <({String goalId, String subtaskId})>[];
+    for (final g in [
+      ...partition.active,
+      ...partition.laterToday,
+      ...partition.completed,
+    ]) {
+      for (final st in visibleSubtasksForGroup(g, layout)) {
+        if (st.state == SubTaskState.completed) {
+          visibleCompleted
+              .add((goalId: g.goal.goalId, subtaskId: st.subtaskId));
+        }
+      }
+    }
 
     return Scaffold(
       // Hidden when the focus list is empty — the empty-state already
@@ -61,7 +81,7 @@ class FocusScreen extends StatelessWidget {
                 // with the list.
                 _Banner(
                   pending: partition.pendingTotal,
-                  completed: partition.completedTotal,
+                  completedVisible: visibleCompleted,
                 ),
                 Expanded(
                   child: _GroupsList(
@@ -154,7 +174,6 @@ class _TodayPartition {
   bool get isEmpty =>
       active.isEmpty && laterToday.isEmpty && completed.isEmpty;
   int get pendingTotal => _all.fold<int>(0, (s, g) => s + g.pendingCount);
-  int get completedTotal => _all.fold<int>(0, (s, g) => s + g.completedCount);
 
   Iterable<ResolvedFocusGroup> get _all =>
       [...active, ...laterToday, ...completed];
@@ -427,12 +446,18 @@ class _SectionDivider extends StatelessWidget {
 
 class _Banner extends StatelessWidget {
   final int pending;
-  final int completed;
+  // The (goalId, subtaskId) pairs the user can currently see in a "done"
+  // state — passed down so the label count and the Clear action operate on
+  // exactly the same set. Counting via the resolved focus group would have
+  // included historical completed entries that the layout window hides,
+  // which is what caused the "Clear 5 done" / "I only see 2" mismatch.
+  final List<({String goalId, String subtaskId})> completedVisible;
 
-  const _Banner({required this.pending, required this.completed});
+  const _Banner({required this.pending, required this.completedVisible});
 
   @override
   Widget build(BuildContext context) {
+    final completed = completedVisible.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 4, 4),
       child: Row(
@@ -449,9 +474,21 @@ class _Banner extends StatelessWidget {
           ),
           if (completed > 0)
             TextButton(
-              onPressed: () => context
-                  .read<FocusListService>()
-                  .clearCompleted(context.read<GoalRepository>()),
+              onPressed: () async {
+                final focus = context.read<FocusListService>();
+                final repo = context.read<GoalRepository>();
+                // Unfocus each visible-completed subtask individually so the
+                // action stays in sync with the displayed count. The wider
+                // `clearCompleted` sweep over historical entries is still
+                // available via the picker's per-goal controls.
+                for (final pair in completedVisible) {
+                  await focus.unfocusSubtask(
+                    pair.goalId,
+                    pair.subtaskId,
+                    repo,
+                  );
+                }
+              },
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 minimumSize: Size.zero,
@@ -512,56 +549,66 @@ class _GroupCard extends StatelessWidget {
     );
   }
 
-  /// Builds the visible-row window for this goal's card.
-  ///
-  /// Returns at most `1 + layout.extraSteps` rows. The window is **anchored
-  /// on the current step** (first non-completed subtask) and biased forward:
-  ///
-  /// 1. Add the current step, then upcoming pending steps after it, until
-  ///    the window fills or the goal runs out of pending work.
-  /// 2. If there's still room, backfill with completed steps that sit
-  ///    immediately *before* the current step (most-recent first), so the
-  ///    user gets the context "you just finished X, now Y".
-  ///
-  /// Compact returns nothing — its header carries the next-step summary
-  /// and an inline completion button instead. If every step is done, the
-  /// window shows the last N completed steps so finished cards aren't blank.
-  List<SubTask> _visibleSubtasks(FocusLayout layout) {
-    if (layout == FocusLayout.compact) return const [];
-    final all = resolved.subtasks;
-    final total = 1 + layout.extraSteps;
-    if (all.isEmpty || total <= 0) return const [];
+  List<SubTask> _visibleSubtasks(FocusLayout layout) =>
+      visibleSubtasksForGroup(resolved, layout);
+}
 
-    // First non-completed subtask (current / pending / snoozed).
-    final currentIdx =
-        all.indexWhere((s) => s.state != SubTaskState.completed);
+/// Builds the visible-row window for a single focus-group card on the Focus
+/// screen.
+///
+/// Returns at most `1 + layout.extraSteps` rows. The window is **anchored
+/// on the current step** (first non-completed subtask) and biased forward:
+///
+/// 1. Add the current step, then upcoming pending steps after it, until
+///    the window fills or the goal runs out of pending work.
+/// 2. If there's still room, backfill with completed steps that sit
+///    immediately *before* the current step (most-recent first), so the
+///    user gets the context "you just finished X, now Y".
+///
+/// Compact returns nothing — its header carries the next-step summary
+/// and an inline completion button instead. If every step is done, the
+/// window shows the last N completed steps so finished cards aren't blank.
+///
+/// Lifted out of [_GroupCard] so the Focus screen's banner (`Clear N done`)
+/// can compute exactly which completed subtasks are visible to the user.
+List<SubTask> visibleSubtasksForGroup(
+  ResolvedFocusGroup resolved,
+  FocusLayout layout,
+) {
+  if (layout == FocusLayout.compact) return const [];
+  final all = resolved.subtasks;
+  final total = 1 + layout.extraSteps;
+  if (all.isEmpty || total <= 0) return const [];
 
-    if (currentIdx < 0) {
-      // Everything's done — show the trailing tail of completed steps.
-      return all.length <= total ? all : all.sublist(all.length - total);
-    }
+  // First non-completed subtask (current / pending / snoozed).
+  final currentIdx =
+      all.indexWhere((s) => s.state != SubTaskState.completed);
 
-    // Forward pass: current + pending/snoozed steps after it.
-    final window = <SubTask>[];
-    for (var i = currentIdx; i < all.length && window.length < total; i++) {
-      if (all[i].state == SubTaskState.completed) continue;
-      window.add(all[i]);
-    }
-
-    // Backfill pass: completed steps immediately before current, most-recent
-    // first. We collect in reverse, then reverse again to preserve goal
-    // order when prepending — so the final window is always in sequence
-    // order [oldest completed … current … pending].
-    if (window.length < total) {
-      final needed = total - window.length;
-      final backfill = <SubTask>[];
-      for (var i = currentIdx - 1; i >= 0 && backfill.length < needed; i--) {
-        if (all[i].state == SubTaskState.completed) backfill.add(all[i]);
-      }
-      window.insertAll(0, backfill.reversed);
-    }
-    return window;
+  if (currentIdx < 0) {
+    // Everything's done — show the trailing tail of completed steps.
+    return all.length <= total ? all : all.sublist(all.length - total);
   }
+
+  // Forward pass: current + pending/snoozed steps after it.
+  final window = <SubTask>[];
+  for (var i = currentIdx; i < all.length && window.length < total; i++) {
+    if (all[i].state == SubTaskState.completed) continue;
+    window.add(all[i]);
+  }
+
+  // Backfill pass: completed steps immediately before current, most-recent
+  // first. We collect in reverse, then reverse again to preserve goal
+  // order when prepending — so the final window is always in sequence
+  // order [oldest completed … current … pending].
+  if (window.length < total) {
+    final needed = total - window.length;
+    final backfill = <SubTask>[];
+    for (var i = currentIdx - 1; i >= 0 && backfill.length < needed; i--) {
+      if (all[i].state == SubTaskState.completed) backfill.add(all[i]);
+    }
+    window.insertAll(0, backfill.reversed);
+  }
+  return window;
 }
 
 /// One-line "what's next" summary shown under the header in compact layout,
@@ -617,6 +664,23 @@ class _CompactNextLine extends StatelessWidget {
       ),
     );
   }
+}
+
+/// True when the goal-card header should render its time-estimate chip.
+/// Requires both that estimates are visible for the goal (global toggle +
+/// per-goal override) AND that at least one subtask carries an estimate.
+bool _shouldShowEstimate(BuildContext context, Goal goal) {
+  if (!goal.hasAnyEstimate) return false;
+  return showEstimatesForGoal(goal, context.watch<DisplayPreferences>());
+}
+
+/// Compact label for the goal card header:
+///   • remaining work left → "1h 20m left"
+///   • everything done    → "1h 20m total"
+String _estimateLabel(Goal goal) {
+  final remaining = goal.remainingEstimatedMinutes;
+  if (remaining > 0) return '${formatEstimate(remaining)} left';
+  return '${formatEstimate(goal.totalEstimatedMinutes)} total';
 }
 
 class _GroupHeader extends StatelessWidget {
@@ -700,6 +764,21 @@ class _GroupHeader extends StatelessWidget {
                           letterSpacing: 0.3,
                         ),
                       ),
+                      // Time-left chip — only when estimates are visible for
+                      // this goal AND at least one subtask has an estimate.
+                      // Shows remaining when work is left, otherwise total
+                      // (matches the in-app planning screen's summary line).
+                      if (_shouldShowEstimate(context, goal)) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          '· ${_estimateLabel(goal)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: context.palette.muted,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
                       if (goal.dueDate != null) ...[
                         const SizedBox(width: 8),
                         _DueDateChip(dueDate: goal.dueDate!),
@@ -804,12 +883,19 @@ class _SubtaskRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final prefs = context.watch<DisplayPreferences>();
     final isCompleted = subtask.state == SubTaskState.completed;
     final isSnoozed = subtask.state == SubTaskState.snoozed;
     final isCurrent = goal.currentSubTask?.subtaskId == subtask.subtaskId;
     // Completion is sequential: only the first-pending subtask may be ticked.
     // Completed subtasks can always be un-ticked.
     final canInteract = isCompleted || isCurrent;
+
+    // Per-subtask estimate — only when this goal's estimates are visible
+    // (global toggle + per-goal override) and the LLM/user actually set one.
+    final showEstimate =
+        showEstimatesForGoal(goal, prefs) && subtask.estimatedMinutes != null;
+
     return Column(
       children: [
         Padding(
@@ -836,6 +922,29 @@ class _SubtaskRow extends StatelessWidget {
                             isCompleted ? TextDecoration.lineThrough : null,
                       ),
                     ),
+                    // Inline estimate — same visual language as the goal-card
+                    // header (clock + muted text) so the two reinforce each
+                    // other. Sits below the description so the text reflow
+                    // never affects horizontal layout.
+                    if (showEstimate)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.schedule,
+                                size: 12, color: context.palette.muted),
+                            const SizedBox(width: 4),
+                            Text(
+                              formatEstimate(subtask.estimatedMinutes!),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: context.palette.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     // Snooze chip — only on the snoozed row. Tap to either
                     // reschedule or wake-up immediately.
                     if (isSnoozed)

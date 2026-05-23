@@ -210,11 +210,13 @@ void main() {
         lastIterationSummary: '• Step A\n• Step B',
         lastResumedAt: resumed,
         createdAt: created,
+        showTimeEstimatesOverride: true,
         subtasks: [
           SubTask(
             subtaskId: 'st1',
             description: 'Step one',
             state: SubTaskState.completed,
+            estimatedMinutes: 30,
           ),
           SubTask(
             subtaskId: 'st2',
@@ -223,6 +225,7 @@ void main() {
             snoozedUntil: snoozedUntil,
             notifyOnWake: true,
             autoSleepDuration: const Duration(hours: 2),
+            estimatedMinutes: 15,
           ),
         ],
       );
@@ -260,6 +263,12 @@ void main() {
       expect(loaded.subtasks[1].autoSleepDuration,
           const Duration(hours: 2),
           reason: 'subtask[1].autoSleepDuration');
+      expect(loaded.showTimeEstimatesOverride, isTrue,
+          reason: 'showTimeEstimatesOverride');
+      expect(loaded.subtasks[0].estimatedMinutes, 30,
+          reason: 'subtask[0].estimatedMinutes');
+      expect(loaded.subtasks[1].estimatedMinutes, 15,
+          reason: 'subtask[1].estimatedMinutes');
     });
 
     test('null recurrence and empty summary round-trip cleanly', () {

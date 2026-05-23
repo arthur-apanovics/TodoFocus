@@ -5,18 +5,20 @@ import '../models/enums.dart';
 import '../models/goal.dart';
 import '../models/sub_task.dart';
 import '../services/decomposition_state.dart';
+import '../services/display_preferences.dart';
 import '../services/draft_service.dart';
 import '../services/focus_list_service.dart' show FocusListService;
 import '../services/goal_decomposition_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/llm/decomposed_step.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
 import 'widgets/app_bottom_sheet.dart';
 import 'widgets/auto_sleep_picker_sheet.dart';
 import 'widgets/emoji_picker_sheet.dart';
-import 'widgets/snooze_picker_sheet.dart';
+import 'widgets/estimate_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 import 'widgets/recurrence_picker_sheet.dart';
 
@@ -39,7 +41,24 @@ class GoalPlanningScreen extends StatefulWidget {
   State<GoalPlanningScreen> createState() => _GoalPlanningScreenState();
 }
 
-enum _GoalAction { archive, delete, sendToPlanning, clearSubtasks }
+enum _GoalAction {
+  archive,
+  delete,
+  sendToPlanning,
+  clearSubtasks,
+  // Single entry point for everything related to time estimates: opens a
+  // sub-sheet with both the show/hide toggle and Re-estimate-with-AI. The
+  // top-level menu used to surface each as its own item, which crowded the
+  // archive/delete actions; folding them under one "Time estimates" header
+  // both shortens the menu and groups related controls.
+  timeEstimatesSubmenu,
+}
+
+/// Resolves whether the time-estimate UI should be visible for [goal]:
+///   • per-goal override wins when set (true/false)
+///   • otherwise falls back to the global [DisplayPreferences.showTimeEstimates]
+bool showEstimatesForGoal(Goal goal, DisplayPreferences prefs) =>
+    goal.showTimeEstimatesOverride ?? prefs.showTimeEstimates;
 
 class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
   late final DecompositionState _decompositionState;
@@ -288,6 +307,8 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
     );
     final llmEnabled =
         context.watch<LlmSettingsService>().buildClient() != null;
+    final displayPrefs = context.watch<DisplayPreferences>();
+    final estimatesVisible = showEstimatesForGoal(goal, displayPrefs);
 
     final isInbox = goal.status == GoalStatus.inbox;
     final isActive = goal.status == GoalStatus.active;
@@ -343,6 +364,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
+                _timeEstimatesSubmenuItem(),
                 if (goal.subtasks.isNotEmpty)
                   const PopupMenuItem(
                     value: _GoalAction.clearSubtasks,
@@ -369,6 +391,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
             PopupMenuButton<_GoalAction>(
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
+                _timeEstimatesSubmenuItem(),
                 const PopupMenuItem(
                   value: _GoalAction.archive,
                   child: ListTile(
@@ -409,6 +432,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           SliverToBoxAdapter(
             child: _GoalDescriptionCard(
               goal: goal,
+              showEstimates: estimatesVisible,
               onEdit: isEditable
                   ? () => _showEditGoalSheet(
                         context,
@@ -438,7 +462,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
           if (isGenerating)
             const SliverToBoxAdapter(child: _DecomposingState())
           else if (isInbox && goal.subtasks.isEmpty)
-            SliverToBoxAdapter(child: _InboxReadyState(goal: goal))
+            const SliverToBoxAdapter(child: _InboxReadyState())
           else if (goal.subtasks.isEmpty)
             const SliverToBoxAdapter(child: _EmptySubtaskState())
           else
@@ -470,29 +494,45 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                     // Completed → read-only, no completion or breakdown.
                     showCompletion: isActive,
                     readOnly: isCompleted,
+                    showEstimate: estimatesVisible,
                   ),
                 );
               },
             ),
-          // FAB-safe bottom inset so the last subtask can scroll above the
-          // floating action button — without it the FAB hovers over and
-          // intercepts taps on the bottom subtask's action buttons.
-          const SliverToBoxAdapter(child: SizedBox(height: 88)),
+          // Inline "Add step" affordance rendered AT THE BOTTOM of the
+          // subtask list, in-flow — so it visually reads as "this is the
+          // tail of the list, tap here to grow it". Replaces the previous
+          // floating-action button, which had to be cleared with explicit
+          // bottom padding and intercepted taps on the last subtask's
+          // action buttons. Shown for any editable, non-generating goal —
+          // including empty ones, since the empty / inbox-ready states
+          // above are pure guidance text and need a real CTA underneath.
+          if (isEditable && !isGenerating)
+            SliverToBoxAdapter(
+              child: _AddSubtaskInlineButton(
+                llmEnabled: llmEnabled,
+                onAddManual: () => _showAddSubTaskSheet(context),
+                onAddWithAI: () => _showAddWithAISheet(context),
+              ),
+            ),
+          // Tail padding: a touch larger than just the safe-area inset so
+          // the focus FAB (when shown for active goals) doesn't cover the
+          // inline Add-step button or the last subtask's controls.
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: isActive ? 128 : 24,
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: _buildBottomBar(context, goal),
-      floatingActionButton: !isEditable || isGenerating
-          ? null
-          : llmEnabled
-              ? _SpeedDial(
-                  onAddManual: () => _showAddSubTaskSheet(context),
-                  onAddWithAI: () => _showAddWithAISheet(context),
-                )
-              : FloatingActionButton(
-                  onPressed: () => _showAddSubTaskSheet(context),
-                  tooltip: 'Add subtask',
-                  child: const Icon(AppIcons.addSubtask),
-                ),
+      // The Focus toggle lives here for active goals — the FAB slot is
+      // free now that Add-subtask moved into the scrolling list. Centred
+      // so it doesn't collide with the right-aligned "AI" pill on the
+      // inline Add-step tile, and so the three-state colour ladder reads
+      // as the screen's primary action rather than a corner accent.
+      floatingActionButton: isActive ? _GoalFocusFab(goal: goal) : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -541,6 +581,233 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
         Navigator.pop(context);
       case _GoalAction.clearSubtasks:
         _clearSubtasks(context, goal, service);
+      case _GoalAction.timeEstimatesSubmenu:
+        _showTimeEstimatesSheet(context, goal, service);
+    }
+  }
+
+  /// Entry point in the goal's three-dot menu that opens a focused sub-sheet
+  /// for time-estimate operations (visibility toggle + AI re-estimate). The
+  /// label is static — the dynamic "Show" / "Hide" wording was moved into
+  /// the sub-sheet so the top-level menu reads as a stable category, not a
+  /// stateful verb.
+  PopupMenuItem<_GoalAction> _timeEstimatesSubmenuItem() {
+    return const PopupMenuItem(
+      value: _GoalAction.timeEstimatesSubmenu,
+      child: ListTile(
+        leading: Icon(Icons.timer_outlined),
+        title: Text('Time estimates'),
+        trailing: Icon(Icons.chevron_right, size: 20),
+        contentPadding: EdgeInsets.zero,
+      ),
+    );
+  }
+
+  void _showTimeEstimatesSheet(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) {
+    final prefs = context.read<DisplayPreferences>();
+    final visible = showEstimatesForGoal(goal, prefs);
+    final llmEnabled = context.read<GoalDecompositionService>().canAutoBreakdown;
+    final hasSubtasks = goal.subtasks.isNotEmpty;
+
+    _showTopSheet<void>(
+      context: context,
+      builder: (sheetCtx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag handle on the BOTTOM edge of the sheet — it's the side
+          // the user would swipe to dismiss, so the affordance hints at
+          // "pull me down" rather than "pull me up" (which would be wrong
+          // for a top sheet).
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Time estimates',
+                    style: Theme.of(sheetCtx).textTheme.titleLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: Icon(visible
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined),
+            title:
+                Text(visible ? 'Hide time estimates' : 'Show time estimates'),
+            subtitle: Text(
+              goal.showTimeEstimatesOverride == null
+                  ? 'Follows the global setting'
+                  : 'Overrides the global setting for this goal',
+              style: TextStyle(color: context.palette.muted, fontSize: 12),
+            ),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              _toggleTimeEstimates(context, goal, service);
+            },
+          ),
+          if (llmEnabled && hasSubtasks)
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('Re-estimate with AI'),
+              subtitle: Text(
+                'Generates fresh estimates for every step',
+                style: TextStyle(color: context.palette.muted, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _reestimateWithAI(context, goal, service);
+              },
+            ),
+          // Centered drag handle on the bottom edge — mirrors a bottom
+          // sheet's top handle but rotated to suggest "swipe upward to
+          // dismiss" for this top sheet.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+            child: Center(
+              child: Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: context.palette.sheetHandle,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shows a sheet that slides in from the top of the screen rather than the
+  /// bottom. Used for menu items anchored at the top of the AppBar so the
+  /// motion matches the trigger's location — opening a sheet from the
+  /// bottom when the user just tapped the top corner forces their eye
+  /// across the entire screen.
+  Future<T?> _showTopSheet<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return showGeneralDialog<T>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (ctx, _, _) {
+        return Align(
+          alignment: Alignment.topCenter,
+          child: SafeArea(
+            // Mirror Scaffold's bottom-sheet shape but flipped: rounded
+            // corners only on the bottom edge so the sheet reads as
+            // "hanging down from the top of the screen".
+            child: Material(
+              color: cs.surface,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(16),
+                ),
+              ),
+              elevation: 8,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 0),
+                child: builder(ctx),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -1),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        );
+      },
+    );
+  }
+
+  void _toggleTimeEstimates(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) {
+    final prefs = context.read<DisplayPreferences>();
+    final currentlyVisible = showEstimatesForGoal(goal, prefs);
+    // Flip to the opposite state. If the flip would just match the global
+    // default, clear the override instead so the goal goes back to "follow
+    // global" (cleaner state, no stale override left over after the user
+    // toggles the global setting later).
+    final desired = !currentlyVisible;
+    final override = desired == prefs.showTimeEstimates ? null : desired;
+    service.setShowTimeEstimatesOverride(goal.goalId, override);
+  }
+
+  Future<void> _reestimateWithAI(
+    BuildContext context,
+    Goal goal,
+    GoalService service,
+  ) async {
+    final decomp = context.read<GoalDecompositionService>();
+    final decompState = context.read<DecompositionState>();
+    final messenger = ScaffoldMessenger.of(context);
+    final debugMode = context.read<LlmSettingsService>().debugMode;
+
+    if (!decomp.canAutoBreakdown) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Configure an AI provider in Settings first.'),
+      ));
+      return;
+    }
+    if (goal.subtasks.isEmpty) return;
+
+    final descriptions = goal.subtasks.map((s) => s.description).toList();
+
+    Object? llmError;
+    decompState.begin(goal.goalId);
+    try {
+      final estimates = await decomp.estimateMinutes(
+        descriptions,
+        goalTitle: goal.title,
+        goalDescription: goal.notes.isEmpty ? null : goal.notes,
+        onError: (e) => llmError = e,
+      );
+      if (!mounted) return;
+      if (estimates == null) {
+        messenger.showSnackBar(SnackBar(
+          content: Text(debugMode && llmError != null
+              ? llmError.toString()
+              : "Couldn't generate estimates"),
+        ));
+        return;
+      }
+      final map = <String, int?>{};
+      for (var i = 0; i < goal.subtasks.length && i < estimates.length; i++) {
+        map[goal.subtasks[i].subtaskId] = estimates[i];
+      }
+      service.bulkSetSubTaskEstimates(goal.goalId, map);
+      // If estimates were hidden because of a per-goal "hide" override, clear
+      // it so the user can actually see what the AI produced. (We don't touch
+      // the global setting — that stays the user's call.)
+      if (goal.showTimeEstimatesOverride == false) {
+        service.setShowTimeEstimatesOverride(goal.goalId, null);
+      }
+    } finally {
+      if (mounted) decompState.end(goal.goalId);
     }
   }
 
@@ -577,14 +844,14 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
 
   /// Bottom bar varies by goal status:
   ///   • inbox     → "Queue Goal" (commits the plan, moves to active)
-  ///   • active    → focus-bar (toggle the whole goal in/out of today)
+  ///   • active    → no bar (focus toggle lives in the chip row next to
+  ///                 due date / recurrence — see [_GoalFocusChip])
   ///   • completed → no bar (goal is done, no actions)
   Widget? _buildBottomBar(BuildContext context, Goal goal) {
     switch (goal.status) {
       case GoalStatus.inbox:
         return _QueueGoalBar(goal: goal);
       case GoalStatus.active:
-        return _FocusBar(goal: goal);
       case GoalStatus.completed:
       case GoalStatus.archived:
         return null;
@@ -1057,204 +1324,120 @@ class _SplitModifyButton extends StatelessWidget {
   }
 }
 
-// --- Speed dial FAB ---
+// ---------------------------------------------------------------------------
+// Inline "Add subtask" button rendered at the bottom of the goal's
+// subtask list — replaces the previous floating SpeedDial / FAB.
 //
-// Shown on the planning screen when an LLM is configured. Tapping the main
-// button reveals two labelled mini-FABs:
-//   • Add with AI  — user types a prompt; AI appends matching steps
-//   • Add manually — existing manual subtask entry sheet
+// Visual goal: read as a natural extension of the list. The outlined
+// tile + the "+" leading icon + the "Add step" label communicate
+// "this is the next row, tap here to grow the list". Sitting in-flow
+// (not floating) means it doesn't intercept taps on the last real
+// subtask, and the user always has a stable, scrollable place to find
+// the add affordance.
 //
-// When no LLM is configured the speed dial is not used and the plain FAB
-// is rendered instead.
-
-class _SpeedDial extends StatefulWidget {
+// When an LLM is configured, an "AI" pill on the trailing side opens the
+// AI-assisted add flow; the main tile always opens the plain manual
+// add sheet. Two explicit affordances feel less mysterious than a single
+// button that opens a chooser sheet.
+// ---------------------------------------------------------------------------
+class _AddSubtaskInlineButton extends StatelessWidget {
+  final bool llmEnabled;
   final VoidCallback onAddManual;
   final VoidCallback onAddWithAI;
 
-  const _SpeedDial({required this.onAddManual, required this.onAddWithAI});
-
-  @override
-  State<_SpeedDial> createState() => _SpeedDialState();
-}
-
-class _SpeedDialState extends State<_SpeedDial> {
-  bool _open = false;
-
-  // When the dial opens, an Overlay entry is inserted that holds both the
-  // expanded item buttons AND a tap-outside barrier behind them. Hoisting
-  // the items into the overlay means taps land on items, not on the barrier
-  // — and any tap on empty space dismisses the dial, matching the standard
-  // popup-menu UX.
-  OverlayEntry? _overlayEntry;
-
-  void _toggle() => _open ? _close() : _openDial();
-
-  void _openDial() {
-    _overlayEntry?.remove();
-    final entry = OverlayEntry(
-      builder: (_) => Material(
-        type: MaterialType.transparency,
-        child: _SpeedDialOverlay(
-          onAddManual: () => _closeAndRun(widget.onAddManual),
-          onAddWithAI: () => _closeAndRun(widget.onAddWithAI),
-          onDismiss: _close,
-        ),
-      ),
-    );
-    Overlay.of(context, rootOverlay: true).insert(entry);
-    _overlayEntry = entry;
-    setState(() => _open = true);
-  }
-
-  void _close() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-    if (mounted) setState(() => _open = false);
-  }
-
-  void _closeAndRun(VoidCallback action) {
-    _close();
-    action();
-  }
-
-  @override
-  void dispose() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Only the toggle button lives in the FAB slot — the expanded items are
-    // rendered into the global Overlay when open (see [_SpeedDialOverlay]).
-    return FloatingActionButton(
-      onPressed: _toggle,
-      tooltip: _open ? 'Close' : 'Add subtask',
-      child: AnimatedRotation(
-        turns: _open ? 0.125 : 0,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        child: const Icon(Icons.add),
-      ),
-    );
-  }
-}
-
-/// Full-screen overlay shown while the speed dial is open. Layered as:
-///
-///   • [Positioned.fill] tap-barrier (translucent) → dismisses on any tap
-///     outside the items.
-///   • Floating column of [_SpeedDialItem]s anchored to the bottom-right,
-///     just above the FAB, so visual continuity with the toggle button is
-///     preserved.
-///
-/// Sitting above the Scaffold's FAB slot means taps on the toggle FAB are
-/// captured by the barrier first — closing the dial — which is the desired
-/// "tap-anywhere-to-close" behaviour.
-class _SpeedDialOverlay extends StatelessWidget {
-  final VoidCallback onAddManual;
-  final VoidCallback onAddWithAI;
-  final VoidCallback onDismiss;
-
-  const _SpeedDialOverlay({
+  const _AddSubtaskInlineButton({
+    required this.llmEnabled,
     required this.onAddManual,
     required this.onAddWithAI,
-    required this.onDismiss,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: onDismiss,
-          ),
-        ),
-        Positioned(
-          right: 16,
-          // Above the standard 56dp FAB + its 16dp Scaffold inset, plus a
-          // little breathing room. Includes safe-area inset for devices
-          // with a home-indicator (gesture nav bar).
-          bottom: 16 + 56 + 12 + MediaQuery.of(context).padding.bottom,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _SpeedDialItem(
-                icon: const Icon(AppIcons.aiGenerate),
-                label: 'Add with AI',
-                heroTag: 'speed_dial_ai',
-                onTap: onAddWithAI,
-              ),
-              const SizedBox(height: 12),
-              _SpeedDialItem(
-                icon: const Icon(AppIcons.addSubtask),
-                label: 'Add manually',
-                heroTag: 'speed_dial_manual',
-                onTap: onAddManual,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SpeedDialItem extends StatelessWidget {
-  final Widget icon;
-  final String label;
-  final String heroTag;
-  final VoidCallback onTap;
-
-  const _SpeedDialItem({
-    required this.icon,
-    required this.label,
-    required this.heroTag,
-    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    final accent = context.palette.accent;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onAddManual,
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
             decoration: BoxDecoration(
-              color: cs.secondaryContainer,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              border: Border.all(color: cs.outlineVariant, width: 1.2),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: cs.onSecondaryContainer,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 14,
+              ),
+              child: Row(
+                children: [
+                  Icon(AppIcons.addSubtask, color: accent, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Add step',
+                      style: TextStyle(
+                        color: accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (llmEnabled) _InlineAiPill(onTap: onAddWithAI),
+                ],
               ),
             ),
           ),
         ),
-        const SizedBox(width: 12),
-        FloatingActionButton.small(
-          heroTag: heroTag,
-          onPressed: onTap,
-          child: icon,
+      ),
+    );
+  }
+}
+
+/// Secondary "AI" affordance on the right of the inline add tile.
+/// Tapping it bypasses the main InkWell so the user can pick the AI
+/// path without first going through the manual sheet.
+class _InlineAiPill extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _InlineAiPill({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.secondaryContainer,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                AppIcons.aiGenerate,
+                size: 14,
+                color: cs.onSecondaryContainer,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'AI',
+                style: TextStyle(
+                  color: cs.onSecondaryContainer,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -1338,8 +1521,17 @@ class _GoalDescriptionCard extends StatelessWidget {
   // Null when the goal is read-only (completed) — the description still
   // renders, but tapping doesn't open the edit sheet.
   final VoidCallback? onEdit;
+  // Resolved effective visibility for time estimates on this goal — null
+  // when the screen hasn't computed it yet (legacy callers); the header
+  // renders the total/remaining line only when this is true and the goal
+  // has at least one estimate set.
+  final bool showEstimates;
 
-  const _GoalDescriptionCard({required this.goal, this.onEdit});
+  const _GoalDescriptionCard({
+    required this.goal,
+    this.onEdit,
+    this.showEstimates = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1396,8 +1588,17 @@ class _GoalDescriptionCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (showEstimates && goal.hasAnyEstimate) ...[
+                    const SizedBox(height: 6),
+                    _EstimateSummary(goal: goal),
+                  ],
                 ],
                 const SizedBox(height: 8),
+                // Focus toggle lives in the Scaffold's floatingActionButton
+                // slot now (see [_GoalFocusFab]) — moved out of this chip
+                // row to free space for due date / recurrence and to give
+                // the focus action the visual weight it deserves now that
+                // the FAB slot isn't claimed by Add-subtask anymore.
                 Wrap(
                   spacing: 8,
                   runSpacing: 4,
@@ -1801,6 +2002,84 @@ class _DueDateChip extends StatelessWidget {
   }
 }
 
+// --- Time estimate widgets ---
+
+/// Compact trailing chip showing a subtask's time estimate. Renders as
+/// `⏱ 30 min`. Tapping it opens the estimate picker. Dimmed when the
+/// underlying subtask is completed (so historic estimates still read
+/// without competing for attention).
+class _EstimateChip extends StatelessWidget {
+  final int minutes;
+  final bool dimmed;
+  final VoidCallback onTap;
+
+  const _EstimateChip({
+    required this.minutes,
+    required this.onTap,
+    this.dimmed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = dimmed ? context.palette.muted : context.palette.strong;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.schedule, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              formatEstimate(minutes),
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One-line aggregate displayed under the goal progress bar:
+///   • when work remains  → "Est. 2h 15m total · 45m left"
+///   • when all complete  → "Est. 2h 15m total"
+/// Skipped entirely when no subtask has an estimate (Goal.hasAnyEstimate).
+class _EstimateSummary extends StatelessWidget {
+  final Goal goal;
+
+  const _EstimateSummary({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = goal.totalEstimatedMinutes;
+    final remaining = goal.remainingEstimatedMinutes;
+    final hasRemaining = remaining > 0 && remaining != total;
+
+    return Row(
+      children: [
+        Icon(Icons.schedule, size: 13, color: context.palette.muted),
+        const SizedBox(width: 4),
+        Text(
+          hasRemaining
+              ? 'Est. ${formatEstimate(total)} total · '
+                  '${formatEstimate(remaining)} left'
+              : 'Est. ${formatEstimate(total)} total',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.palette.muted,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
 // --- Subtask tile ---
 
 class SubTaskTile extends StatefulWidget {
@@ -1814,6 +2093,10 @@ class SubTaskTile extends StatefulWidget {
   // When true, the tile is fully read-only: no edit-tap, no swipe-delete,
   // no breakdown, no completion controls. Set for completed goals.
   final bool readOnly;
+  // When true, the time estimate (if set) is rendered as a small chip in
+  // the trailing area. Resolved by the caller from the global preference +
+  // per-goal override.
+  final bool showEstimate;
 
   const SubTaskTile({
     super.key,
@@ -1821,6 +2104,7 @@ class SubTaskTile extends StatefulWidget {
     required this.goal,
     this.showCompletion = true,
     this.readOnly = false,
+    this.showEstimate = false,
   });
 
   @override
@@ -1914,30 +2198,62 @@ class _SubTaskTileState extends State<SubTaskTile> {
     );
   }
 
-  /// Subtitle for the subtask tile. Communicates state in plain text rather
-  /// than relying on icons alone:
-  ///   • completed             → "Completed"
-  ///   • snoozed               → "Snoozed · wakes [time]"
-  ///   • has auto-sleep queued → "Sleeps [duration] when active"
-  ///   • otherwise             → null (no subtitle)
+  /// Subtitle for the subtask tile. Renders the estimate chip and any
+  /// state label (snoozed/auto-sleep/completed) on a single line below the
+  /// title.
+  ///
+  /// Placing the estimate here — instead of in the trailing slot next to
+  /// the complete button — kills a layout shift: when an estimate appeared
+  /// or disappeared on the trailing edge, the title text reflowed because
+  /// `ListTile.title` shares horizontal space with `trailing`. The subtitle
+  /// row is below the title so its width changes don't move anything else.
   Widget? _buildSubtitle(BuildContext context, bool isCompleted) {
-    if (isCompleted) return const Text('Completed');
+    final service = context.read<GoalService>();
+    final estimate = subtask.estimatedMinutes;
+    final showEstimate =
+        widget.showEstimate && estimate != null && !widget.readOnly;
 
-    if (subtask.state == SubTaskState.snoozed && subtask.snoozedUntil != null) {
-      return Text(
-        'Snoozed · wakes ${_humaniseWake(subtask.snoozedUntil!)}',
-        style: TextStyle(color: context.palette.muted, fontSize: 12),
-      );
+    String? stateText;
+    if (isCompleted) {
+      stateText = 'Completed';
+    } else if (subtask.state == SubTaskState.snoozed &&
+        subtask.snoozedUntil != null) {
+      stateText = 'Snoozed · wakes ${_humaniseWake(subtask.snoozedUntil!)}';
+    } else {
+      final auto = subtask.autoSleepDuration;
+      if (auto != null && auto.inSeconds > 0) {
+        stateText = 'Auto-sleeps ${_humaniseDuration(auto)} when active';
+      }
     }
 
-    final auto = subtask.autoSleepDuration;
-    if (auto != null && auto.inSeconds > 0) {
-      return Text(
-        'Auto-sleeps ${_humaniseDuration(auto)} when active',
-        style: TextStyle(color: context.palette.muted, fontSize: 12),
-      );
-    }
-    return null;
+    if (!showEstimate && stateText == null) return null;
+
+    final mutedStyle = TextStyle(color: context.palette.muted, fontSize: 12);
+    final separator = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Text('·', style: mutedStyle),
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showEstimate)
+          _EstimateChip(
+            minutes: estimate,
+            dimmed: isCompleted,
+            onTap: () => _showEstimatePicker(context, service),
+          ),
+        if (showEstimate && stateText != null) separator,
+        if (stateText != null)
+          Flexible(
+            child: Text(
+              stateText,
+              style: mutedStyle,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+    );
   }
 
   static String _humaniseDuration(Duration d) {
@@ -1984,9 +2300,10 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
 
-    // The three-dot menu used to live here; it's now the tile-title tap.
-    // The only trailing affordance left is the complete circle on the
-    // current step (in active mode).
+    // Trailing slot is now reserved exclusively for the complete-current
+    // button — the estimate chip moved underneath the title (see
+    // _buildSubtitle) so the row never reflows when an estimate is added
+    // or cleared. Without an actionable current step, this slot is empty.
     if (!isCompleted && isCurrent && widget.showCompletion) {
       return IconButton(
         icon: Icon(AppIcons.complete, color: context.palette.strong),
@@ -1995,6 +2312,22 @@ class _SubTaskTileState extends State<SubTaskTile> {
       );
     }
     return null;
+  }
+
+  Future<void> _showEstimatePicker(
+    BuildContext context,
+    GoalService service,
+  ) async {
+    final result = await EstimatePickerSheet.show(
+      context,
+      initial: subtask.estimatedMinutes,
+    );
+    if (result == null || !mounted) return;
+    service.setSubTaskEstimate(
+      goal.goalId,
+      subtask.subtaskId,
+      result.cleared ? null : result.minutes,
+    );
   }
 
   /// Unified action sheet for a subtask — consolidates edit, breakdown,
@@ -2044,29 +2377,13 @@ class _SubTaskTileState extends State<SubTaskTile> {
               },
             ),
 
-          // Snooze — only for the current step in active mode
-          if (isPending && isCurrent && widget.showCompletion)
-            ListTile(
-              leading: const Icon(Icons.bedtime_outlined),
-              title: const Text('Snooze'),
-              subtitle: const Text('Pause until a specific time'),
-              onTap: () async {
-                Navigator.pop(sheetCtx);
-                final result = await SnoozePickerSheet.show(
-                  // ignore: use_build_context_synchronously
-                  context,
-                  initialUntil: subtask.snoozedUntil,
-                  initialNotify: subtask.notifyOnWake,
-                );
-                if (result != null && mounted) {
-                  service.snoozeCurrentSubTask(
-                    goal.goalId,
-                    until: result.until,
-                    notify: result.notify,
-                  );
-                }
-              },
-            ),
+          // (Snooze used to live here for the *current* step in active
+          // mode but it doesn't make sense semantically — the active task is
+          // what you're working on right now, not something to defer. Pause
+          // semantics for upcoming steps are still available via the
+          // Auto-sleep entry below, and the Focus tab's group header
+          // exposes a snooze action on the goal's front step for the rare
+          // "I literally need to step away" case.)
 
           // Auto-sleep — for any pending subtask
           if (isPending)
@@ -2093,6 +2410,39 @@ class _SubTaskTileState extends State<SubTaskTile> {
                   service.setSubTaskAutoSleep(
                       goal.goalId, subtask.subtaskId, result.duration);
                 }
+              },
+            ),
+
+          // Time estimate — pending or snoozed subtasks
+          if (isPending || isSnoozed)
+            ListTile(
+              leading: Icon(
+                Icons.schedule,
+                color: subtask.estimatedMinutes != null
+                    ? context.palette.accent
+                    : null,
+              ),
+              title: Text(subtask.estimatedMinutes != null
+                  ? 'Edit time estimate'
+                  : 'Add time estimate'),
+              subtitle: Text(
+                subtask.estimatedMinutes != null
+                    ? formatEstimate(subtask.estimatedMinutes!)
+                    : 'How long will this step take?',
+              ),
+              onTap: () async {
+                Navigator.pop(sheetCtx);
+                final result = await EstimatePickerSheet.show(
+                  // ignore: use_build_context_synchronously
+                  context,
+                  initial: subtask.estimatedMinutes,
+                );
+                if (result == null || !mounted) return;
+                service.setSubTaskEstimate(
+                  goal.goalId,
+                  subtask.subtaskId,
+                  result.cleared ? null : result.minutes,
+                );
               },
             ),
 
@@ -2443,8 +2793,8 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
     if (step1.isEmpty || step2.isEmpty) return;
 
     widget.goalService.splitSubTask(widget.goalId, widget.subtask.subtaskId, [
-      step1,
-      step2,
+      DecomposedStep(step1),
+      DecomposedStep(step2),
     ]);
 
     if (context.mounted) Navigator.pop(context);
@@ -2499,9 +2849,7 @@ class _SubTaskSplitSheetState extends State<_SubTaskSplitSheet> {
 }
 
 class _InboxReadyState extends StatelessWidget {
-  final Goal goal;
-
-  const _InboxReadyState({required this.goal});
+  const _InboxReadyState();
 
   @override
   Widget build(BuildContext context) {
@@ -2519,8 +2867,8 @@ class _InboxReadyState extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             decomp.canAutoBreakdown
-                ? 'Generate subtasks in the card above or add them manually with the + button.'
-                : 'Add subtasks using the + button.',
+                ? 'Generate subtasks in the card above, or use the button below to add them yourself.'
+                : 'Use the button below to add your first subtask.',
             style: TextStyle(color: context.palette.muted),
             textAlign: TextAlign.center,
           ),
@@ -2657,7 +3005,7 @@ class _EmptySubtaskState extends StatelessWidget {
           Text('No subtasks yet', style: Theme.of(context).textTheme.bodyLarge),
           const SizedBox(height: 4),
           Text(
-            'Tap the button below to add your first step',
+            'Use the button below to add your first step.',
             style: TextStyle(color: context.palette.muted),
             textAlign: TextAlign.center,
           ),
@@ -2871,45 +3219,104 @@ class _QueueGoalBar extends StatelessWidget {
   }
 }
 
-/// Sticky bottom bar shown for active goals. Toggles the whole goal in/out
-/// of today's focus. When active, every currently-pending subtask is added
-/// AND the goal is marked "fully focused" so future subtasks auto-join.
-class _FocusBar extends StatelessWidget {
+/// Floating-action button that toggles whether the whole goal is in today's
+/// focus. Promoted from the old chip / sticky bottom bar into the FAB slot
+/// now that Add-subtask moved inline into the scrolling list — focus is
+/// the most consequential goal-level action, so it earns the persistent
+/// bottom-centre anchor.
+///
+/// Three-state colour ladder so the FAB always reflects the truth of what
+/// the user can see on the subtask list (focus stars on each row):
+///
+///   • [_FocusFabState.none] — no pending subtasks are in today's focus.
+///     Tonal `secondaryContainer` background, outlined star. Reads as a
+///     quiet, available action.
+///   • [_FocusFabState.partial] — at least one but not all pending
+///     subtasks are focused. Lighter `primaryContainer` background and a
+///     half star, signalling "you're on the way but not committed yet".
+///   • [_FocusFabState.full] — every pending subtask is in focus, either
+///     via the sticky fully-focused flag OR because the user toggled them
+///     all individually. Deepest `primary` background, filled star.
+///
+/// Tap behaviour collapses to a binary: tapping when full unfocuses the
+/// whole goal; tapping when none / partial focuses it fully (which
+/// promotes the partial state to full).
+class _GoalFocusFab extends StatelessWidget {
   final Goal goal;
-  const _FocusBar({required this.goal});
+
+  const _GoalFocusFab({required this.goal});
 
   @override
   Widget build(BuildContext context) {
     final focus = context.watch<FocusListService>();
-    final fullyFocused = focus.isGoalFullyFocused(goal.goalId);
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: fullyFocused
-            ? OutlinedButton.icon(
-                icon: const Icon(Icons.star_rounded),
-                label: const Text('Goal in focus — tap to remove'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                onPressed: () => context
-                    .read<FocusListService>()
-                    .unfocusGoalFully(goal.goalId),
-              )
-            : FilledButton.icon(
-                icon: const Icon(Icons.star_outline_rounded),
-                label: const Text('Add all pending to today\'s focus'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                onPressed: () => context
-                    .read<FocusListService>()
-                    .focusGoalFully(
-                      goal.goalId,
-                      context.read<GoalRepository>(),
-                    ),
-              ),
-      ),
+    final cs = Theme.of(context).colorScheme;
+    final state = _resolveState(focus);
+
+    final (background, foreground, icon, tooltip) = switch (state) {
+      _FocusFabState.none => (
+          cs.secondaryContainer,
+          cs.onSecondaryContainer,
+          Icons.star_outline_rounded,
+          "Add to today's focus",
+        ),
+      _FocusFabState.partial => (
+          cs.primaryContainer,
+          cs.onPrimaryContainer,
+          Icons.star_half_rounded,
+          "Some steps focused — tap to focus the whole goal",
+        ),
+      _FocusFabState.full => (
+          cs.primary,
+          cs.onPrimary,
+          Icons.star_rounded,
+          "Remove from today's focus",
+        ),
+    };
+
+    return FloatingActionButton.extended(
+      heroTag: 'goal_focus_fab_${goal.goalId}',
+      tooltip: tooltip,
+      backgroundColor: background,
+      foregroundColor: foreground,
+      icon: Icon(icon),
+      label: const Text('Focus'),
+      onPressed: () {
+        final f = context.read<FocusListService>();
+        if (state == _FocusFabState.full) {
+          f.unfocusGoalFully(goal.goalId);
+        } else {
+          // Both none and partial promote to full when tapped — the chip
+          // says "Focus the goal", not "Focus one more step".
+          f.focusGoalFully(goal.goalId, context.read<GoalRepository>());
+        }
+      },
     );
   }
+
+  /// Resolves the FAB state by comparing the focused-pending set against
+  /// the goal's pending subtasks. `isGoalFullyFocused` is also treated as
+  /// full so the sticky-flag path stays consistent with the manual-star
+  /// path.
+  _FocusFabState _resolveState(FocusListService focus) {
+    final pending = goal.subtasks
+        .where((s) => s.state == SubTaskState.pending)
+        .toList();
+    if (pending.isEmpty) {
+      // Nothing left to focus. Treat the sticky flag as full so users see
+      // their "fully focused" intent preserved even when the goal has run
+      // out of pending work; otherwise none.
+      return focus.isGoalFullyFocused(goal.goalId)
+          ? _FocusFabState.full
+          : _FocusFabState.none;
+    }
+    final focusedPending = focus.focusedPendingIds(goal.goalId, goal).toSet();
+    if (focus.isGoalFullyFocused(goal.goalId) ||
+        focusedPending.length == pending.length) {
+      return _FocusFabState.full;
+    }
+    if (focusedPending.isEmpty) return _FocusFabState.none;
+    return _FocusFabState.partial;
+  }
 }
+
+enum _FocusFabState { none, partial, full }

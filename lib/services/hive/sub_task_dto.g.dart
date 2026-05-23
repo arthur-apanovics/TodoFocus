@@ -26,13 +26,14 @@ class SubTaskDtoAdapter extends TypeAdapter<SubTaskDto> {
       ..effortEstimate = fields[6] as int?
       ..snoozedUntil = fields[7] as DateTime?
       ..notifyOnWake = fields[8] as bool?
-      ..autoSleepSeconds = fields[9] as int?;
+      ..autoSleepSeconds = fields[9] as int?
+      ..estimatedMinutes = fields[10] as int?;
   }
 
   @override
   void write(BinaryWriter writer, SubTaskDto obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.subtaskId)
       ..writeByte(1)
@@ -52,7 +53,9 @@ class SubTaskDtoAdapter extends TypeAdapter<SubTaskDto> {
       ..writeByte(8)
       ..write(obj.notifyOnWake)
       ..writeByte(9)
-      ..write(obj.autoSleepSeconds);
+      ..write(obj.autoSleepSeconds)
+      ..writeByte(10)
+      ..write(obj.estimatedMinutes);
   }
 
   @override

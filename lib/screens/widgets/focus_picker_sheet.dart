@@ -11,6 +11,7 @@ import '../../services/goal_repository.dart';
 import '../../theme/app_palette.dart';
 import '../goal_planning_screen.dart';
 import 'app_bottom_sheet.dart';
+import 'estimate_picker_sheet.dart';
 import 'goal_symbol.dart';
 
 /// Sheet for adding subtasks to today's focus.
@@ -54,12 +55,13 @@ class _FocusPickerSheetState extends State<FocusPickerSheet> {
   /// True/false = override applied by the last expand-all/collapse-all action.
   bool? _forcedExpansion;
 
-  void _initExpanded(List<Goal> goals, FocusListService focus) {
+  void _initExpanded(List<Goal> goals) {
+    // All goals start collapsed. Auto-expanding the already-focused ones
+    // (the previous behaviour) was useful for visibility but ate vertical
+    // space the user typically wants for *picking* fresh subtasks. They
+    // can still tap to expand a goal, or hit the expand-all toggle.
     for (final goal in goals) {
-      if (_expandedByGoalId.containsKey(goal.goalId)) continue;
-      final hasFocused =
-          focus.focusedPendingIds(goal.goalId, goal).isNotEmpty;
-      _expandedByGoalId[goal.goalId] = hasFocused;
+      _expandedByGoalId.putIfAbsent(goal.goalId, () => false);
     }
   }
 
@@ -90,12 +92,14 @@ class _FocusPickerSheetState extends State<FocusPickerSheet> {
     final queries = context.watch<GoalQueries>();
     final reset = context.watch<DailyResetService>();
     final prefs = context.watch<DisplayPreferences>();
-    final focus = context.watch<FocusListService>();
+    // Subscribe so nested sections rebuild when focus state changes; the
+    // reference isn't used directly here, the listen is the side-effect.
+    context.watch<FocusListService>();
 
     final sorted = _orderForPicker(queries.goals, reset, prefs.sortOrder);
 
     // Lazy-init expansion tracking for any goals not yet seen.
-    _initExpanded(sorted, focus);
+    _initExpanded(sorted);
 
     // Smart sort: display goals grouped by category.
     final useCategories = prefs.sortOrder == GoalSortOrder.smart;
@@ -271,6 +275,22 @@ class _SortMenuButton extends StatelessWidget {
   }
 }
 
+/// True when the picker should show the estimate chip / per-row label for
+/// [goal]. Mirrors the focus-screen rule: visible if the global toggle +
+/// per-goal override say so AND the goal actually has any estimate.
+bool _pickerShouldShowEstimate(BuildContext context, Goal goal) {
+  if (!goal.hasAnyEstimate) return false;
+  return showEstimatesForGoal(goal, context.watch<DisplayPreferences>());
+}
+
+/// Goal-level label for the picker header — "1h 20m left" while work
+/// remains, otherwise "1h 20m total".
+String _pickerEstimateLabel(Goal goal) {
+  final remaining = goal.remainingEstimatedMinutes;
+  if (remaining > 0) return '${formatEstimate(remaining)} left';
+  return '${formatEstimate(goal.totalEstimatedMinutes)} total';
+}
+
 class _GoalSection extends StatelessWidget {
   final Goal goal;
   final bool initiallyExpanded;
@@ -361,6 +381,29 @@ class _GoalSection extends StatelessWidget {
                     Text(goal.title, overflow: TextOverflow.ellipsis),
                     if (goal.dueDate != null)
                       _PickerDueDateLabel(dueDate: goal.dueDate!),
+                    // Total/remaining time for this goal — surfaces only
+                    // when the user has estimates visible AND the goal has
+                    // at least one subtask with an estimate. Helps with
+                    // capacity-planning when picking what to do today.
+                    if (_pickerShouldShowEstimate(context, goal))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.schedule,
+                                size: 11, color: context.palette.muted),
+                            const SizedBox(width: 3),
+                            Text(
+                              _pickerEstimateLabel(goal),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: context.palette.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -377,6 +420,7 @@ class _GoalSection extends StatelessWidget {
         children: [
           for (var i = 0; i < pending.length; i++)
             _SequentialRow(
+              goal: goal,
               goalId: goal.goalId,
               subtask: pending[i],
               positionLabel: '${i + 1}',
@@ -476,12 +520,14 @@ class _BulkStarButton extends StatelessWidget {
 /// A single pending-subtask row in the picker. Number prefix communicates
 /// the sequential position so users notice the "this is step N of M" framing.
 class _SequentialRow extends StatelessWidget {
+  final Goal goal;
   final String goalId;
   final SubTask subtask;
   final String positionLabel;
   final bool isInFocus;
 
   const _SequentialRow({
+    required this.goal,
     required this.goalId,
     required this.subtask,
     required this.positionLabel,
@@ -490,6 +536,8 @@ class _SequentialRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showEstimate = _pickerShouldShowEstimate(context, goal) &&
+        subtask.estimatedMinutes != null;
     return InkWell(
       onTap: () => _toggle(context),
       child: Padding(
@@ -509,9 +557,33 @@ class _SequentialRow extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: Text(
-                subtask.description,
-                style: const TextStyle(fontSize: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subtask.description,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  if (showEstimate)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.schedule,
+                              size: 11, color: context.palette.muted),
+                          const SizedBox(width: 3),
+                          Text(
+                            formatEstimate(subtask.estimatedMinutes!),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: context.palette.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
             Checkbox(
