@@ -100,6 +100,10 @@ class _NewGoalSheetState extends State<NewGoalSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Sheet height is enforced by the caller via showModalBottomSheet's
+    // `constraints:` parameter — see AppShell._openNewGoalSheet. Doing it
+    // there keeps the sheet's footprint authoritative regardless of the
+    // child's intrinsic sizing.
     return AppBottomSheet(
       title: 'New Goal',
       trailing: IconButton(

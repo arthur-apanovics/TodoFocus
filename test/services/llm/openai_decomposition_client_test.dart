@@ -32,6 +32,7 @@ class _FakeLlmClient extends LlmClient {
 }
 
 OpenAiDecompositionClient _client(_FakeLlmClient llm, {
+  String? systemPrompt,
   int easyMin = 3,
   int easyMax = 6,
   int hardMin = 10,
@@ -40,6 +41,7 @@ OpenAiDecompositionClient _client(_FakeLlmClient llm, {
   int impossibleMax = 50,
 }) => OpenAiDecompositionClient(
   llm,
+  systemPrompt: systemPrompt ?? OpenAiDecompositionClient.defaultSystemPrompt,
   easyMin: easyMin,
   easyMax: easyMax,
   hardMin: hardMin,
@@ -102,11 +104,45 @@ void main() {
     });
   });
 
+  group('OpenAiDecompositionClient — system prompt safety', () {
+    // The user-editable system prompt is for *style* guidance. The fixed
+    // "give a JSON array of {description, estimated_minutes}" instruction
+    // must always reach the model, even when the user rewrites their
+    // custom prompt to something that omits time-estimate language.
+    test(
+        'estimate + schema fragment is appended even when user prompt is empty',
+        () async {
+      final llm = _FakeLlmClient();
+      await _client(llm, systemPrompt: '').decompose('x');
+      final sent = llm.capturedSystemPrompt!;
+      expect(sent, contains('estimated_minutes'));
+      expect(sent, contains('JSON array'));
+    });
+
+    test(
+        'estimate + schema fragment survives a user prompt that strips it out',
+        () async {
+      final llm = _FakeLlmClient();
+      // A user prompt that intentionally says nothing about estimates.
+      await _client(
+        llm,
+        systemPrompt: 'Be concise. Use plain language.',
+      ).decompose('x');
+      final sent = llm.capturedSystemPrompt!;
+      expect(sent, contains('Be concise.'));
+      expect(sent, contains('estimated_minutes'));
+      expect(sent, contains('realistic time estimate in minutes'));
+    });
+  });
+
   group('OpenAiDecompositionClient.decompose — response parsing', () {
     test('parses a plain JSON array', () async {
       final llm = _FakeLlmClient(response: '["step A", "step B"]');
       final result = await _client(llm).decompose('Do something');
-      expect(result, ['step A', 'step B']);
+      // decompose() now returns DecomposedStep (description + optional
+      // estimate). These response-parsing tests only care about the text
+      // body, so compare on .description.
+      expect(result.map((s) => s.description).toList(), ['step A', 'step B']);
     });
 
     test('strips markdown fences before parsing', () async {
@@ -114,7 +150,10 @@ void main() {
         response: '```json\n["step A", "step B"]\n```',
       );
       final result = await _client(llm).decompose('Do something');
-      expect(result, ['step A', 'step B']);
+      // decompose() now returns DecomposedStep (description + optional
+      // estimate). These response-parsing tests only care about the text
+      // body, so compare on .description.
+      expect(result.map((s) => s.description).toList(), ['step A', 'step B']);
     });
 
     test('extracts an array embedded in leading prose', () async {
@@ -122,7 +161,10 @@ void main() {
         response: 'Sure, here are the steps:\n["step A", "step B"]',
       );
       final result = await _client(llm).decompose('Do something');
-      expect(result, ['step A', 'step B']);
+      // decompose() now returns DecomposedStep (description + optional
+      // estimate). These response-parsing tests only care about the text
+      // body, so compare on .description.
+      expect(result.map((s) => s.description).toList(), ['step A', 'step B']);
     });
   });
 

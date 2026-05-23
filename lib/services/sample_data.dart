@@ -23,7 +23,31 @@ class SampleData {
   static DateTime _in(int days) =>
       DateTime.now().add(Duration(days: days));
 
-  static SubTask _done(String desc, {int daysAgo = 2, int? effort}) => SubTask(
+  // Effort point → minute mapping for the legacy `effort` argument. Lets
+  // the existing 164 helper call sites pick up a sensible `estimatedMinutes`
+  // value for free, without each goal needing per-step updates. An explicit
+  // `minutes:` argument always wins, and `effort: null` plus no `minutes`
+  // leaves the new field null (no estimate) so we still exercise the
+  // "some subtasks have estimates, some don't" mixed code path.
+  static int? _minutesForEffort(int? effort, int? minutes) {
+    if (minutes != null) return minutes;
+    if (effort == null) return null;
+    return switch (effort) {
+      1 => 15,
+      2 => 30,
+      3 => 60,
+      4 => 90,
+      _ => 120,
+    };
+  }
+
+  static SubTask _done(
+    String desc, {
+    int daysAgo = 2,
+    int? effort,
+    int? minutes,
+  }) =>
+      SubTask(
         subtaskId: _id(),
         description: desc,
         state: SubTaskState.completed,
@@ -31,12 +55,14 @@ class SampleData {
         completionDate: _ago(daysAgo),
         lastSeenDate: _ago(daysAgo),
         effortEstimate: effort,
+        estimatedMinutes: _minutesForEffort(effort, minutes),
       );
 
-  static SubTask _pending(String desc, {int? effort}) => SubTask(
+  static SubTask _pending(String desc, {int? effort, int? minutes}) => SubTask(
         subtaskId: _id(),
         description: desc,
         effortEstimate: effort,
+        estimatedMinutes: _minutesForEffort(effort, minutes),
       );
 
   // ── public API ───────────────────────────────────────────────────────────
@@ -51,14 +77,17 @@ class SampleData {
           notes: 'Work through the Rust Book and build a small CLI tool.',
           difficulty: GoalDifficulty.hard,
           dueDate: _in(45),
+          // Pinned-on time estimates for the headline sample goal so
+          // first-run users see the feature without flipping a setting.
+          showTimeEstimatesOverride: true,
           subtasks: [
             _done('Read chapters 1–4 of the Rust Book', daysAgo: 10, effort: 2),
             _done('Understand ownership and borrowing', daysAgo: 7, effort: 3),
             _done('Work through the guessing game tutorial', daysAgo: 5, effort: 1),
             _pending('Read chapters 5–10 (structs, enums, error handling)', effort: 3),
-            _pending('Write a CLI tool using clap'),
-            _pending('Explore async Rust with Tokio'),
-            _pending('Build a small REST API with Axum'),
+            _pending('Write a CLI tool using clap', minutes: 90),
+            _pending('Explore async Rust with Tokio', minutes: 120),
+            _pending('Build a small REST API with Axum', minutes: 180),
           ],
         ),
 

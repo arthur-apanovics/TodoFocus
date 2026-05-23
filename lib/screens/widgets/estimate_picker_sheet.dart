@@ -76,11 +76,6 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
     super.dispose();
   }
 
-  int get _resolved {
-    if (_custom) return _customValue;
-    return _selectedPreset ?? 30;
-  }
-
   String _label(int minutes) {
     if (minutes < 60) return '$minutes min';
     final hours = minutes ~/ 60;
@@ -92,7 +87,6 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
   @override
   Widget build(BuildContext context) {
     final hasInitial = widget.initial != null;
-    final resolved = _resolved;
 
     return AppBottomSheet(
       title: 'Time estimate',
@@ -103,7 +97,10 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
         ),
         const SizedBox(height: 16),
 
-        // Preset chips.
+        // Preset chips — tapping one commits immediately and closes the
+        // sheet. No "Apply" step for the 90% case where the user picks a
+        // standard value. Custom entry still needs an explicit Apply because
+        // the value can be typed mid-edit.
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -113,10 +110,9 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
                 label: Text(_label(p)),
                 selected: !_custom && _selectedPreset == p,
                 showCheckmark: false,
-                onSelected: (_) => setState(() {
-                  _custom = false;
-                  _selectedPreset = p;
-                }),
+                onSelected: (_) {
+                  Navigator.of(context).pop(EstimateResult.set(p));
+                },
               ),
             ChoiceChip(
               label: const Text('Custom'),
@@ -157,6 +153,7 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
                       setState(() => _customValue = n);
                     }
                   },
+                  onSubmitted: (_) => _applyCustom(context),
                 ),
               ),
               const SizedBox(width: 12),
@@ -168,30 +165,12 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
 
         const SizedBox(height: 16),
 
-        // Resolved preview — same affordance pattern as auto_sleep_picker_sheet.
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: context.palette.successSurface,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.schedule,
-                  color: context.palette.accent, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Estimated ${_label(resolved)}',
-                  style: TextStyle(
-                      fontSize: 13, color: context.palette.strong),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
+        // Footer:
+        //   • Clear  — only when an estimate already exists.
+        //   • Cancel — always available.
+        //   • Apply  — only meaningful when the user is mid-custom-entry;
+        //              presets auto-apply on tap so the button would just
+        //              add a redundant step.
         Row(
           children: [
             if (hasInitial)
@@ -209,18 +188,22 @@ class _EstimatePickerSheetState extends State<EstimatePickerSheet> {
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: resolved <= 0
-                  ? null
-                  : () => Navigator.of(context)
-                      .pop(EstimateResult.set(resolved)),
-              child: const Text('Apply'),
-            ),
+            if (_custom) ...[
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _customValue <= 0 ? null : () => _applyCustom(context),
+                child: const Text('Apply'),
+              ),
+            ],
           ],
         ),
       ],
     );
+  }
+
+  void _applyCustom(BuildContext context) {
+    if (_customValue <= 0) return;
+    Navigator.of(context).pop(EstimateResult.set(_customValue));
   }
 }
 

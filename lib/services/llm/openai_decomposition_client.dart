@@ -8,22 +8,39 @@ import 'llm_client.dart';
 // JSON schema constraint, and output parsing. Extracted from GoalDecompositionService
 // so the service stays provider-agnostic.
 class OpenAiDecompositionClient implements DecompositionClient {
-  // Single style-only system prompt — all per-operation instructions are
-  // injected into the user message so this stays stable across calls and
-  // benefits from provider-side prompt caching.
+  // Style-only system prompt — describes the kind of steps the user wants.
+  // All per-operation instructions (counts, schema, etc.) are injected into
+  // the user message so this stays stable across calls and benefits from
+  // provider-side prompt caching.
   //
-  // The schema below pins the response to a JSON array of objects with both
-  // a description and an estimated_minutes field. We ask the model to give
-  // a *realistic* time estimate per step — the user can adjust afterwards.
+  // IMPORTANT: this is the *user-editable* fragment. The fixed instruction
+  // that pins the JSON shape and the time-estimate requirement is held in
+  // [_estimateAndSchemaInstruction] below and concatenated at request time —
+  // a user can rewrite the style guidance without breaking the response
+  // contract that drives the rest of the app.
   static const defaultSystemPrompt =
       'You are a task planning assistant for people with ADHD. '
       'Generate short, concrete, immediately actionable steps. '
-      'Each step is a single sentence requiring almost no decision-making to start. '
+      'Each step is a single sentence requiring almost no decision-making to start.';
+
+  /// Non-editable suffix appended to every system prompt before sending. It
+  /// pins the response schema and the time-estimate semantics so a user who
+  /// customises [systemPrompt] can't accidentally break either: removing
+  /// the "give time estimates" line used to leave the model guessing, and
+  /// it might emit `0` or omit the field entirely (which the JSON-schema
+  /// validator then rejected). Keeping this fragment server-managed means
+  /// the app's downstream estimate-aware UI always has something to render.
+  static const String _estimateAndSchemaInstruction =
       'For every step, provide a realistic time estimate in minutes for how '
       'long that single step alone will take an average adult — be honest, '
       'not aspirational. Typical values are 5–60 minutes per step. '
       'Always respond with a JSON array of {"description": string, '
       '"estimated_minutes": integer} objects, nothing else.';
+
+  /// Combines the user-editable [systemPrompt] with the fixed
+  /// estimate/schema instruction.
+  String get _effectiveSystemPrompt =>
+      '$systemPrompt\n\n$_estimateAndSchemaInstruction';
 
   final LlmClient _llm;
   final String systemPrompt;
@@ -124,7 +141,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
       parts.add('Additional instructions: $additionalInstructions');
     }
     final raw = await _llm.complete(
-      systemPrompt,
+      _effectiveSystemPrompt,
       parts.join('\n\n'),
       responseSchema: _schemaFor(min, max),
     );
@@ -169,7 +186,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
       parts.add('Instructions: $additionalInstructions');
     }
     final raw = await _llm.complete(
-      systemPrompt,
+      _effectiveSystemPrompt,
       parts.join('\n\n'),
       responseSchema: _schemaFor(min, max),
     );
@@ -233,7 +250,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
     }
 
     final raw = await _llm.complete(
-      systemPrompt,
+      _effectiveSystemPrompt,
       parts.join('\n\n'),
       responseSchema: schema,
     );
@@ -280,7 +297,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
       parts.add('Add steps for: $userPrompt');
     }
     final raw = await _llm.complete(
-      systemPrompt,
+      _effectiveSystemPrompt,
       parts.join('\n\n'),
       responseSchema: _addStepsSchema,
     );

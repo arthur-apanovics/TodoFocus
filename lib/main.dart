@@ -398,32 +398,82 @@ class _AppShellState extends State<AppShell>
 /// Thin handle strip at the bottom of the AppShell body. Tapping or swiping
 /// up opens the new-goal sheet. Sits in-flow (below the TabBarView), so it
 /// doesn't float over any screen content.
+///
+/// Sized + positioned so the *swipe-detection* area lives well clear of
+/// the OS gesture-nav swipe-up zone at the very bottom of the screen.
+/// Without the SafeArea pad-out + the generous height, the system gesture
+/// (home / back) wins every upward fling before this handle's
+/// `onVerticalDragEnd` ever sees it.
 class _NewGoalHandle extends StatelessWidget {
   final VoidCallback onOpen;
 
   const _NewGoalHandle({required this.onOpen});
 
+  // Total height of the gesture-capture area. Material's BottomSheet has
+  // a ~64dp default drag header; we match that so the swipe target is at
+  // least as comfortable as a system sheet's. The visible pill stays
+  // small (the height is mostly invisible padding around it).
+  static const double _captureHeight = 44;
+
+  // Visible pill — sized like the AppBottomSheet handle so the two read
+  // as the same affordance: "this is something you can pull on".
+  static const double _pillWidth = 68;
+  static const double _pillHeight = 4;
+
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context)
-        .colorScheme
-        .onSurfaceVariant
-        .withValues(alpha: 0.35);
-    return GestureDetector(
-      onTap: onOpen,
-      onVerticalDragEnd: (details) {
-        if ((details.primaryVelocity ?? 0) < -200) onOpen();
-      },
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        height: 40,
-        child: Center(
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(2),
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      // Push the handle ABOVE any system gesture inset at the bottom
+      // (e.g. the home-indicator zone on gesture-nav devices). Without
+      // this, the bottom slice of the handle overlaps the gesture bar
+      // and the OS swipe wins.
+      top: false,
+      child: GestureDetector(
+        onTap: onOpen,
+        onVerticalDragUpdate: (details) {
+          // Any noticeable upward motion opens the sheet — don't wait for
+          // the gesture to "end", so the user gets feedback the moment
+          // their finger starts moving instead of after lift-off.
+          if ((details.primaryDelta ?? 0) < -2) onOpen();
+        },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          height: _captureHeight,
+          // The thin top divider mimics a sheet's edge so the strip reads
+          // as the "lip" of a hidden sheet, hinting at what comes up.
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: cs.outlineVariant.withValues(alpha: 0.5),
+                width: 1,
+              ),
+            ),
+          ),
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: _pillWidth,
+                  height: _pillHeight,
+                  decoration: BoxDecoration(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'New goal',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

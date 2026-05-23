@@ -17,6 +17,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
 import 'goal_planning_screen.dart';
+import 'widgets/estimate_picker_sheet.dart';
 import 'widgets/goal_symbol.dart';
 
 class GoalsScreen extends StatefulWidget {
@@ -615,6 +616,11 @@ class _GoalTile extends StatelessWidget {
       return const Text('No subtasks yet');
     }
 
+    final prefs = context.watch<DisplayPreferences>();
+    final showEstimate =
+        showEstimatesForGoal(goal, prefs) && goal.hasAnyEstimate;
+    final remaining = goal.remainingEstimatedMinutes;
+
     return Row(
       children: [
         if (hasTasks)
@@ -627,6 +633,21 @@ class _GoalTile extends StatelessWidget {
           )
         else
           const Text('No subtasks yet'),
+        // Time-left chip — only when estimates are visible AND any subtask
+        // has an estimate. Prefers "left" (most actionable info while work
+        // remains), falling back to "total" once everything is complete so
+        // the goal still shows a meaningful number.
+        if (showEstimate) ...[
+          const SizedBox(width: 8),
+          Icon(Icons.schedule, size: 12, color: context.palette.muted),
+          const SizedBox(width: 3),
+          Text(
+            remaining > 0
+                ? '${formatEstimate(remaining)} left'
+                : '${formatEstimate(goal.totalEstimatedMinutes)} total',
+            style: TextStyle(fontSize: 12, color: context.palette.muted),
+          ),
+        ],
         const Spacer(),
         // State indicators: recurrence ↻, snooze 💤. These sit before the
         // due date so the eye reads "what kind of goal" before "when".
