@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
+import '../services/display_preferences.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
 import '../services/settings/llm_profile.dart';
@@ -27,6 +28,7 @@ class LlmGenerationScreen extends StatefulWidget {
 class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
   late bool _generateEmojis;
   late OpenAiCompatibleProfile _draft;
+  late String _nudgePrompt;
 
   @override
   void initState() {
@@ -34,6 +36,7 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
     final service = context.read<LlmSettingsService>();
     _generateEmojis = service.generateEmojis;
     _draft = service.openAiProfile;
+    _nudgePrompt = context.read<DisplayPreferences>().nudgePromptTemplate;
   }
 
   Future<void> _save() async {
@@ -53,6 +56,7 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
       impossibleMin: _draft.impossibleMin,
       impossibleMax: _draft.impossibleMax,
     ));
+    await context.read<DisplayPreferences>().setNudgePromptTemplate(_nudgePrompt);
     if (!mounted) return;
 
     // When emoji generation is newly switched on, offer to backfill existing
@@ -127,6 +131,12 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
     });
   }
 
+  void _restoreDefaultNudgePrompt() {
+    setState(() {
+      _nudgePrompt = DisplayPreferences.defaultNudgePromptTemplate;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -156,6 +166,19 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
             onRestore: _restoreDefaultPrompt,
             onChanged: (v) =>
                 setState(() => _draft = _draft.copyWith(systemPrompt: v)),
+          ),
+          const Divider(height: 1),
+          _SectionHeader(label: 'Nudge prompt'),
+          _PromptSection(
+            helper:
+                'Used when generating inactivity nudges for the home-screen widget. '
+                'The goal title, current step, next step, and idle duration are '
+                'appended automatically.',
+            text: _nudgePrompt,
+            isDefault:
+                _nudgePrompt == DisplayPreferences.defaultNudgePromptTemplate,
+            onRestore: _restoreDefaultNudgePrompt,
+            onChanged: (v) => setState(() => _nudgePrompt = v),
           ),
           const Divider(height: 1),
           _DifficultyRangesSection(

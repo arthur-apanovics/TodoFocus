@@ -17,6 +17,18 @@ class DisplayPreferences extends ChangeNotifier {
   static const _focusWidgetLayoutKey = 'focus_widget_layout';
   static const _focusWidgetShowAllGoalsKey = 'focus_widget_show_all_goals';
   static const _showTimeEstimatesKey = 'show_time_estimates';
+  static const _nudgesEnabledKey = 'nudges_enabled';
+  static const _nudgeHeartbeatMinutesKey = 'nudge_heartbeat_minutes';
+  static const _nudgePromptTemplateKey = 'nudge_prompt_template';
+
+  /// Default system prompt shown in Settings → Generation → Nudge prompt.
+  /// Editable by the user; governs tone and style of widget nudge messages.
+  static const defaultNudgePromptTemplate =
+      'You are helping someone stay on track with their daily tasks. '
+      'When given a goal and the step they are currently stuck on, '
+      'write a 1–2 sentence nudge that starts with a single relevant emoji. '
+      'Be direct, specific to the task, and warm — but not cheesy. '
+      'Never use clichés like "you\'ve got this", "just do it", or "small steps".';
 
   final Box<String> _box;
   GoalSortOrder _sortOrder;
@@ -25,6 +37,9 @@ class DisplayPreferences extends ChangeNotifier {
   FocusLayout _focusWidgetLayout;
   bool _focusWidgetShowAllGoals;
   bool _showTimeEstimates;
+  bool _nudgesEnabled;
+  int _nudgeHeartbeatMinutes;
+  String _nudgePromptTemplate;
 
   DisplayPreferences._({
     required Box<String> box,
@@ -34,13 +49,19 @@ class DisplayPreferences extends ChangeNotifier {
     required FocusLayout focusWidgetLayout,
     required bool focusWidgetShowAllGoals,
     required bool showTimeEstimates,
+    required bool nudgesEnabled,
+    required int nudgeHeartbeatMinutes,
+    required String nudgePromptTemplate,
   })  : _box = box,
         _sortOrder = sortOrder,
         _layout = layout,
         _focusScreenLayout = focusScreenLayout,
         _focusWidgetLayout = focusWidgetLayout,
         _focusWidgetShowAllGoals = focusWidgetShowAllGoals,
-        _showTimeEstimates = showTimeEstimates;
+        _showTimeEstimates = showTimeEstimates,
+        _nudgesEnabled = nudgesEnabled,
+        _nudgeHeartbeatMinutes = nudgeHeartbeatMinutes,
+        _nudgePromptTemplate = nudgePromptTemplate;
 
   GoalSortOrder get sortOrder => _sortOrder;
   GoalListLayout get layout => _layout;
@@ -59,6 +80,21 @@ class DisplayPreferences extends ChangeNotifier {
   /// Defaults to false — opt-in feature. Individual goals may override this
   /// via [Goal.showTimeEstimatesOverride] (resolved by [showEstimatesForGoal]).
   bool get showTimeEstimates => _showTimeEstimates;
+
+  /// Whether the inactivity nudge feature is enabled. Defaults to false.
+  /// When enabled, the home-screen widget shows an LLM-generated motivational
+  /// message above the current step of any focused goal that has been idle for
+  /// longer than [nudgeHeartbeatDuration].
+  bool get nudgesEnabled => _nudgesEnabled;
+
+  /// How long a focused goal must be idle before a nudge is shown.
+  Duration get nudgeHeartbeatDuration =>
+      Duration(minutes: _nudgeHeartbeatMinutes);
+
+  /// The system prompt template used when generating nudges. Editable in
+  /// Settings → Generation → Nudge prompt. Defaults to
+  /// [defaultNudgePromptTemplate].
+  String get nudgePromptTemplate => _nudgePromptTemplate;
 
   Future<void> setSortOrder(GoalSortOrder order) async {
     _sortOrder = order;
@@ -93,6 +129,24 @@ class DisplayPreferences extends ChangeNotifier {
   Future<void> setShowTimeEstimates(bool value) async {
     _showTimeEstimates = value;
     await _box.put(_showTimeEstimatesKey, value.toString());
+    notifyListeners();
+  }
+
+  Future<void> setNudgesEnabled(bool value) async {
+    _nudgesEnabled = value;
+    await _box.put(_nudgesEnabledKey, value.toString());
+    notifyListeners();
+  }
+
+  Future<void> setNudgeHeartbeatMinutes(int minutes) async {
+    _nudgeHeartbeatMinutes = minutes;
+    await _box.put(_nudgeHeartbeatMinutesKey, minutes.toString());
+    notifyListeners();
+  }
+
+  Future<void> setNudgePromptTemplate(String value) async {
+    _nudgePromptTemplate = value;
+    await _box.put(_nudgePromptTemplateKey, value);
     notifyListeners();
   }
 
@@ -138,6 +192,16 @@ class DisplayPreferences extends ChangeNotifier {
     final showTimeEstimatesRaw = box.get(_showTimeEstimatesKey);
     final showTimeEstimates = showTimeEstimatesRaw == 'true';
 
+    final nudgesEnabledRaw = box.get(_nudgesEnabledKey);
+    final nudgesEnabled = nudgesEnabledRaw == 'true';
+
+    final nudgeHeartbeatRaw = box.get(_nudgeHeartbeatMinutesKey);
+    final nudgeHeartbeatMinutes =
+        int.tryParse(nudgeHeartbeatRaw ?? '') ?? 60;
+
+    final nudgePromptTemplate =
+        box.get(_nudgePromptTemplateKey) ?? defaultNudgePromptTemplate;
+
     return DisplayPreferences._(
       box: box,
       sortOrder: sortOrder,
@@ -151,6 +215,9 @@ class DisplayPreferences extends ChangeNotifier {
       ),
       focusWidgetShowAllGoals: showAllGoals,
       showTimeEstimates: showTimeEstimates,
+      nudgesEnabled: nudgesEnabled,
+      nudgeHeartbeatMinutes: nudgeHeartbeatMinutes,
+      nudgePromptTemplate: nudgePromptTemplate,
     );
   }
 }

@@ -9,4 +9,6 @@
     <color name="widget_text">#1B1C1B</color>
     <color name="widget_text_muted">#6B6F6C</color>
     <color name="widget_accent">#2E7D32</color>
+    <!-- Nudge message text — warm amber, readable on a light widget background -->
+    <color name="widget_nudge">#E65100</color>
 </resources>

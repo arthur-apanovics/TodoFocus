@@ -354,6 +354,57 @@ class OpenAiDecompositionClient implements DecompositionClient {
     return out;
   }
 
+  // Schema for nudge responses — a single object with the nudge message.
+  static const _nudgeSchema = {
+    'type': 'object',
+    'properties': {
+      'message': {'type': 'string', 'minLength': 10, 'maxLength': 250},
+    },
+    'required': ['message'],
+    'additionalProperties': false,
+  };
+
+  @override
+  Future<String?> generateNudge(
+    String goalTitle, {
+    String? goalDescription,
+    required String currentSubtask,
+    String? nextSubtask,
+    required Duration staleDuration,
+    required String promptTemplate,
+  }) async {
+    final systemPrompt =
+        '$promptTemplate\n\nRespond with JSON: {"message": "your nudge here"}';
+    final parts = [
+      'Goal: "$goalTitle"',
+      if (goalDescription?.isNotEmpty == true) 'Description: $goalDescription',
+      'Current step: "$currentSubtask"',
+      if (nextSubtask?.isNotEmpty == true) 'Next step: "$nextSubtask"',
+      'Idle for: ${_formatStaleDuration(staleDuration)}',
+      'Write a nudge.',
+    ];
+    final raw = await _llm.complete(
+      systemPrompt,
+      parts.join('\n'),
+      responseSchema: _nudgeSchema,
+    );
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      final msg = (json['message'] as String?)?.trim();
+      return (msg == null || msg.isEmpty) ? null : msg;
+    } catch (_) {
+      final trimmed = raw.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+  }
+
+  String _formatStaleDuration(Duration d) {
+    if (d.inMinutes < 60) return '${d.inMinutes} minutes';
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return m == 0 ? '$h hour${h == 1 ? '' : 's'}' : '$h hour${h == 1 ? '' : 's'} $m minutes';
+  }
+
   // System prompt for icon suggestion — the name list is the bulk of the
   // tokens (~900) and is identical across all calls, so providers that support
   // prompt caching (Anthropic, OpenAI) only charge for it once.

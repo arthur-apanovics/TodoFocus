@@ -56,6 +56,8 @@ class SettingsScreen extends StatelessWidget {
             children: [
               _FocusWidgetShowAllGoalsTile(),
               _FocusWidgetLayoutTile(),
+              _NudgesToggleTile(),
+              _NudgeHeartbeatTile(),
             ],
           ),
           _SettingsSection(
@@ -333,6 +335,68 @@ class _FocusWidgetLayoutTile extends StatelessWidget {
               },
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _NudgesToggleTile extends StatelessWidget {
+  const _NudgesToggleTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.notifications_active_outlined),
+      title: const Text('Inactivity nudges'),
+      subtitle: const Text(
+        'Show an AI-generated nudge on the widget when a focused goal '
+        'has been idle — customize the prompt in AI Assistant → Generation',
+      ),
+      value: prefs.nudgesEnabled,
+      onChanged: prefs.setNudgesEnabled,
+    );
+  }
+}
+
+class _NudgeHeartbeatTile extends StatelessWidget {
+  const _NudgeHeartbeatTile();
+
+  static const _options = [30, 60, 120, 180, 240, 360];
+
+  static String _label(int minutes) {
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '$h hour${h == 1 ? '' : 's'}' : '$h h $m min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    if (!prefs.nudgesEnabled) return const SizedBox.shrink();
+    final current = prefs.nudgeHeartbeatDuration.inMinutes;
+    return ListTile(
+      leading: const Icon(Icons.timer_outlined),
+      title: const Text('Nudge after'),
+      subtitle: Text('Show nudge when idle for ${_label(current)}'),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Nudge after'),
+          children: [
+            for (final minutes in _options)
+              ListTile(
+                title: Text(_label(minutes)),
+                trailing:
+                    current == minutes ? const Icon(Icons.check) : null,
+                onTap: () {
+                  prefs.setNudgeHeartbeatMinutes(minutes);
+                  Navigator.pop(ctx);
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

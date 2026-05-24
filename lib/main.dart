@@ -21,6 +21,7 @@ import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
+import 'services/nudge_service.dart';
 import 'services/scheduling_service.dart';
 import 'services/settings/llm_settings_service.dart';
 import 'services/theme_controller.dart';
@@ -54,12 +55,16 @@ void main() async {
   final schedulingService = SchedulingService(goalRepository);
   schedulingService.checkAndProcess();
 
+  // Manages inactivity nudge messages for the home-screen widget.
+  final nudgeService = NudgeService(llmSettingsService);
+
   // Home-screen widget bridge. Mirrors the notification: re-rendered whenever
   // focus or goal data changes, or the widget layout preference is edited.
   final focusWidgetService = FocusWidgetService(
     repository: goalRepository,
     focus: focusListService,
     prefs: displayPreferences,
+    nudgeService: nudgeService,
   );
   await FocusWidgetService.registerBackgroundCallback();
 
@@ -289,6 +294,18 @@ class _AppShellState extends State<AppShell>
     );
     // Keep the home-screen widget in step with whatever the resume sweep did.
     await focusWidget.update();
+
+    // In debug mode, surface any LLM nudge errors that occurred since last
+    // open so the user can see what went wrong without checking logs.
+    final nudgeError = await focusWidget.consumeNudgeDebugError();
+    if (nudgeError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(nudgeError),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
   }
 
   void _onExternalTabChange() {

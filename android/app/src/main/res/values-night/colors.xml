@@ -7,4 +7,6 @@
     <color name="widget_text">#ECEFEC</color>
     <color name="widget_text_muted">#9CA09C</color>
     <color name="widget_accent">#7CC47F</color>
+    <!-- Nudge message text — bright warm amber, readable on dark widget background -->
+    <color name="widget_nudge">#FFAB40</color>
 </resources>
