@@ -19,6 +19,8 @@ class GoalService {
   void addGoal(Goal goal) => _repository.save(goal);
 
   void removeGoal(String goalId) {
+    final goal = _repository.findById(goalId);
+    if (goal?.isDailyTaskList == true) return; // protected — disable via Settings
     _focus.dropGoal(goalId);
     _repository.delete(goalId);
   }
@@ -26,6 +28,7 @@ class GoalService {
   void archiveGoal(String goalId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
+    if (goal.isDailyTaskList) return; // protected — disable via Settings
     goal.status = GoalStatus.archived;
     _focus.dropGoal(goalId);
     _repository.save(goal);
@@ -59,6 +62,7 @@ class GoalService {
   void sendToPlanning(String goalId) {
     final goal = _repository.findById(goalId);
     if (goal == null) return;
+    if (goal.isDailyTaskList) return; // protected — always stays active
     goal.status = GoalStatus.inbox;
     for (final subtask in goal.subtasks) {
       subtask.state = SubTaskState.pending;

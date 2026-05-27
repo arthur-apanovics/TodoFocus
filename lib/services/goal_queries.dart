@@ -10,17 +10,29 @@ class GoalQueries {
 
   List<Goal> get all => _repository.all;
 
-  List<Goal> get goals =>
-      _repository.all.where((g) => g.status == GoalStatus.active).toList();
+  /// The daily quick-task list goal, or null if it doesn't exist yet.
+  /// There is at most one such goal (the first found with isDailyTaskList).
+  /// Visibility is controlled by [DisplayPreferences.dailyTaskListEnabled];
+  /// this getter always returns it regardless of the preference so callers
+  /// that manage the goal directly (e.g. Settings) can access it.
+  Goal? get dailyTaskGoal =>
+      _repository.all.where((g) => g.isDailyTaskList).firstOrNull;
 
-  List<Goal> get completedGoals =>
-      _repository.all.where((g) => g.status == GoalStatus.completed).toList();
+  List<Goal> get goals => _repository.all
+      .where((g) => g.status == GoalStatus.active && !g.isDailyTaskList)
+      .toList();
 
-  List<Goal> get archivedGoals =>
-      _repository.all.where((g) => g.status == GoalStatus.archived).toList();
+  List<Goal> get completedGoals => _repository.all
+      .where((g) => g.status == GoalStatus.completed && !g.isDailyTaskList)
+      .toList();
 
-  List<Goal> get inbox =>
-      _repository.all.where((g) => g.status == GoalStatus.inbox).toList();
+  List<Goal> get archivedGoals => _repository.all
+      .where((g) => g.status == GoalStatus.archived && !g.isDailyTaskList)
+      .toList();
+
+  List<Goal> get inbox => _repository.all
+      .where((g) => g.status == GoalStatus.inbox && !g.isDailyTaskList)
+      .toList();
 
   List<SubTask> pendingSubTasksFor(String goalId) =>
       _repository

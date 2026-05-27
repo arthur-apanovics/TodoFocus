@@ -34,6 +34,7 @@ void main() async {
   final llmSettingsService = await LlmSettingsService.init();
   final focusListService = await FocusListService.init();
   final dailyResetService = await DailyResetService.init(focusListService);
+  dailyResetService.bindRepository(goalRepository);
   final displayPreferences = await DisplayPreferences.init();
   final themeController = await ThemeController.init();
 

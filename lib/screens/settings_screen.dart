@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/enums.dart';
+import '../models/goal.dart';
 import '../services/daily_reset_service.dart';
 import '../services/display_preferences.dart';
 import '../services/focus_list_service.dart';
+import '../services/goal_queries.dart';
 import '../services/goal_repository.dart';
+import '../services/goal_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings/llm_settings_service.dart';
 import '../services/theme_controller.dart';
@@ -56,6 +59,12 @@ class SettingsScreen extends StatelessWidget {
             children: [
               _FocusWidgetShowAllGoalsTile(),
               _FocusWidgetLayoutTile(),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Goals',
+            children: [
+              _DailyTaskListToggleTile(),
             ],
           ),
           _SettingsSection(
@@ -449,6 +458,42 @@ class _MorningPromptToggleTile extends StatelessWidget {
           focus.resolveGroups(repo),
           showEmptyPrompt: value,
         );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Goals section
+// ---------------------------------------------------------------------------
+
+class _DailyTaskListToggleTile extends StatelessWidget {
+  const _DailyTaskListToggleTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<DisplayPreferences>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.checklist_outlined),
+      title: const Text('Daily task list'),
+      subtitle: const Text(
+        'Pin a quick-task list at the top of the Goals tab for day-to-day chores',
+      ),
+      value: prefs.dailyTaskListEnabled,
+      onChanged: (value) async {
+        await prefs.setDailyTaskListEnabled(value);
+        if (value && context.mounted) {
+          // Create the daily task goal on first enable if one doesn't exist yet.
+          final queries = context.read<GoalQueries>();
+          if (queries.dailyTaskGoal == null) {
+            final goalService = context.read<GoalService>();
+            goalService.addGoal(Goal(
+              title: "Today's tasks",
+              status: GoalStatus.active,
+              isDailyTaskList: true,
+            ));
+          }
+        }
       },
     );
   }

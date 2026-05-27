@@ -172,6 +172,25 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // is guaranteed to rebuild this widget when the toggle or profile changes.
     final llmEnabled = context.watch<LlmSettingsService>().buildClient() != null;
 
+    // Daily task list — only visible on the active-goals view and when enabled.
+    final dailyTaskGoal = (!showCompleted && displayPrefs.dailyTaskListEnabled)
+        ? queries.dailyTaskGoal
+        : null;
+    final completedDailyTasks = dailyTaskGoal?.subtasks
+            .where((t) => t.state == SubTaskState.completed)
+            .toList() ??
+        const <SubTask>[];
+    final doneTodaySection = completedDailyTasks.isNotEmpty
+        ? _DoneTodaySection(
+            goal: dailyTaskGoal!,
+            tasks: completedDailyTasks,
+          )
+        : null;
+
+    // Show the empty state only when there are no regular goals AND no daily
+    // task card to fill the space.
+    final showEmptyState = goals.isEmpty && dailyTaskGoal == null;
+
     return Scaffold(
       body: Column(
         children: [
@@ -194,24 +213,38 @@ class _GoalsScreenState extends State<GoalsScreen> {
               showCompleted: _showCompleted,
               onFilterChanged: (v) => setState(() => _showCompleted = v),
             ),
+          if (dailyTaskGoal != null)
+            _DailyTaskPinnedCard(goal: dailyTaskGoal),
           Expanded(
-            child: goals.isEmpty
+            child: showEmptyState
                 ? _EmptyState(showCompleted: showCompleted)
-                : smartCategories != null
-                    ? _CategorizedGoalList(
-                        categories: smartCategories,
-                        selectMode: _selectMode,
-                        selectedIds: _selectedIds,
-                        onLongPress: _enterSelectMode,
-                        onToggleSelect: _toggleSelection,
-                      )
-                    : _GoalList(
-                        goals: goals,
-                        selectMode: _selectMode,
-                        selectedIds: _selectedIds,
-                        onLongPress: _enterSelectMode,
-                        onToggleSelect: _toggleSelection,
-                      ),
+                : goals.isEmpty
+                    // Daily task card is present but no regular goals: show
+                    // only the footer (done section) or a slim empty widget.
+                    ? (doneTodaySection != null
+                        ? ListView(
+                            padding: const EdgeInsets.only(
+                                bottom: kFabSafeBottomPadding),
+                            children: [doneTodaySection],
+                          )
+                        : const SizedBox.shrink())
+                    : smartCategories != null
+                        ? _CategorizedGoalList(
+                            categories: smartCategories,
+                            selectMode: _selectMode,
+                            selectedIds: _selectedIds,
+                            onLongPress: _enterSelectMode,
+                            onToggleSelect: _toggleSelection,
+                            footer: doneTodaySection,
+                          )
+                        : _GoalList(
+                            goals: goals,
+                            selectMode: _selectMode,
+                            selectedIds: _selectedIds,
+                            onLongPress: _enterSelectMode,
+                            onToggleSelect: _toggleSelection,
+                            footer: doneTodaySection,
+                          ),
           ),
         ],
       ),
@@ -400,6 +433,7 @@ class _CategorizedGoalList extends StatelessWidget {
   final Set<String> selectedIds;
   final void Function(String) onLongPress;
   final void Function(String) onToggleSelect;
+  final Widget? footer;
 
   const _CategorizedGoalList({
     required this.categories,
@@ -407,6 +441,7 @@ class _CategorizedGoalList extends StatelessWidget {
     required this.selectedIds,
     required this.onLongPress,
     required this.onToggleSelect,
+    this.footer,
   });
 
   @override
@@ -425,6 +460,7 @@ class _CategorizedGoalList extends StatelessWidget {
         ));
       }
     }
+    if (footer != null) items.add(footer!);
     return ListView(
       // Bottom inset lets the last goal scroll above the FAB.
       padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
@@ -460,6 +496,7 @@ class _GoalList extends StatelessWidget {
   final Set<String> selectedIds;
   final void Function(String) onLongPress;
   final void Function(String) onToggleSelect;
+  final Widget? footer;
 
   const _GoalList({
     required this.goals,
@@ -467,24 +504,41 @@ class _GoalList extends StatelessWidget {
     required this.selectedIds,
     required this.onLongPress,
     required this.onToggleSelect,
+    this.footer,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      // Bottom inset lets the last goal scroll above the FAB.
+    if (footer == null) {
+      return ListView.builder(
+        padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
+        itemCount: goals.length,
+        itemBuilder: (context, index) {
+          final goal = goals[index];
+          return _GoalTile(
+            goal: goal,
+            selectMode: selectMode,
+            isSelected: selectedIds.contains(goal.goalId),
+            onLongPress: () => onLongPress(goal.goalId),
+            onToggleSelect: () => onToggleSelect(goal.goalId),
+          );
+        },
+      );
+    }
+    // footer present — build as a plain list so we can append it.
+    return ListView(
       padding: const EdgeInsets.only(bottom: kFabSafeBottomPadding),
-      itemCount: goals.length,
-      itemBuilder: (context, index) {
-        final goal = goals[index];
-        return _GoalTile(
-          goal: goal,
-          selectMode: selectMode,
-          isSelected: selectedIds.contains(goal.goalId),
-          onLongPress: () => onLongPress(goal.goalId),
-          onToggleSelect: () => onToggleSelect(goal.goalId),
-        );
-      },
+      children: [
+        for (final goal in goals)
+          _GoalTile(
+            goal: goal,
+            selectMode: selectMode,
+            isSelected: selectedIds.contains(goal.goalId),
+            onLongPress: () => onLongPress(goal.goalId),
+            onToggleSelect: () => onToggleSelect(goal.goalId),
+          ),
+        footer!,
+      ],
     );
   }
 }
@@ -796,6 +850,157 @@ class _GoalFocusToggle extends StatelessWidget {
           f.focusGoalFully(goal.goalId, context.read<GoalRepository>());
         }
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Daily task list — pinned card and done-today section
+// ---------------------------------------------------------------------------
+
+class _DailyTaskPinnedCard extends StatelessWidget {
+  final Goal goal;
+
+  const _DailyTaskPinnedCard({required this.goal});
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingTasks =
+        goal.subtasks.where((t) => t.state == SubTaskState.pending).toList();
+    final hasTasks = goal.subtasks.isNotEmpty;
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GoalPlanningScreen(goalId: goal.goalId),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  goal.emoji != null
+                      ? GoalSymbol(name: goal.emoji)
+                      : Icon(Icons.checklist_outlined,
+                          size: 20, color: context.palette.accent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      goal.title,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  _GoalFocusToggle(goal: goal),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+              if (hasTasks) ...[
+                const SizedBox(height: 6),
+                LinearProgressIndicator(
+                  value: goal.progressPercent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  pendingTasks.isEmpty
+                      ? 'All done for today!'
+                      : pendingTasks.first.description,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.palette.muted,
+                      ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ] else
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Tap to add today\'s tasks',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.palette.muted,
+                        ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DoneTodaySection extends StatefulWidget {
+  final Goal goal;
+  final List<SubTask> tasks;
+
+  const _DoneTodaySection({required this.goal, required this.tasks});
+
+  @override
+  State<_DoneTodaySection> createState() => _DoneTodaySectionState();
+}
+
+class _DoneTodaySectionState extends State<_DoneTodaySection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final count = widget.tasks.length;
+
+    return ColoredBox(
+      color: cs.surfaceContainerLow,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(height: 1),
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 16, color: context.palette.success),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Done today ($count)',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: context.palette.muted,
+                        ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: context.palette.muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            for (final task in widget.tasks)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(40, 0, 16, 6),
+                child: Text(
+                  task.description,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.palette.muted,
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                ),
+              ),
+            const SizedBox(height: 4),
+          ],
+        ],
+      ),
     );
   }
 }

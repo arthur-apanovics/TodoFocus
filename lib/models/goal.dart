@@ -53,6 +53,19 @@ class Goal {
   /// force show / hide for this goal regardless of the global preference.
   bool? showTimeEstimatesOverride;
 
+  /// Marks this goal as the user's daily quick-task list. At most one such
+  /// goal exists at a time. It is created when the feature is first enabled
+  /// in Settings and persists (hidden) when the feature is disabled.
+  ///
+  /// Daily task list goals differ from regular goals:
+  ///   • They never auto-complete — their status stays active even when every
+  ///     subtask is checked off, since the list is meant to be refilled daily.
+  ///   • Completed subtasks are removed from the list at the daily reset.
+  ///   • Bulk LLM decomposition (replace-all flow) is disabled — only
+  ///     per-subtask AI actions (breakdown, add steps) are available.
+  ///   • They cannot be archived, deleted, or sent to planning.
+  bool isDailyTaskList;
+
   Goal({
     required this.goalId,
     required this.title,
@@ -68,6 +81,7 @@ class Goal {
     this.lastResumedAt,
     this.createdAt,
     this.showTimeEstimatesOverride,
+    this.isDailyTaskList = false,
   }) : subtasks = subtasks ?? [];
 
   // --- Computed properties ---
@@ -352,7 +366,11 @@ class Goal {
   void _recalculateStatus() {
     // Inbox goals stay in the planning stage until the user explicitly
     // queues them via GoalService.queueGoal(). Archived goals are frozen.
-    if (status == GoalStatus.archived || status == GoalStatus.inbox) return;
+    // Daily task list goals are permanent — they never auto-complete since
+    // the list is designed to be refilled daily rather than finished once.
+    if (status == GoalStatus.archived ||
+        status == GoalStatus.inbox ||
+        isDailyTaskList) return;
     final allDone =
         subtasks.isNotEmpty &&
         subtasks.every((t) => t.state == SubTaskState.completed);
@@ -380,6 +398,7 @@ class Goal {
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
         if (showTimeEstimatesOverride != null)
           'showTimeEstimatesOverride': showTimeEstimatesOverride,
+        if (isDailyTaskList) 'isDailyTaskList': true,
       };
 
   factory Goal.fromJson(Map<String, dynamic> json) {
@@ -414,6 +433,7 @@ class Goal {
           ? DateTime.parse(json['createdAt'] as String)
           : null,
       showTimeEstimatesOverride: json['showTimeEstimatesOverride'] as bool?,
+      isDailyTaskList: json['isDailyTaskList'] as bool? ?? false,
     );
   }
 }

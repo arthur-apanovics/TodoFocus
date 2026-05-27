@@ -17,6 +17,7 @@ class DisplayPreferences extends ChangeNotifier {
   static const _focusWidgetLayoutKey = 'focus_widget_layout';
   static const _focusWidgetShowAllGoalsKey = 'focus_widget_show_all_goals';
   static const _showTimeEstimatesKey = 'show_time_estimates';
+  static const _dailyTaskListEnabledKey = 'daily_task_list_enabled';
 
   final Box<String> _box;
   GoalSortOrder _sortOrder;
@@ -25,6 +26,7 @@ class DisplayPreferences extends ChangeNotifier {
   FocusLayout _focusWidgetLayout;
   bool _focusWidgetShowAllGoals;
   bool _showTimeEstimates;
+  bool _dailyTaskListEnabled;
 
   DisplayPreferences._({
     required Box<String> box,
@@ -34,13 +36,15 @@ class DisplayPreferences extends ChangeNotifier {
     required FocusLayout focusWidgetLayout,
     required bool focusWidgetShowAllGoals,
     required bool showTimeEstimates,
+    required bool dailyTaskListEnabled,
   })  : _box = box,
         _sortOrder = sortOrder,
         _layout = layout,
         _focusScreenLayout = focusScreenLayout,
         _focusWidgetLayout = focusWidgetLayout,
         _focusWidgetShowAllGoals = focusWidgetShowAllGoals,
-        _showTimeEstimates = showTimeEstimates;
+        _showTimeEstimates = showTimeEstimates,
+        _dailyTaskListEnabled = dailyTaskListEnabled;
 
   GoalSortOrder get sortOrder => _sortOrder;
   GoalListLayout get layout => _layout;
@@ -59,6 +63,11 @@ class DisplayPreferences extends ChangeNotifier {
   /// Defaults to false — opt-in feature. Individual goals may override this
   /// via [Goal.showTimeEstimatesOverride] (resolved by [showEstimatesForGoal]).
   bool get showTimeEstimates => _showTimeEstimates;
+
+  /// Whether the daily quick-task list is visible. When false the goal is
+  /// hidden from all views but its data is retained so re-enabling restores
+  /// it intact. Defaults to false (opt-in feature).
+  bool get dailyTaskListEnabled => _dailyTaskListEnabled;
 
   Future<void> setSortOrder(GoalSortOrder order) async {
     _sortOrder = order;
@@ -93,6 +102,12 @@ class DisplayPreferences extends ChangeNotifier {
   Future<void> setShowTimeEstimates(bool value) async {
     _showTimeEstimates = value;
     await _box.put(_showTimeEstimatesKey, value.toString());
+    notifyListeners();
+  }
+
+  Future<void> setDailyTaskListEnabled(bool value) async {
+    _dailyTaskListEnabled = value;
+    await _box.put(_dailyTaskListEnabledKey, value.toString());
     notifyListeners();
   }
 
@@ -138,6 +153,9 @@ class DisplayPreferences extends ChangeNotifier {
     final showTimeEstimatesRaw = box.get(_showTimeEstimatesKey);
     final showTimeEstimates = showTimeEstimatesRaw == 'true';
 
+    final dailyTaskListEnabledRaw = box.get(_dailyTaskListEnabledKey);
+    final dailyTaskListEnabled = dailyTaskListEnabledRaw == 'true';
+
     return DisplayPreferences._(
       box: box,
       sortOrder: sortOrder,
@@ -151,6 +169,7 @@ class DisplayPreferences extends ChangeNotifier {
       ),
       focusWidgetShowAllGoals: showAllGoals,
       showTimeEstimates: showTimeEstimates,
+      dailyTaskListEnabled: dailyTaskListEnabled,
     );
   }
 }

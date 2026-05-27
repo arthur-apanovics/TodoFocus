@@ -105,6 +105,7 @@ class HiveGoalRepository extends GoalRepository {
       lastResumedAt: dto.lastResumedAt,
       createdAt: dto.createdAt,
       showTimeEstimatesOverride: dto.showTimeEstimatesOverride,
+      isDailyTaskList: dto.isDailyTaskList ?? false,
     );
   }
 
@@ -146,7 +147,8 @@ class HiveGoalRepository extends GoalRepository {
           goal.lastIterationSummary.isEmpty ? null : goal.lastIterationSummary
       ..lastResumedAt = goal.lastResumedAt
       ..createdAt = goal.createdAt
-      ..showTimeEstimatesOverride = goal.showTimeEstimatesOverride;
+      ..showTimeEstimatesOverride = goal.showTimeEstimatesOverride
+      ..isDailyTaskList = goal.isDailyTaskList ? true : null;
     return dto;
   }
 

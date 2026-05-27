@@ -392,14 +392,15 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
               onSelected: (a) => _handleMenuAction(context, goal, a),
               itemBuilder: (_) => [
                 _timeEstimatesSubmenuItem(),
-                const PopupMenuItem(
-                  value: _GoalAction.archive,
-                  child: ListTile(
-                    leading: Icon(Icons.archive_outlined),
-                    title: Text('Archive'),
-                    contentPadding: EdgeInsets.zero,
+                if (!goal.isDailyTaskList)
+                  const PopupMenuItem(
+                    value: _GoalAction.archive,
+                    child: ListTile(
+                      leading: Icon(Icons.archive_outlined),
+                      title: Text('Archive'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
-                ),
                 if (goal.subtasks.isNotEmpty)
                   const PopupMenuItem(
                     value: _GoalAction.clearSubtasks,
@@ -442,7 +443,7 @@ class _GoalPlanningScreenState extends State<GoalPlanningScreen> {
                   : null,
             ),
           ),
-          if (llmEnabled && isEditable)
+          if (llmEnabled && isEditable && !goal.isDailyTaskList)
             SliverToBoxAdapter(
               child: _GenerationCard(
                 goal: goal,

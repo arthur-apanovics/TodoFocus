@@ -1,8 +1,11 @@
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
+import '../models/sub_task.dart';
 import 'focus_list_service.dart';
+import 'goal_repository.dart';
 
 class DailyResetService extends ChangeNotifier {
   static const _boxName = 'app_settings';
@@ -15,6 +18,7 @@ class DailyResetService extends ChangeNotifier {
 
   final Box<String> _box;
   final FocusListService _focus;
+  GoalRepository? _goalRepository;
 
   bool _resetEnabled;
   int _resetHour;
@@ -31,14 +35,22 @@ class DailyResetService extends ChangeNotifier {
     required String? lastResetDate,
     required List<String> previouslyAssigned,
     required bool morningPromptEnabled,
+    GoalRepository? goalRepository,
   })  : _box = box,
         _focus = focus,
+        _goalRepository = goalRepository,
         _resetEnabled = resetEnabled,
         _resetHour = resetHour,
         _resetMinute = resetMinute,
         _lastResetDate = lastResetDate,
         _previouslyAssigned = previouslyAssigned,
         _morningPromptEnabled = morningPromptEnabled;
+
+  /// Provides the goal repository after construction. Called once from
+  /// [main] after both services are initialised.
+  void bindRepository(GoalRepository repository) {
+    _goalRepository = repository;
+  }
 
   bool get resetEnabled => _resetEnabled;
   TimeOfDay get resetTime => TimeOfDay(hour: _resetHour, minute: _resetMinute);
@@ -94,9 +106,23 @@ class DailyResetService extends ChangeNotifier {
 
     await _focus.clearAll();
 
+    // Remove completed subtasks from the daily quick-task list so the
+    // next day starts with a clean pending list. Pending subtasks carry over.
+    _purgeCompletedDailyTasks();
+
     _lastResetDate = _dateString(now);
     await _box.put(_lastResetDateKey, _lastResetDate!);
     notifyListeners();
+  }
+
+  void _purgeCompletedDailyTasks() {
+    final repo = _goalRepository;
+    if (repo == null) return;
+    final dailyGoal = repo.all.where((g) => g.isDailyTaskList).firstOrNull;
+    if (dailyGoal == null) return;
+    final before = dailyGoal.subtasks.length;
+    dailyGoal.subtasks.removeWhere((t) => t.state == SubTaskState.completed);
+    if (dailyGoal.subtasks.length != before) repo.save(dailyGoal);
   }
 
   /// Returns [goals] sorted according to [order].
