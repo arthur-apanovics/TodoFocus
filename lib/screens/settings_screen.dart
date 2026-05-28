@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../models/enums.dart';
 import '../models/goal.dart';
 import '../services/daily_reset_service.dart';
@@ -488,6 +489,7 @@ class _DailyTaskListToggleTile extends StatelessWidget {
           if (queries.dailyTaskGoal == null) {
             final goalService = context.read<GoalService>();
             goalService.addGoal(Goal(
+              goalId: const Uuid().v4(),
               title: "Today's tasks",
               status: GoalStatus.active,
               isDailyTaskList: true,
