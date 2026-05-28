@@ -41,6 +41,10 @@ class GoogleDriveBackupService extends ChangeNotifier {
   bool _isBusy = false;
   String? _lastError;
   DateTime? _lastBackupAt;
+  // True whenever data has changed since the last successful backup. Starts
+  // true so the very first auto-backup always runs (we can't know whether the
+  // data changed while the app was uninstalled/reinstalled).
+  bool _isDirty = true;
 
   GoogleDriveBackupService._({
     required GoalRepository goals,
@@ -89,7 +93,7 @@ class GoogleDriveBackupService extends ChangeNotifier {
       // Silent failure is normal on first launch or after permission revocation.
     }
 
-    return GoogleDriveBackupService._(
+    final service = GoogleDriveBackupService._(
       goals: goals,
       settings: settings,
       focus: focus,
@@ -98,6 +102,15 @@ class GoogleDriveBackupService extends ChangeNotifier {
       currentUser: currentUser,
       lastBackupAt: lastBackupAt,
     );
+
+    // Mark dirty whenever any data source changes so auto-backup only uploads
+    // when there is actually something new to save.
+    void markDirty() => service._isDirty = true;
+    goals.addListener(markDirty);
+    settings.addListener(markDirty);
+    focus.addListener(markDirty);
+
+    return service;
   }
 
   // ---------------------------------------------------------------------------
@@ -166,6 +179,7 @@ class GoogleDriveBackupService extends ChangeNotifier {
       }
 
       _lastBackupAt = DateTime.now();
+      _isDirty = false;
       await _box.put(_lastBackupTsKey, _lastBackupAt!.toIso8601String());
       _lastError = null;
       return true;
@@ -244,10 +258,10 @@ class GoogleDriveBackupService extends ChangeNotifier {
   // Auto-backup
   // ---------------------------------------------------------------------------
 
-  /// Backs up silently if signed in and the last backup is older than
-  /// [_autoBackupThreshold]. Safe to call on every app resume.
+  /// Backs up silently if signed in, data has changed since the last backup,
+  /// and the cooldown threshold has elapsed. Safe to call on every app resume.
   Future<void> autoBackupIfStale() async {
-    if (!isSignedIn) return;
+    if (!isSignedIn || !_isDirty) return;
     final now = DateTime.now();
     if (_lastBackupAt != null &&
         now.difference(_lastBackupAt!) < _autoBackupThreshold) return;
