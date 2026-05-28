@@ -4,6 +4,9 @@ class LlmConfig {
   final String? apiKey;
   final Duration timeout;
   final double temperature;
+  // For OpenAI reasoning models (o3-mini, o4-mini, etc.). When set, temperature
+  // is omitted from the request and reasoning_effort is sent instead.
+  final String? reasoningEffort; // 'low' | 'medium' | 'high' | null
 
   const LlmConfig({
     required this.baseUrl,
@@ -11,6 +14,7 @@ class LlmConfig {
     this.apiKey,
     this.timeout = const Duration(seconds: 20),
     this.temperature = 0.3,
+    this.reasoningEffort,
   });
 
   // Reads from --dart-define build args; returns null when LLM_BASE_URL is absent,

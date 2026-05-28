@@ -14,6 +14,7 @@ import '../theme/app_palette.dart';
 // Currently supported providers:
 // - OpenAI Compatible (including OpenRouter, local llama-server, etc.)
 // - (OpenRouter is handled as a special case of OpenAI Compatible)
+// - Anthropic (native Messages API with extended thinking + prompt caching)
 
 // ---------------------------------------------------------------------------
 // OpenRouter model data + fetch
@@ -92,13 +93,13 @@ class LlmConnectionScreen extends StatefulWidget {
 }
 
 class _LlmConnectionScreenState extends State<LlmConnectionScreen> {
-  static const _presets = ['OpenAI Compatible', 'OpenRouter'];
+  static const _presets = ['OpenAI Compatible', 'OpenRouter', 'Anthropic'];
 
   late bool _debugMode;
   late OpenAiCompatibleProfile _openAiDraft;
+  late AnthropicProfile _anthropicDraft;
   late String _selectedPreset;
 
-  // When switching to the OpenRouter preset, pre-fill the URL if it's blank.
   void _onPresetChangedWithDefaults(String preset) {
     // Always force the OpenRouter base URL — it never changes and the field is
     // hidden, so whatever the user had saved for OpenAI Compatible must not bleed through.
@@ -118,11 +119,13 @@ class _LlmConnectionScreenState extends State<LlmConnectionScreen> {
     final service = context.read<LlmSettingsService>();
     _debugMode = service.debugMode;
     _openAiDraft = service.openAiProfile;
+    _anthropicDraft = service.anthropicProfile;
 
     _selectedPreset = switch (service.activeProfile) {
       OpenAiCompatibleProfile(endpointUrl: final url)
           when url.contains('openrouter.ai') =>
         'OpenRouter',
+      AnthropicProfile() => 'Anthropic',
       _ => 'OpenAI Compatible',
     };
   }
@@ -130,17 +133,23 @@ class _LlmConnectionScreenState extends State<LlmConnectionScreen> {
   Future<void> _save() async {
     final service = context.read<LlmSettingsService>();
     await service.setDebugMode(_debugMode);
-    // Only the connection fields are written back; generation-side fields
-    // (systemPrompt, difficulty ranges) are read from the current profile so
-    // simultaneous edits on LlmGenerationScreen aren't overwritten.
-    final latest = service.openAiProfile;
-    await service.setProfile(latest.copyWith(
-      endpointUrl: _openAiDraft.endpointUrl,
-      modelId: _openAiDraft.modelId,
-      apiKey: _openAiDraft.apiKey,
-      temperature: _openAiDraft.temperature,
-      timeout: _openAiDraft.timeout,
-    ));
+
+    if (_selectedPreset == 'Anthropic') {
+      await service.setProfile(_anthropicDraft);
+    } else {
+      // Only the connection fields are written back; generation-side fields
+      // (systemPrompt, difficulty ranges) are read from the current profile so
+      // simultaneous edits on LlmGenerationScreen aren't overwritten.
+      final latest = service.openAiProfile;
+      await service.setProfile(latest.copyWith(
+        endpointUrl: _openAiDraft.endpointUrl,
+        modelId: _openAiDraft.modelId,
+        apiKey: _openAiDraft.apiKey,
+        temperature: _openAiDraft.temperature,
+        timeout: _openAiDraft.timeout,
+        reasoningEffort: _openAiDraft.reasoningEffort,
+      ));
+    }
     if (!mounted) return;
     Navigator.pop(context);
   }
@@ -162,11 +171,17 @@ class _LlmConnectionScreenState extends State<LlmConnectionScreen> {
             onChanged: _onPresetChangedWithDefaults,
           ),
           const Divider(height: 1),
-          _OpenAiCompatibleForm(
-            profile: _openAiDraft,
-            onChanged: (p) => setState(() => _openAiDraft = p),
-            isOpenRouter: _selectedPreset == 'OpenRouter',
-          ),
+          if (_selectedPreset == 'Anthropic')
+            _AnthropicForm(
+              profile: _anthropicDraft,
+              onChanged: (p) => setState(() => _anthropicDraft = p),
+            )
+          else
+            _OpenAiCompatibleForm(
+              profile: _openAiDraft,
+              onChanged: (p) => setState(() => _openAiDraft = p),
+              isOpenRouter: _selectedPreset == 'OpenRouter',
+            ),
           const Divider(height: 1),
           SwitchListTile(
             title: const Text('Debug mode'),
@@ -499,6 +514,27 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
           ),
         ),
         Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: DropdownButtonFormField<String?>(
+            value: widget.profile.reasoningEffort,
+            decoration: const InputDecoration(
+              labelText: 'Reasoning effort',
+              helperText: 'For o-series models (o3-mini, o4-mini). '
+                  'Overrides temperature when set.',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: null, child: Text('Off (standard models)')),
+              DropdownMenuItem(value: 'low', child: Text('Low')),
+              DropdownMenuItem(value: 'medium', child: Text('Medium')),
+              DropdownMenuItem(value: 'high', child: Text('High')),
+            ],
+            onChanged: (v) => widget.onChanged(
+              widget.profile.copyWith(reasoningEffort: v),
+            ),
+          ),
+        ),
+        Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,6 +651,214 @@ class _OpenAiCompatibleFormState extends State<_OpenAiCompatibleForm> {
         border: OutlineInputBorder(),
         suffixIcon: Icon(Icons.arrow_drop_down),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic form
+// ---------------------------------------------------------------------------
+
+class _AnthropicForm extends StatefulWidget {
+  final AnthropicProfile profile;
+  final ValueChanged<AnthropicProfile> onChanged;
+
+  const _AnthropicForm({required this.profile, required this.onChanged});
+
+  @override
+  State<_AnthropicForm> createState() => _AnthropicFormState();
+}
+
+class _AnthropicFormState extends State<_AnthropicForm> {
+  late final TextEditingController _apiKeyController;
+  bool _apiKeyVisible = false;
+
+  static const _thinkingOptions = <int>[0, 1024, 4096, 8192, 16384];
+  static const _modelLabels = {
+    'claude-opus-4-7': 'Claude Opus 4.7',
+    'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+    'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _apiKeyController = TextEditingController(
+      text: widget.profile.apiKey,
+    );
+  }
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    super.dispose();
+  }
+
+  static String _thinkingLabel(int budget) => switch (budget) {
+    0 => 'Off',
+    1024 => '1K tokens (light)',
+    4096 => '4K tokens (standard)',
+    8192 => '8K tokens (deep)',
+    16384 => '16K tokens (maximum)',
+    _ => '${budget ~/ 1024}K tokens',
+  };
+
+  Future<List<String>> _runDecomposition(String goalTitle) async {
+    final steps = await widget.profile.buildClient().decompose(goalTitle);
+    return [for (final s in steps) s.description];
+  }
+
+  void _testConnection() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _TestDialog(onTest: _runDecomposition),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const padding = EdgeInsets.fromLTRB(16, 12, 16, 4);
+
+    return Column(
+      children: [
+        Padding(
+          padding: padding,
+          child: TextField(
+            controller: _apiKeyController,
+            decoration: InputDecoration(
+              labelText: 'API Key',
+              hintText: 'sk-ant-…',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _apiKeyVisible
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+                onPressed: () =>
+                    setState(() => _apiKeyVisible = !_apiKeyVisible),
+              ),
+            ),
+            obscureText: !_apiKeyVisible,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.none,
+            onChanged: (v) => widget.onChanged(
+              widget.profile.copyWith(apiKey: v.trim()),
+            ),
+          ),
+        ),
+        Padding(
+          padding: padding,
+          child: DropdownButtonFormField<String>(
+            value: AnthropicProfile.knownModels.contains(widget.profile.modelId)
+                ? widget.profile.modelId
+                : AnthropicProfile.knownModels[1],
+            decoration: const InputDecoration(
+              labelText: 'Model',
+              border: OutlineInputBorder(),
+            ),
+            items: AnthropicProfile.knownModels
+                .map((id) => DropdownMenuItem(
+                      value: id,
+                      child: Text(_modelLabels[id] ?? id),
+                    ))
+                .toList(),
+            onChanged: (v) {
+              if (v != null) {
+                widget.onChanged(widget.profile.copyWith(modelId: v));
+              }
+            },
+          ),
+        ),
+        Padding(
+          padding: padding,
+          child: DropdownButtonFormField<int>(
+            value: _thinkingOptions.contains(widget.profile.thinkingBudget)
+                ? widget.profile.thinkingBudget
+                : 0,
+            decoration: InputDecoration(
+              labelText: 'Extended thinking',
+              helperText: widget.profile.thinkingBudget > 0
+                  ? 'Model reasons internally before responding. '
+                    'Increases latency and cost.'
+                  : 'Disable for faster, cheaper responses.',
+              border: const OutlineInputBorder(),
+            ),
+            items: _thinkingOptions
+                .map((v) => DropdownMenuItem(
+                      value: v,
+                      child: Text(_thinkingLabel(v)),
+                    ))
+                .toList(),
+            onChanged: (v) {
+              if (v != null) {
+                widget.onChanged(widget.profile.copyWith(thinkingBudget: v));
+              }
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Request timeout',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  Text(
+                    '${widget.profile.timeout.inSeconds}s',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              Slider(
+                value: widget.profile.timeout.inSeconds
+                    .clamp(30, 600)
+                    .toDouble(),
+                min: 30,
+                max: 600,
+                divisions: 19,
+                onChanged: (v) => widget.onChanged(
+                  widget.profile.copyWith(
+                    timeout: Duration(seconds: v.round()),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '30s',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    '10 min',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: FilledButton.tonal(
+            onPressed: _testConnection,
+            child: const Text('Test connection'),
+          ),
+        ),
+      ],
     );
   }
 }

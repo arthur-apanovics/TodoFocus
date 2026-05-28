@@ -2,7 +2,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'llm_config.dart';
 
-class LlmClient {
+/// Minimal interface shared by all low-level LLM HTTP clients.
+/// [OpenAiDecompositionClient] depends on this so it works with both
+/// OpenAI-compatible and Anthropic backends.
+abstract interface class LlmCompletionClient {
+  Future<String> complete(
+    String systemPrompt,
+    String userPrompt, {
+    Map<String, dynamic>? responseSchema,
+  });
+}
+
+class LlmClient implements LlmCompletionClient {
   final LlmConfig config;
   final http.Client _http;
 
@@ -16,6 +27,7 @@ class LlmClient {
   // compiles it to a GBNF grammar and constrains the sampler — the model
   // cannot produce output that violates the schema. Falls back to plain
   // json_object mode when omitted (e.g. for backends that don't support it).
+  @override
   Future<String> complete(
     String systemPrompt,
     String userPrompt, {
@@ -41,25 +53,41 @@ class LlmClient {
             },
           }
         : {'type': 'json_object'};
-    final body = jsonEncode({
-      'response_format': responseFormat,
-      'model': config.model,
-      'messages': [
-        {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': userPrompt},
-      ],
-      'temperature': config.temperature,
-    });
+
+    // Reasoning models (o3-mini, o4-mini, etc.) require reasoning_effort
+    // instead of temperature, which must be omitted entirely when set.
+    final Map<String, dynamic> body;
+    if (config.reasoningEffort != null) {
+      body = {
+        'response_format': responseFormat,
+        'model': config.model,
+        'messages': [
+          {'role': 'system', 'content': systemPrompt},
+          {'role': 'user', 'content': userPrompt},
+        ],
+        'reasoning_effort': config.reasoningEffort,
+      };
+    } else {
+      body = {
+        'response_format': responseFormat,
+        'model': config.model,
+        'messages': [
+          {'role': 'system', 'content': systemPrompt},
+          {'role': 'user', 'content': userPrompt},
+        ],
+        'temperature': config.temperature,
+      };
+    }
 
     final response = await _http
-        .post(uri, headers: headers, body: body)
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(config.timeout);
 
     if (response.statusCode != 200) {
-      final body = response.body.length > 300
+      final b = response.body.length > 300
           ? '${response.body.substring(0, 300)}…'
           : response.body;
-      throw Exception('HTTP ${response.statusCode}: $body');
+      throw Exception('HTTP ${response.statusCode}: $b');
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;

@@ -2,7 +2,7 @@ import 'dart:convert';
 import '../../models/enums.dart';
 import 'decomposed_step.dart';
 import 'decomposition_client.dart';
-import 'llm_client.dart';
+import 'llm_client.dart'; // for LlmCompletionClient
 
 // Adapts LlmClient into a DecompositionClient by supplying the system prompt,
 // JSON schema constraint, and output parsing. Extracted from GoalDecompositionService
@@ -42,7 +42,7 @@ class OpenAiDecompositionClient implements DecompositionClient {
   String get _effectiveSystemPrompt =>
       '$systemPrompt\n\n$_estimateAndSchemaInstruction';
 
-  final LlmClient _llm;
+  final LlmCompletionClient _llm;
   final String systemPrompt;
 
   // Per-difficulty subtask count bounds — configurable in LLM settings.

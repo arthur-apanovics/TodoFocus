@@ -9,12 +9,14 @@ import 'llm_profile.dart';
 class LlmSettingsService extends ChangeNotifier {
   static const _boxName = 'app_settings';
   static const _openAiKey = 'openai_profile';
+  static const _anthropicKey = 'anthropic_profile';
   static const _activeTypeKey = 'active_profile_type';
   static const _debugModeKey = 'llm_debug_mode';
   static const _generateEmojisKey = 'llm_generate_emojis';
 
   final Box<String> _box;
   OpenAiCompatibleProfile _openAiProfile;
+  AnthropicProfile _anthropicProfile;
   String? _activeType; // typeKey of whichever preset is currently active
   bool _debugMode;
   bool _generateEmojis;
@@ -22,19 +24,23 @@ class LlmSettingsService extends ChangeNotifier {
   LlmSettingsService._({
     required Box<String> box,
     required OpenAiCompatibleProfile openAiProfile,
+    required AnthropicProfile anthropicProfile,
     required String? activeType,
     required bool debugMode,
     required bool generateEmojis,
   })  : _box = box,
         _openAiProfile = openAiProfile,
+        _anthropicProfile = anthropicProfile,
         _activeType = activeType,
         _debugMode = debugMode,
         _generateEmojis = generateEmojis;
 
   OpenAiCompatibleProfile get openAiProfile => _openAiProfile;
+  AnthropicProfile get anthropicProfile => _anthropicProfile;
 
   LlmProfile? get activeProfile => switch (_activeType) {
         OpenAiCompatibleProfile.typeKey => _openAiProfile,
+        AnthropicProfile.typeKey => _anthropicProfile,
         _ => null,
       };
 
@@ -64,6 +70,10 @@ class LlmSettingsService extends ChangeNotifier {
         _openAiProfile = profile;
         _activeType = OpenAiCompatibleProfile.typeKey;
         await _box.put(_openAiKey, profile.encode());
+      case AnthropicProfile():
+        _anthropicProfile = profile;
+        _activeType = AnthropicProfile.typeKey;
+        await _box.put(_anthropicKey, profile.encode());
     }
     await _box.put(_activeTypeKey, _activeType!);
     notifyListeners();
@@ -73,9 +83,11 @@ class LlmSettingsService extends ChangeNotifier {
         'generateEmojis': _generateEmojis,
         'activeProfileType': switch (activeProfile) {
           OpenAiCompatibleProfile() => OpenAiCompatibleProfile.typeKey,
+          AnthropicProfile() => AnthropicProfile.typeKey,
           null => null,
         },
         'openaiProfile': _openAiProfile.toJson(),
+        'anthropicProfile': _anthropicProfile.toJson(),
       };
 
   // Restores settings from a backup snapshot. Each field is applied
@@ -92,11 +104,21 @@ class LlmSettingsService extends ChangeNotifier {
       }
     } catch (_) {}
 
+    AnthropicProfile? anthropic;
+    try {
+      final raw = json['anthropicProfile'];
+      if (raw is Map<String, dynamic>) {
+        anthropic = AnthropicProfile.fromJson(raw);
+      }
+    } catch (_) {}
+
     _openAiProfile = openAi ?? _openAiProfile;
+    _anthropicProfile = anthropic ?? _anthropicProfile;
     _activeType = activeType;
     _generateEmojis =
         generateEmojis is bool ? generateEmojis : _generateEmojis;
     await _box.put(_openAiKey, _openAiProfile.encode());
+    await _box.put(_anthropicKey, _anthropicProfile.encode());
     if (activeType != null) {
       await _box.put(_activeTypeKey, activeType);
     } else {
@@ -124,9 +146,18 @@ class LlmSettingsService extends ChangeNotifier {
         ) ??
         const OpenAiCompatibleProfile(endpointUrl: '', modelId: '');
 
+    final anthropicProfile = _decodeAs<AnthropicProfile>(
+          box.get(_anthropicKey),
+        ) ??
+        AnthropicProfile(
+          apiKey: '',
+          modelId: AnthropicProfile.knownModels[1],
+        );
+
     final service = LlmSettingsService._(
       box: box,
       openAiProfile: openAiProfile,
+      anthropicProfile: anthropicProfile,
       activeType: box.get(_activeTypeKey),
       debugMode: box.get(_debugModeKey) == 'true',
       generateEmojis: box.get(_generateEmojisKey) == 'true',

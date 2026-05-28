@@ -41,18 +41,23 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
     final wasEmojisEnabled = service.generateEmojis;
 
     await service.setGenerateEmojis(_generateEmojis);
-    // Re-read the latest connection fields before saving so that a tweak made
-    // on the Connection screen since this screen opened isn't overwritten.
-    final latest = service.openAiProfile;
-    await service.setProfile(latest.copyWith(
-      systemPrompt: _draft.systemPrompt,
-      easyMin: _draft.easyMin,
-      easyMax: _draft.easyMax,
-      hardMin: _draft.hardMin,
-      hardMax: _draft.hardMax,
-      impossibleMin: _draft.impossibleMin,
-      impossibleMax: _draft.impossibleMax,
-    ));
+    // Only write back generation settings when an OpenAI-compatible profile is
+    // active — Anthropic profiles don't carry these fields and saving here would
+    // unexpectedly switch the active profile type back to OpenAI.
+    if (service.activeProfile is OpenAiCompatibleProfile) {
+      // Re-read the latest connection fields before saving so that a tweak made
+      // on the Connection screen since this screen opened isn't overwritten.
+      final latest = service.openAiProfile;
+      await service.setProfile(latest.copyWith(
+        systemPrompt: _draft.systemPrompt,
+        easyMin: _draft.easyMin,
+        easyMax: _draft.easyMax,
+        hardMin: _draft.hardMin,
+        hardMax: _draft.hardMax,
+        impossibleMin: _draft.impossibleMin,
+        impossibleMax: _draft.impossibleMax,
+      ));
+    }
     if (!mounted) return;
 
     // When emoji generation is newly switched on, offer to backfill existing
