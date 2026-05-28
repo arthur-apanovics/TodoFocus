@@ -85,15 +85,14 @@ class _FakeDecompositionClient implements DecompositionClient {
   }
 
   @override
-  Future<String?> generateNudge(
-    String goalTitle, {
-    String? goalDescription,
-    required String currentSubtask,
-    String? nextSubtask,
-    required Duration staleDuration,
+  Future<String?> rewordSubtask(
+    String description, {
+    required String goalTitle,
+    String? goalNotes,
+    required int urgencyLevel,
     required String promptTemplate,
   }) async =>
-      shouldThrow ? throw Exception('LLM error') : '⏰ Keep going!';
+      shouldThrow ? throw Exception('LLM error') : 'Do it now!';
 
   @override
   Future<String?> suggestIcon(String goalTitle, List<String> iconNames) async =>

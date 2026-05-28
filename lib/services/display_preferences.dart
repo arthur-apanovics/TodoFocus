@@ -19,16 +19,17 @@ class DisplayPreferences extends ChangeNotifier {
   static const _showTimeEstimatesKey = 'show_time_estimates';
   static const _nudgesEnabledKey = 'nudges_enabled';
   static const _nudgeHeartbeatMinutesKey = 'nudge_heartbeat_minutes';
-  static const _nudgePromptTemplateKey = 'nudge_prompt_template';
+  static const _rewordPromptTemplateKey = 'reword_prompt_template';
 
-  /// Default system prompt shown in Settings → Generation → Nudge prompt.
-  /// Editable by the user; governs tone and style of widget nudge messages.
-  static const defaultNudgePromptTemplate =
-      'You are helping someone stay on track with their daily tasks. '
-      'When given a goal and the step they are currently stuck on, '
-      'write a 1–2 sentence nudge that starts with a single relevant emoji. '
-      'Be direct, specific to the task, and warm — but not cheesy. '
-      'Never use clichés like "you\'ve got this", "just do it", or "small steps".';
+  /// Default style-guide fragment for the inactivity reword feature.
+  /// Editable in Settings → AI Assistant → Generation → Reword prompt.
+  /// The fixed JSON-format instruction is appended automatically at request
+  /// time — the user only controls tone and style here.
+  static const defaultRewordPromptTemplate =
+      'You rephrase task steps to make them more compelling and immediate. '
+      'Keep the same core action but change the wording to be more enticing '
+      'and easier to start. '
+      'Do not add emojis, punctuation flair, or motivational clichés.';
 
   final Box<String> _box;
   GoalSortOrder _sortOrder;
@@ -39,7 +40,7 @@ class DisplayPreferences extends ChangeNotifier {
   bool _showTimeEstimates;
   bool _nudgesEnabled;
   int _nudgeHeartbeatMinutes;
-  String _nudgePromptTemplate;
+  String _rewordPromptTemplate;
 
   DisplayPreferences._({
     required Box<String> box,
@@ -51,7 +52,7 @@ class DisplayPreferences extends ChangeNotifier {
     required bool showTimeEstimates,
     required bool nudgesEnabled,
     required int nudgeHeartbeatMinutes,
-    required String nudgePromptTemplate,
+    required String rewordPromptTemplate,
   })  : _box = box,
         _sortOrder = sortOrder,
         _layout = layout,
@@ -61,7 +62,7 @@ class DisplayPreferences extends ChangeNotifier {
         _showTimeEstimates = showTimeEstimates,
         _nudgesEnabled = nudgesEnabled,
         _nudgeHeartbeatMinutes = nudgeHeartbeatMinutes,
-        _nudgePromptTemplate = nudgePromptTemplate;
+        _rewordPromptTemplate = rewordPromptTemplate;
 
   GoalSortOrder get sortOrder => _sortOrder;
   GoalListLayout get layout => _layout;
@@ -91,10 +92,10 @@ class DisplayPreferences extends ChangeNotifier {
   Duration get nudgeHeartbeatDuration =>
       Duration(minutes: _nudgeHeartbeatMinutes);
 
-  /// The system prompt template used when generating nudges. Editable in
-  /// Settings → Generation → Nudge prompt. Defaults to
-  /// [defaultNudgePromptTemplate].
-  String get nudgePromptTemplate => _nudgePromptTemplate;
+  /// The system prompt template used when rewriting subtasks. Editable in
+  /// Settings → Generation → Reword prompt. Defaults to
+  /// [defaultRewordPromptTemplate].
+  String get rewordPromptTemplate => _rewordPromptTemplate;
 
   Future<void> setSortOrder(GoalSortOrder order) async {
     _sortOrder = order;
@@ -144,9 +145,9 @@ class DisplayPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setNudgePromptTemplate(String value) async {
-    _nudgePromptTemplate = value;
-    await _box.put(_nudgePromptTemplateKey, value);
+  Future<void> setRewordPromptTemplate(String value) async {
+    _rewordPromptTemplate = value;
+    await _box.put(_rewordPromptTemplateKey, value);
     notifyListeners();
   }
 
@@ -199,8 +200,8 @@ class DisplayPreferences extends ChangeNotifier {
     final nudgeHeartbeatMinutes =
         int.tryParse(nudgeHeartbeatRaw ?? '') ?? 60;
 
-    final nudgePromptTemplate =
-        box.get(_nudgePromptTemplateKey) ?? defaultNudgePromptTemplate;
+    final rewordPromptTemplate =
+        box.get(_rewordPromptTemplateKey) ?? defaultRewordPromptTemplate;
 
     return DisplayPreferences._(
       box: box,
@@ -217,7 +218,7 @@ class DisplayPreferences extends ChangeNotifier {
       showTimeEstimates: showTimeEstimates,
       nudgesEnabled: nudgesEnabled,
       nudgeHeartbeatMinutes: nudgeHeartbeatMinutes,
-      nudgePromptTemplate: nudgePromptTemplate,
+      rewordPromptTemplate: rewordPromptTemplate,
     );
   }
 }

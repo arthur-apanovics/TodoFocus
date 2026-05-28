@@ -71,19 +71,18 @@ abstract interface class DecompositionClient {
     String? goalDescription,
   });
 
-  /// Generates a short motivational nudge (1–2 sentences, plain text) for a
-  /// user who has not interacted with a focused goal for [staleDuration].
-  /// Context about the current step, next step, and goal is forwarded so the
-  /// nudge can be specific and actionable rather than generic.
+  /// Rewrites [description] (a single subtask) to be more compelling at the
+  /// given [urgencyLevel] (1 = approachable, 2 = momentum, 3 = urgent).
+  /// Called when a focused goal has been idle for N heartbeat periods.
   ///
-  /// [promptTemplate] is the user-editable system prompt that controls tone.
-  /// Returns null when the provider does not support nudges or the call fails.
-  Future<String?> generateNudge(
-    String goalTitle, {
-    String? goalDescription,
-    required String currentSubtask,
-    String? nextSubtask,
-    required Duration staleDuration,
+  /// [promptTemplate] is the user-editable style-guide fragment prepended to
+  /// the fixed JSON-format instruction. Returns null on failure; callers
+  /// fall back to showing the original text with the colour change only.
+  Future<String?> rewordSubtask(
+    String description, {
+    required String goalTitle,
+    String? goalNotes,
+    required int urgencyLevel,
     required String promptTemplate,
   });
 

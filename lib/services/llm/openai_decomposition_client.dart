@@ -354,55 +354,55 @@ class OpenAiDecompositionClient implements DecompositionClient {
     return out;
   }
 
-  // Schema for nudge responses — a single object with the nudge message.
-  static const _nudgeSchema = {
+  // Schema for subtask reword responses.
+  static const _rewordSchema = {
     'type': 'object',
     'properties': {
-      'message': {'type': 'string', 'minLength': 10, 'maxLength': 250},
+      'text': {'type': 'string', 'minLength': 3, 'maxLength': 80},
     },
-    'required': ['message'],
+    'required': ['text'],
     'additionalProperties': false,
   };
 
   @override
-  Future<String?> generateNudge(
-    String goalTitle, {
-    String? goalDescription,
-    required String currentSubtask,
-    String? nextSubtask,
-    required Duration staleDuration,
+  Future<String?> rewordSubtask(
+    String description, {
+    required String goalTitle,
+    String? goalNotes,
+    required int urgencyLevel,
     required String promptTemplate,
   }) async {
+    // The user's prompt template supplies style guidance; the fixed suffix
+    // pins the response contract (JSON shape + length cap).
     final systemPrompt =
-        '$promptTemplate\n\nRespond with JSON: {"message": "your nudge here"}';
+        '$promptTemplate\n\nRespond with JSON: {"text": "reworded step here"}. '
+        'Keep the reword under 15 words.';
+
+    final urgencyInstruction = switch (urgencyLevel) {
+      1 => 'Make this feel approachable and easy to begin.',
+      2 => 'Make this feel like obvious next progress.',
+      _ => 'Make this feel immediate — something that must happen right now.',
+    };
+
     final parts = [
       'Goal: "$goalTitle"',
-      if (goalDescription?.isNotEmpty == true) 'Description: $goalDescription',
-      'Current step: "$currentSubtask"',
-      if (nextSubtask?.isNotEmpty == true) 'Next step: "$nextSubtask"',
-      'Idle for: ${_formatStaleDuration(staleDuration)}',
-      'Write a nudge.',
+      if (goalNotes?.isNotEmpty == true) 'Notes: $goalNotes',
+      'Step to rephrase: "$description"',
+      urgencyInstruction,
     ];
     final raw = await _llm.complete(
       systemPrompt,
       parts.join('\n'),
-      responseSchema: _nudgeSchema,
+      responseSchema: _rewordSchema,
     );
     try {
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      final msg = (json['message'] as String?)?.trim();
-      return (msg == null || msg.isEmpty) ? null : msg;
+      final text = (json['text'] as String?)?.trim();
+      return (text == null || text.isEmpty) ? null : text;
     } catch (_) {
       final trimmed = raw.trim();
       return trimmed.isEmpty ? null : trimmed;
     }
-  }
-
-  String _formatStaleDuration(Duration d) {
-    if (d.inMinutes < 60) return '${d.inMinutes} minutes';
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    return m == 0 ? '$h hour${h == 1 ? '' : 's'}' : '$h hour${h == 1 ? '' : 's'} $m minutes';
   }
 
   // System prompt for icon suggestion — the name list is the bulk of the

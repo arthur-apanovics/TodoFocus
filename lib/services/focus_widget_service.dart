@@ -85,14 +85,13 @@ class FocusWidgetService {
     // renders is what carries icons through.
     await _ensureIconsRendered();
 
-    // Generate / refresh / clear nudges for focused goals before building the
-    // payload so the nudge map is always fresh when the payload is serialised.
-    Map<String, String> nudges = const {};
+    // Check and update reword state for idle focused goals before building the
+    // payload so the rewrite map is always fresh when the payload is serialised.
     if (_displayPrefs.nudgesEnabled && _nudgeService != null) {
-      nudges = await _nudgeService.checkAndGetNudges(
+      await _nudgeService.checkAndUpdate(
         _focusList.resolveGroups(_repo),
         heartbeat: _displayPrefs.nudgeHeartbeatDuration,
-        promptTemplate: _displayPrefs.nudgePromptTemplate,
+        promptTemplate: _displayPrefs.rewordPromptTemplate,
       );
     }
 
@@ -101,14 +100,14 @@ class FocusWidgetService {
       _focusList,
       _repo,
       showAllGoals: _displayPrefs.focusWidgetShowAllGoals,
-      nudges: nudges,
+      rewrites: _nudgeService?.rewrites ?? const {},
     );
     await HomeWidget.saveWidgetData<String>(payloadKey, payload);
     await HomeWidget.updateWidget(androidName: androidProviderName);
   }
 
   /// Returns and clears a pending LLM debug error from the nudge service (set
-  /// when a nudge generation failed and [LlmSettingsService.debugMode] is on).
+  /// when a reword generation failed and [LlmSettingsService.debugMode] is on).
   /// Returns null when there is no pending error.
   Future<String?> consumeNudgeDebugError() =>
       _nudgeService?.consumeDebugError() ?? Future.value(null);
@@ -162,13 +161,14 @@ class FocusWidgetService {
   ///   "rows": [
   ///     {"goalId":"..","subtaskId":"..","goalTitle":"..",
   ///      "goalEmoji":"..","step":"..","isCurrent":true,"isFirstInGroup":true,
-  ///      "nudge":"optional motivational message"}
+  ///      "stepColorHex":"#F59E0B"}
   ///   ] }
   /// ```
   ///
-  /// [nudges] is an optional `goalId → message` map produced by [NudgeService].
-  /// When a goal has an entry in this map, the nudge is embedded on its current
-  /// (isCurrent == true) row; the native side renders it above the step text.
+  /// [rewrites] is an optional `goalId → SubtaskReword` map produced by
+  /// [NudgeService]. When a goal has an entry, the reworded text replaces
+  /// [step] on the current row and [stepColorHex] is added so the native side
+  /// can colour the step text to signal idle urgency.
   ///
   /// When [showAllGoals] is false (default) the rows are capped globally at
   /// `1 + layout.extraSteps`, so the widget shows at most that many steps from
@@ -182,7 +182,7 @@ class FocusWidgetService {
     FocusListService focus,
     GoalRepository repo, {
     bool showAllGoals = false,
-    Map<String, String> nudges = const {},
+    Map<String, SubtaskReword> rewrites = const {},
   }) {
     final maxRowsPerGoal = 1 + layout.extraSteps;
     final rows = <Map<String, dynamic>>[];
@@ -232,20 +232,24 @@ class FocusWidgetService {
     }
 
     void addRow(ResolvedFocusGroup group, SubTask st, bool isCurrent) {
+      final rewrite = isCurrent ? rewrites[group.goal.goalId] : null;
+      final stepText = (rewrite != null && rewrite.subtaskId == st.subtaskId)
+          ? rewrite.displayText
+          : st.description;
       final row = <String, dynamic>{
         'goalId': group.goal.goalId,
         'subtaskId': st.subtaskId,
         'goalTitle': group.goal.title,
         'goalEmoji': group.goal.emoji ?? '',
-        'step': st.description,
+        'step': stepText,
         'isCurrent': isCurrent,
         'isFirstInGroup': group.goal.goalId != lastGoalId,
       };
-      // Embed the nudge only on the current step so it appears exactly once
-      // per goal group, directly above the actionable subtask.
-      if (isCurrent) {
-        final nudge = nudges[group.goal.goalId];
-        if (nudge != null) row['nudge'] = nudge;
+      if (rewrite != null &&
+          rewrite.subtaskId == st.subtaskId &&
+          rewrite.iteration > 0) {
+        final colorHex = SubtaskReword.hexColorForIteration(rewrite.iteration);
+        if (colorHex != null) row['stepColorHex'] = colorHex;
       }
       rows.add(row);
       lastGoalId = group.goal.goalId;

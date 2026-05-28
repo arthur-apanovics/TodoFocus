@@ -348,9 +348,9 @@ class _NudgesToggleTile extends StatelessWidget {
     final prefs = context.watch<DisplayPreferences>();
     return SwitchListTile(
       secondary: const Icon(Icons.notifications_active_outlined),
-      title: const Text('Inactivity nudges'),
+      title: const Text('Inactivity rewording'),
       subtitle: const Text(
-        'Show an AI-generated nudge on the widget when a focused goal '
+        'Reword the current subtask to be more enticing when a focused goal '
         'has been idle — customize the prompt in AI Assistant → Generation',
       ),
       value: prefs.nudgesEnabled,
@@ -378,12 +378,12 @@ class _NudgeHeartbeatTile extends StatelessWidget {
     final current = prefs.nudgeHeartbeatDuration.inMinutes;
     return ListTile(
       leading: const Icon(Icons.timer_outlined),
-      title: const Text('Nudge after'),
-      subtitle: Text('Show nudge when idle for ${_label(current)}'),
+      title: const Text('Reword after'),
+      subtitle: Text('Reword subtask when idle for ${_label(current)}'),
       onTap: () => showDialog<void>(
         context: context,
         builder: (ctx) => SimpleDialog(
-          title: const Text('Nudge after'),
+          title: const Text('Reword after'),
           children: [
             for (final minutes in _options)
               ListTile(

@@ -9,6 +9,7 @@ import '../services/display_preferences.dart';
 import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/nudge_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_icons.dart';
 import '../theme/app_palette.dart';
@@ -896,6 +897,16 @@ class _SubtaskRow extends StatelessWidget {
     final showEstimate =
         showEstimatesForGoal(goal, prefs) && subtask.estimatedMinutes != null;
 
+    final rewrites = context.watch<NudgeService>().rewrites;
+    final reword = isCurrent ? rewrites[goal.goalId] : null;
+    final isReworded =
+        reword != null && reword.subtaskId == subtask.subtaskId;
+    final stepText =
+        isReworded ? reword.displayText : subtask.description;
+    final rewordColor = isReworded
+        ? SubtaskReword.flutterColorForIteration(reword.iteration, cs)
+        : null;
+
     return Column(
       children: [
         Padding(
@@ -908,16 +919,17 @@ class _SubtaskRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      subtask.description,
+                      stepText,
                       style: TextStyle(
                         fontSize: 14.5,
                         height: 19 / 14.5,
                         fontWeight: isCurrent && !isCompleted
                             ? FontWeight.w600
                             : FontWeight.w400,
-                        color: isCompleted || !isCurrent
-                            ? context.palette.muted
-                            : null,
+                        color: rewordColor ??
+                            (isCompleted || !isCurrent
+                                ? context.palette.muted
+                                : null),
                         decoration:
                             isCompleted ? TextDecoration.lineThrough : null,
                       ),

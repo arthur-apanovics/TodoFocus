@@ -28,7 +28,7 @@ class LlmGenerationScreen extends StatefulWidget {
 class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
   late bool _generateEmojis;
   late OpenAiCompatibleProfile _draft;
-  late String _nudgePrompt;
+  late String _rewordPrompt;
 
   @override
   void initState() {
@@ -36,7 +36,7 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
     final service = context.read<LlmSettingsService>();
     _generateEmojis = service.generateEmojis;
     _draft = service.openAiProfile;
-    _nudgePrompt = context.read<DisplayPreferences>().nudgePromptTemplate;
+    _rewordPrompt = context.read<DisplayPreferences>().rewordPromptTemplate;
   }
 
   Future<void> _save() async {
@@ -56,7 +56,7 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
       impossibleMin: _draft.impossibleMin,
       impossibleMax: _draft.impossibleMax,
     ));
-    await context.read<DisplayPreferences>().setNudgePromptTemplate(_nudgePrompt);
+    await context.read<DisplayPreferences>().setRewordPromptTemplate(_rewordPrompt);
     if (!mounted) return;
 
     // When emoji generation is newly switched on, offer to backfill existing
@@ -131,9 +131,9 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
     });
   }
 
-  void _restoreDefaultNudgePrompt() {
+  void _restoreDefaultRewordPrompt() {
     setState(() {
-      _nudgePrompt = DisplayPreferences.defaultNudgePromptTemplate;
+      _rewordPrompt = DisplayPreferences.defaultRewordPromptTemplate;
     });
   }
 
@@ -168,17 +168,17 @@ class _LlmGenerationScreenState extends State<LlmGenerationScreen> {
                 setState(() => _draft = _draft.copyWith(systemPrompt: v)),
           ),
           const Divider(height: 1),
-          _SectionHeader(label: 'Nudge prompt'),
+          _SectionHeader(label: 'Reword prompt'),
           _PromptSection(
             helper:
-                'Used when generating inactivity nudges for the home-screen widget. '
-                'The goal title, current step, next step, and idle duration are '
+                'Used when rewriting the current subtask for idle focused goals. '
+                'The goal title, notes, step text, and urgency level are '
                 'appended automatically.',
-            text: _nudgePrompt,
+            text: _rewordPrompt,
             isDefault:
-                _nudgePrompt == DisplayPreferences.defaultNudgePromptTemplate,
-            onRestore: _restoreDefaultNudgePrompt,
-            onChanged: (v) => setState(() => _nudgePrompt = v),
+                _rewordPrompt == DisplayPreferences.defaultRewordPromptTemplate,
+            onRestore: _restoreDefaultRewordPrompt,
+            onChanged: (v) => setState(() => _rewordPrompt = v),
           ),
           const Divider(height: 1),
           _DifficultyRangesSection(

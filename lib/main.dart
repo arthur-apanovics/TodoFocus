@@ -95,6 +95,7 @@ void main() async {
       themeController: themeController,
       notificationService: notificationService,
       focusWidgetService: focusWidgetService,
+      nudgeService: nudgeService,
       schedulingService: schedulingService,
       tabNotifier: tabNotifier,
       goalNavNotifier: goalNavNotifier,
@@ -111,6 +112,7 @@ class TodoApp extends StatelessWidget {
   final ThemeController themeController;
   final NotificationService notificationService;
   final FocusWidgetService focusWidgetService;
+  final NudgeService nudgeService;
   final SchedulingService schedulingService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?>
@@ -126,6 +128,7 @@ class TodoApp extends StatelessWidget {
     required this.themeController,
     required this.notificationService,
     required this.focusWidgetService,
+    required this.nudgeService,
     required this.schedulingService,
     required this.tabNotifier,
     required this.goalNavNotifier,
@@ -180,6 +183,8 @@ class TodoApp extends StatelessWidget {
         Provider<NotificationService>.value(value: notificationService),
         // Exposed so AppShell can re-render the home-screen widget on resume.
         Provider<FocusWidgetService>.value(value: focusWidgetService),
+        // Exposes reword state to the Focus screen for in-app text/colour.
+        ChangeNotifierProvider<NudgeService>.value(value: nudgeService),
         // Exposed so AppShell can re-run the snooze / recurrence sweep on
         // resume, and so screens can call setRecurrence / snooze flows.
         ChangeNotifierProvider<SchedulingService>.value(
