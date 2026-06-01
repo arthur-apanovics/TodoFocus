@@ -5,7 +5,9 @@ import '../services/backup_service.dart';
 import '../services/focus_list_service.dart';
 import '../services/goal_repository.dart';
 import '../services/goal_service.dart';
+import '../services/google_drive_backup_service.dart';
 import '../services/sample_data.dart';
+import 'google_drive_backup_screen.dart';
 
 class DataSettingsScreen extends StatelessWidget {
   const DataSettingsScreen({super.key});
@@ -26,8 +28,13 @@ class _DataBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
-        // ── Backup ───────────────────────────────────────────────────────────
-        _SliverSectionHeader(title: 'Backup'),
+        // ── Google Drive ─────────────────────────────────────────────────────
+        _SliverSectionHeader(title: 'Google Drive'),
+        const SliverToBoxAdapter(child: _GoogleDriveTile()),
+        const SliverToBoxAdapter(child: Divider(height: 1)),
+
+        // ── Local backup ─────────────────────────────────────────────────────
+        _SliverSectionHeader(title: 'Local backup'),
         const SliverToBoxAdapter(child: _ExportTile()),
         const SliverToBoxAdapter(child: _ImportTile()),
         const SliverToBoxAdapter(child: Divider(height: 1)),
@@ -70,7 +77,50 @@ class _SliverSectionHeader extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Backup tiles (moved from settings_screen.dart)
+// Google Drive tile
+// ---------------------------------------------------------------------------
+
+class _GoogleDriveTile extends StatelessWidget {
+  const _GoogleDriveTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<GoogleDriveBackupService>();
+    final user = service.currentUser;
+    final lastBackup = service.lastBackupAt;
+
+    final String subtitle;
+    if (!service.isSignedIn) {
+      subtitle = 'Not signed in';
+    } else if (lastBackup == null) {
+      subtitle = user!.email;
+    } else {
+      final diff = DateTime.now().difference(lastBackup);
+      final age = diff.inSeconds < 60
+          ? 'just now'
+          : diff.inMinutes < 60
+              ? '${diff.inMinutes}m ago'
+              : diff.inHours < 24
+                  ? '${diff.inHours}h ago'
+                  : '${diff.inDays}d ago';
+      subtitle = '${user!.email} · last backup $age';
+    }
+
+    return ListTile(
+      leading: const Icon(Icons.cloud_outlined),
+      title: const Text('Google Drive backup'),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const GoogleDriveBackupScreen()),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Local backup tiles (moved from settings_screen.dart)
 // ---------------------------------------------------------------------------
 
 class _ExportTile extends StatelessWidget {
