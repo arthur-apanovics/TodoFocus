@@ -71,6 +71,21 @@ abstract interface class DecompositionClient {
     String? goalDescription,
   });
 
+  /// Rewrites [description] (a single subtask) to be more compelling at the
+  /// given [urgencyLevel] (1 = approachable, 2 = momentum, 3 = urgent).
+  /// Called when a focused goal has been idle for N heartbeat periods.
+  ///
+  /// [promptTemplate] is the user-editable style-guide fragment prepended to
+  /// the fixed JSON-format instruction. Returns null on failure; callers
+  /// fall back to showing the original text with the colour change only.
+  Future<String?> rewordSubtask(
+    String description, {
+    required String goalTitle,
+    String? goalNotes,
+    required int urgencyLevel,
+    required String promptTemplate,
+  });
+
   /// Suggests a single icon name from [iconNames] that best represents
   /// [goalTitle]. Returns null when the provider does not support icon
   /// suggestions, the result is not in [iconNames], or the call fails.

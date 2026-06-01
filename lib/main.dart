@@ -22,6 +22,7 @@ import 'services/goal_decomposition_service.dart';
 import 'services/goal_queries.dart';
 import 'services/goal_repository.dart';
 import 'services/goal_service.dart';
+import 'services/nudge_service.dart';
 import 'services/scheduling_service.dart';
 import 'services/settings/llm_settings_service.dart';
 import 'services/theme_controller.dart';
@@ -55,6 +56,9 @@ void main() async {
   final schedulingService = SchedulingService(goalRepository);
   schedulingService.checkAndProcess();
 
+  // Manages inactivity nudge messages for the home-screen widget.
+  final nudgeService = NudgeService(llmSettingsService);
+  
   final googleDriveBackupService = await GoogleDriveBackupService.init(
     goals: goalRepository,
     settings: llmSettingsService,
@@ -67,6 +71,7 @@ void main() async {
     repository: goalRepository,
     focus: focusListService,
     prefs: displayPreferences,
+    nudgeService: nudgeService,
   );
   await FocusWidgetService.registerBackgroundCallback();
 
@@ -97,6 +102,7 @@ void main() async {
       themeController: themeController,
       notificationService: notificationService,
       focusWidgetService: focusWidgetService,
+      nudgeService: nudgeService,
       schedulingService: schedulingService,
       googleDriveBackupService: googleDriveBackupService,
       tabNotifier: tabNotifier,
@@ -114,6 +120,7 @@ class TodoApp extends StatelessWidget {
   final ThemeController themeController;
   final NotificationService notificationService;
   final FocusWidgetService focusWidgetService;
+  final NudgeService nudgeService;
   final SchedulingService schedulingService;
   final GoogleDriveBackupService googleDriveBackupService;
   final ValueNotifier<int> tabNotifier;
@@ -130,6 +137,7 @@ class TodoApp extends StatelessWidget {
     required this.themeController,
     required this.notificationService,
     required this.focusWidgetService,
+    required this.nudgeService,
     required this.schedulingService,
     required this.googleDriveBackupService,
     required this.tabNotifier,
@@ -188,6 +196,8 @@ class TodoApp extends StatelessWidget {
         Provider<NotificationService>.value(value: notificationService),
         // Exposed so AppShell can re-render the home-screen widget on resume.
         Provider<FocusWidgetService>.value(value: focusWidgetService),
+        // Exposes reword state to the Focus screen for in-app text/colour.
+        ChangeNotifierProvider<NudgeService>.value(value: nudgeService),
         // Exposed so AppShell can re-run the snooze / recurrence sweep on
         // resume, and so screens can call setRecurrence / snooze flows.
         ChangeNotifierProvider<SchedulingService>.value(
@@ -300,9 +310,22 @@ class _AppShellState extends State<AppShell>
       groups,
       showEmptyPrompt: resetService.morningPromptEnabled,
     );
+    
     // Keep the home-screen widget in step with whatever the resume sweep did.
     await focusWidget.update();
 
+    // In debug mode, surface any LLM nudge errors that occurred since last
+    // open so the user can see what went wrong without checking logs.
+    final nudgeError = await focusWidget.consumeNudgeDebugError();
+    if (nudgeError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(nudgeError),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+    
     // Auto-backup to Google Drive if signed in and the last backup is stale.
     // Fire-and-forget: we don't await to avoid blocking the resume path.
     context.read<GoogleDriveBackupService>().autoBackupIfStale();

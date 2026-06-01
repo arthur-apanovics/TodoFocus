@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
@@ -123,10 +124,22 @@ private class FocusWidgetRowFactory(
         val goalEmoji = row.optString("goalEmoji")
         val isCurrent = row.optBoolean("isCurrent")
         val isFirstInGroup = row.optBoolean("isFirstInGroup")
+        val stepColorHex = if (isCurrent) row.optString("stepColorHex", null) else null
         val compact = layoutName == "compact"
 
         // ── Step text ──────────────────────────────────────────────────────
         rv.setTextViewText(R.id.row_step, step)
+        // Apply idle-urgency colour when the Dart side embedded one; otherwise
+        // reset to the default widget text colour so recycled views don't bleed.
+        if (!stepColorHex.isNullOrEmpty()) {
+            try {
+                rv.setTextColor(R.id.row_step, Color.parseColor(stepColorHex))
+            } catch (_: IllegalArgumentException) {
+                rv.setTextColor(R.id.row_step, context.getColor(R.color.widget_text))
+            }
+        } else {
+            rv.setTextColor(R.id.row_step, context.getColor(R.color.widget_text))
+        }
 
         // ── Per-row goal title ─────────────────────────────────────────────
         // Always hidden in the new design — the labelled divider above each

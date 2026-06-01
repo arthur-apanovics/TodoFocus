@@ -12,6 +12,7 @@ import 'focus_list_service.dart';
 import 'goal_repository.dart';
 import 'goal_service.dart';
 import 'hive/hive_goal_repository.dart';
+import 'nudge_service.dart';
 
 /// Bridges the focus queue to the Android home-screen widget.
 ///
@@ -41,13 +42,20 @@ class FocusWidgetService {
   final FocusListService _focusList;
   final DisplayPreferences _displayPrefs;
 
+  /// Optional nudge service. Null in the cold-background-isolate path where
+  /// a minimal stack is bootstrapped — nudges are skipped in that case and
+  /// will re-appear on the next foreground update.
+  final NudgeService? _nudgeService;
+
   FocusWidgetService({
     required GoalRepository repository,
     required FocusListService focus,
     required DisplayPreferences prefs,
+    NudgeService? nudgeService,
   })  : _repo = repository,
         _focusList = focus,
-        _displayPrefs = prefs {
+        _displayPrefs = prefs,
+        _nudgeService = nudgeService {
     _repository = repository;
     _focus = focus;
     _prefs = prefs;
@@ -77,15 +85,32 @@ class FocusWidgetService {
     // renders is what carries icons through.
     await _ensureIconsRendered();
 
+    // Check and update reword state for idle focused goals before building the
+    // payload so the rewrite map is always fresh when the payload is serialised.
+    if (_displayPrefs.nudgesEnabled && _nudgeService != null) {
+      await _nudgeService.checkAndUpdate(
+        _focusList.resolveGroups(_repo),
+        heartbeat: _displayPrefs.nudgeHeartbeatDuration,
+        promptTemplate: _displayPrefs.rewordPromptTemplate,
+      );
+    }
+
     final payload = buildPayload(
       _displayPrefs.focusWidgetLayout,
       _focusList,
       _repo,
       showAllGoals: _displayPrefs.focusWidgetShowAllGoals,
+      rewrites: _nudgeService?.rewrites ?? const {},
     );
     await HomeWidget.saveWidgetData<String>(payloadKey, payload);
     await HomeWidget.updateWidget(androidName: androidProviderName);
   }
+
+  /// Returns and clears a pending LLM debug error from the nudge service (set
+  /// when a reword generation failed and [LlmSettingsService.debugMode] is on).
+  /// Returns null when there is no pending error.
+  Future<String?> consumeNudgeDebugError() =>
+      _nudgeService?.consumeDebugError() ?? Future.value(null);
 
   /// Walks the focused goals, collects every distinct icon name they use,
   /// and rasterises each one that isn't already on disk. The PNG path is
@@ -135,9 +160,15 @@ class FocusWidgetService {
   /// { "layout": "current",
   ///   "rows": [
   ///     {"goalId":"..","subtaskId":"..","goalTitle":"..",
-  ///      "goalEmoji":"..","step":"..","isCurrent":true,"isFirstInGroup":true}
+  ///      "goalEmoji":"..","step":"..","isCurrent":true,"isFirstInGroup":true,
+  ///      "stepColorHex":"#F59E0B"}
   ///   ] }
   /// ```
+  ///
+  /// [rewrites] is an optional `goalId → SubtaskReword` map produced by
+  /// [NudgeService]. When a goal has an entry, the reworded text replaces
+  /// [step] on the current row and [stepColorHex] is added so the native side
+  /// can colour the step text to signal idle urgency.
   ///
   /// When [showAllGoals] is false (default) the rows are capped globally at
   /// `1 + layout.extraSteps`, so the widget shows at most that many steps from
@@ -151,6 +182,7 @@ class FocusWidgetService {
     FocusListService focus,
     GoalRepository repo, {
     bool showAllGoals = false,
+    Map<String, SubtaskReword> rewrites = const {},
   }) {
     final maxRowsPerGoal = 1 + layout.extraSteps;
     final rows = <Map<String, dynamic>>[];
@@ -200,15 +232,26 @@ class FocusWidgetService {
     }
 
     void addRow(ResolvedFocusGroup group, SubTask st, bool isCurrent) {
-      rows.add({
+      final rewrite = isCurrent ? rewrites[group.goal.goalId] : null;
+      final stepText = (rewrite != null && rewrite.subtaskId == st.subtaskId)
+          ? rewrite.displayText
+          : st.description;
+      final row = <String, dynamic>{
         'goalId': group.goal.goalId,
         'subtaskId': st.subtaskId,
         'goalTitle': group.goal.title,
         'goalEmoji': group.goal.emoji ?? '',
-        'step': st.description,
+        'step': stepText,
         'isCurrent': isCurrent,
         'isFirstInGroup': group.goal.goalId != lastGoalId,
-      });
+      };
+      if (rewrite != null &&
+          rewrite.subtaskId == st.subtaskId &&
+          rewrite.iteration > 0) {
+        final colorHex = SubtaskReword.hexColorForIteration(rewrite.iteration);
+        if (colorHex != null) row['stepColorHex'] = colorHex;
+      }
+      rows.add(row);
       lastGoalId = group.goal.goalId;
     }
 

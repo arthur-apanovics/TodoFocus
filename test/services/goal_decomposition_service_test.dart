@@ -85,6 +85,16 @@ class _FakeDecompositionClient implements DecompositionClient {
   }
 
   @override
+  Future<String?> rewordSubtask(
+    String description, {
+    required String goalTitle,
+    String? goalNotes,
+    required int urgencyLevel,
+    required String promptTemplate,
+  }) async =>
+      shouldThrow ? throw Exception('LLM error') : 'Do it now!';
+
+  @override
   Future<String?> suggestIcon(String goalTitle, List<String> iconNames) async =>
       null;
 
