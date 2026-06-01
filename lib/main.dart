@@ -11,6 +11,7 @@ import 'package:todo_app/services/hive/hive_goal_repository.dart';
 import 'package:todo_app/services/notification_service.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'services/backup_service.dart';
+import 'services/google_drive_backup_service.dart';
 import 'services/daily_reset_service.dart';
 import 'services/decomposition_state.dart';
 import 'services/display_preferences.dart';
@@ -54,6 +55,12 @@ void main() async {
   final schedulingService = SchedulingService(goalRepository);
   schedulingService.checkAndProcess();
 
+  final googleDriveBackupService = await GoogleDriveBackupService.init(
+    goals: goalRepository,
+    settings: llmSettingsService,
+    focus: focusListService,
+  );
+
   // Home-screen widget bridge. Mirrors the notification: re-rendered whenever
   // focus or goal data changes, or the widget layout preference is edited.
   final focusWidgetService = FocusWidgetService(
@@ -91,6 +98,7 @@ void main() async {
       notificationService: notificationService,
       focusWidgetService: focusWidgetService,
       schedulingService: schedulingService,
+      googleDriveBackupService: googleDriveBackupService,
       tabNotifier: tabNotifier,
       goalNavNotifier: goalNavNotifier,
     ),
@@ -107,6 +115,7 @@ class TodoApp extends StatelessWidget {
   final NotificationService notificationService;
   final FocusWidgetService focusWidgetService;
   final SchedulingService schedulingService;
+  final GoogleDriveBackupService googleDriveBackupService;
   final ValueNotifier<int> tabNotifier;
   final ValueNotifier<({String goalId, int seq, bool breakdown})?>
   goalNavNotifier;
@@ -122,6 +131,7 @@ class TodoApp extends StatelessWidget {
     required this.notificationService,
     required this.focusWidgetService,
     required this.schedulingService,
+    required this.googleDriveBackupService,
     required this.tabNotifier,
     required this.goalNavNotifier,
   });
@@ -170,6 +180,9 @@ class TodoApp extends StatelessWidget {
             settings: settings,
             focus: focus,
           ),
+        ),
+        ChangeNotifierProvider<GoogleDriveBackupService>.value(
+          value: googleDriveBackupService,
         ),
         // Exposed so AppShell can re-post the notification on resume.
         Provider<NotificationService>.value(value: notificationService),
@@ -289,6 +302,10 @@ class _AppShellState extends State<AppShell>
     );
     // Keep the home-screen widget in step with whatever the resume sweep did.
     await focusWidget.update();
+
+    // Auto-backup to Google Drive if signed in and the last backup is stale.
+    // Fire-and-forget: we don't await to avoid blocking the resume path.
+    context.read<GoogleDriveBackupService>().autoBackupIfStale();
   }
 
   void _onExternalTabChange() {
