@@ -2,6 +2,18 @@
 
 A goal-tracking app built with Flutter, focused on breaking goals into small, ADHD-friendly subtasks. Runs on Android (primary target); other platforms are untested.
 
+This app is my personal attempt to make big tasks easier to achieve. The app acts as a typical todo list except the individual goals are broken down into smaller steps by an LLM.
+
+Yet another project built with Claude Code.
+
+
+https://github.com/user-attachments/assets/1eba954a-83bb-487c-8e26-249be436ed2b
+
+
+https://github.com/user-attachments/assets/14ea5e00-c652-4057-b7d7-0960f6bd5b99
+
+
+
 ## Running the app
 
 ```bash
